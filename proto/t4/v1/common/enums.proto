@@ -30,12 +30,6 @@ enum LoginResult {
   LOGIN_RESULT_UNKNOWN = -1;
 }
 
-enum PriceFormat {
-	PRICE_FORMAT_DECIMAL = 0;
-	PRICE_FORMAT_REAL = 1;
-	PRICE_FORMAT_CLEARING_DECIMAL = 2;
-}
-
 enum AccountMode {
   ACCOUNT_MODE_BY_MARKET = 0;
   ACCOUNT_MODE_BY_CONTRACT = 1;
@@ -602,11 +596,6 @@ enum OrderSourceMethod {
 enum AccountSubscribeType {
   ACCOUNT_SUBSCRIBE_TYPE_NONE = 0;
   ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES = 2;
-}
-
-enum UPLMode {
-  UPL_MODE_NONE = 0;
-  UPL_MODE_AVERAGE = 1;
 }
 
 enum UDSStatus {
