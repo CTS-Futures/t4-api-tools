@@ -161,6 +161,7 @@ th {
     max-height: 500px;
 }
 
+<<<<<<< HEAD
 .market-header-container {
     display: flex;
     justify-content: space-between;
@@ -408,3 +409,9 @@ th {
 .neutral-pnl {
     color: black;
 }
+=======
+.log-sent { color: #00ff00; }
+.log-received { color: #ffff00; }
+.log-error { color: #ff0000; }
+.log-info { color: #00ffff; }
+>>>>>>> 462b3ae (Creating a JavaScript example.)

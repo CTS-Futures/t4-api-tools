@@ -5,10 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>T4 WebSocket API Demo</title>
     <link rel="stylesheet" href="styles.css">
+<<<<<<< HEAD
     <link rel="stylesheet" href="contract-picker.css">
     <link rel="stylesheet" href="expiry-picker.css">
     <link rel="stylesheet" href="revise-dialog.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
 </head>
 <body>
 <div class="container">
@@ -31,12 +34,16 @@
 
     <!-- Market Data -->
     <div class="section">
+<<<<<<< HEAD
         <h2 id="marketDataHeader">
             <div class="market-header-container">
                 <span>Market Data - (<span class="market-contract-link">...</span>)</span>
                 <i class="far fa-calendar-alt calendar-icon" title="Change Expiry"></i>
             </div>
         </h2>
+=======
+        <h2 id="marketDataHeader">Market Data - (ES)</h2>
+>>>>>>> 462b3ae (Creating a JavaScript example.)
         <div class="market-data">
             <div class="market-item">
                 <h4>Best Bid</h4>
@@ -53,11 +60,16 @@
         </div>
     </div>
 
+<<<<<<< HEAD
     <!-- Submit Order -->
+=======
+    <!-- Order Entry -->
+>>>>>>> 462b3ae (Creating a JavaScript example.)
     <div class="section">
         <h2>Submit Order</h2>
         <div class="order-form">
             <div class="form-group">
+<<<<<<< HEAD
                 <label for="orderType">Type:</label>
                 <select id="orderType">
                     <option value="limit">Limit</option>
@@ -65,6 +77,8 @@
                 </select>
             </div>
             <div class="form-group">
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
                 <label for="orderSide">Side:</label>
                 <select id="orderSide">
                     <option value="1">Buy</option>
@@ -75,11 +89,16 @@
                 <label for="orderVolume">Volume:</label>
                 <input type="number" id="orderVolume" value="1" min="1">
             </div>
+<<<<<<< HEAD
             <div class="form-group" id="priceGroup">
+=======
+            <div class="form-group">
+>>>>>>> 462b3ae (Creating a JavaScript example.)
                 <label for="orderPrice">Price:</label>
                 <input type="number" id="orderPrice" step="0.01" value="100">
             </div>
             <div class="form-group">
+<<<<<<< HEAD
                 <label for="takeProfitPrice">Take Profit ($):</label>
                 <input type="number" id="takeProfitPrice" step="1" placeholder="Optional">
             </div>
@@ -89,6 +108,9 @@
             </div>
             <div class="form-group submit-btn-container">
                 <button id="submitOrderBtn" class="submit-order-btn">Submit Order</button>
+=======
+                <button id="submitOrderBtn" disabled>Submit Order</button>
+>>>>>>> 462b3ae (Creating a JavaScript example.)
             </div>
         </div>
     </div>
@@ -124,7 +146,10 @@
                     <th>Volume</th>
                     <th>Price</th>
                     <th>Status</th>
+<<<<<<< HEAD
                     <th>Action</th>
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
                 </tr>
                 </thead>
                 <tbody></tbody>
@@ -142,9 +167,12 @@
 <script src="config.js"></script>
 <script src="t4-proto.js"></script>
 <script src="T4APIClient.js"></script>
+<<<<<<< HEAD
 <script src="ContractPicker.js"></script>
 <script src="ExpiryPicker.js"></script>
 <script src="ReviseDialog.js"></script>
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
 
 <script>
     // Wait for DOM to be fully loaded
@@ -160,7 +188,10 @@
             bestBid: document.getElementById('bestBid'),
             bestOffer: document.getElementById('bestOffer'),
             lastTrade: document.getElementById('lastTrade'),
+<<<<<<< HEAD
             orderType: document.getElementById('orderType'), // Add this line
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
             orderSide: document.getElementById('orderSide'),
             orderVolume: document.getElementById('orderVolume'),
             orderPrice: document.getElementById('orderPrice'),
@@ -172,7 +203,10 @@
 
         // Initialize T4 API Client
         const client = new T4APIClient();
+<<<<<<< HEAD
         window.client = client; // To better support contract and market pickers.
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
 
         // Setup event handlers after DOM is ready
         client.onConnectionStatusChanged = (status) => {
@@ -219,11 +253,15 @@
                     displayText += monthCode + year;
                 }
 
+<<<<<<< HEAD
                 // Update just the contract span, not the entire header
                 const contractLink = document.querySelector('.market-contract-link');
                 if (contractLink) {
                     contractLink.textContent = displayText;
                 }
+=======
+                elements.marketDataHeader.textContent = `Market Data - (${displayText})`;
+>>>>>>> 462b3ae (Creating a JavaScript example.)
             }
         };
 
@@ -276,6 +314,7 @@
             positions.forEach(position => {
                 const row = document.createElement('tr');
                 const net = position.buys - position.sells;
+<<<<<<< HEAD
                 const pnl = position.totalPnl !== undefined ? position.totalPnl.toFixed(2) :
                     (position.rpl ? position.rpl.toFixed(2) : '0.00');
 
@@ -296,6 +335,14 @@
                     <td class="${pnlColor}">$${pnl}</td>
                     <td>${position.workingBuys}/${position.workingSells}</td>
                 `;
+=======
+                row.innerHTML = `
+                        <td>${position.marketId}</td>
+                        <td>${net}</td>
+                        <td>${position.rpl ? position.rpl.toFixed(2) : '0.00'}</td>
+                        <td>${position.workingBuys}/${position.workingSells}</td>
+                    `;
+>>>>>>> 462b3ae (Creating a JavaScript example.)
                 elements.positionsTable.appendChild(row);
             });
         }
@@ -308,6 +355,7 @@
                 const row = document.createElement('tr');
                 const time = new Date(order.time.seconds * 1000).toLocaleTimeString();
                 const side = order.buySell === 1 ? 'Buy' : 'Sell';
+<<<<<<< HEAD
                 const isEditable = order.status === 1; // Assume status 1 is active/working
 
                 row.innerHTML = `
@@ -330,6 +378,17 @@
                     const editBtn = row.querySelector('.action-btn');
                     editBtn.addEventListener('click', () => window.showOrderEditDialog(order));
                 }
+=======
+                row.innerHTML = `
+                        <td>${time}</td>
+                        <td>${order.marketId}</td>
+                        <td>${side}</td>
+                        <td>${order.currentVolume}</td>
+                        <td>${order.currentLimitPrice ? order.currentLimitPrice.value : '-'}</td>
+                        <td>${order.status}</td>
+                    `;
+                elements.ordersTable.appendChild(row);
+>>>>>>> 462b3ae (Creating a JavaScript example.)
             });
         }
 
@@ -348,8 +407,13 @@
                 // Subscribe to market data after connection
                 setTimeout(async () => {
                     if (client.isConnected && !client.currentMarketId) {
+<<<<<<< HEAD
                         await client.getMarketId(client.config.mdExchangeId, client.config.mdContractId);
                         await client.subscribeMarket(client.config.mdExchangeId, client.config.mdContractId, client.currentMarketId);
+=======
+                        await client.getMarketId('CME_Eq', 'ES');
+                        await client.subscribeMarket('CME_Eq', 'ES', client.currentMarketId);
+>>>>>>> 462b3ae (Creating a JavaScript example.)
                     }
                 }, 2000);
 
@@ -369,6 +433,7 @@
             try {
                 const side = parseInt(elements.orderSide.value);
                 const volume = parseInt(elements.orderVolume.value);
+<<<<<<< HEAD
                 const priceType = elements.orderType.value; // 'limit' or 'market'
                 const price = parseFloat(elements.orderPrice.value);
 
@@ -380,6 +445,11 @@
                 const stopLoss = stopLossElement && stopLossElement.value ? parseFloat(stopLossElement.value) : null;
 
                 await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss);
+=======
+                const price = parseFloat(elements.orderPrice.value);
+
+                await client.submitOrder(side, volume, price);
+>>>>>>> 462b3ae (Creating a JavaScript example.)
             } catch (error) {
                 log(`Order submission error: ${error.message}`, 'error');
             }
@@ -395,6 +465,7 @@
         });
         elements.submitOrderBtn.addEventListener('click', submitOrder);
 
+<<<<<<< HEAD
         // Contract picker handler
         document.addEventListener('click', async (e) => {
             if (e.target.classList.contains('market-contract-link')) {
@@ -443,11 +514,14 @@
             }
         });
 
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
         // Initialize
         log('T4 WebSocket Demo initialized', 'info');
         log('Click Connect to start', 'info');
     });
 </script>
+<<<<<<< HEAD
 
 <div class="order-edit-overlay" id="orderEditOverlay" style="display: none;">
     <div class="order-edit-dialog">
@@ -473,5 +547,7 @@
     </div>
 </div>
 
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
 </body>
 </html>

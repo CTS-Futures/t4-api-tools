@@ -8,17 +8,25 @@ class T4APIClient {
         this.config = {
             wsUrl: T4_CONFIG.wsUrl,
             apiUrl: T4_CONFIG.apiUrl,
+<<<<<<< HEAD
             apiKey: T4_CONFIG.apiKey,
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
             firm: T4_CONFIG.firm,
             userName: T4_CONFIG.userName,
             password: T4_CONFIG.password,
             appName: T4_CONFIG.appName,
             appLicense: T4_CONFIG.appLicense,
+<<<<<<< HEAD
             priceFormat: T4_CONFIG.priceFormat,
             heartbeatIntervalMs: 20000,
             messageTimeoutMs: 60000,
             mdExchangeId: T4_CONFIG.mdExchangeId,
             mdContractId: T4_CONFIG.mdContractId
+=======
+            heartbeatIntervalMs: 20000,
+            messageTimeoutMs: 60000
+>>>>>>> 462b3ae (Creating a JavaScript example.)
         };
 
         // Connection state
@@ -35,7 +43,11 @@ class T4APIClient {
 
         // Market data
         this.marketSnapshots = new Map();
+<<<<<<< HEAD
         this.currentSubscription = null;
+=======
+        this.marketSubscriptions = new Set();
+>>>>>>> 462b3ae (Creating a JavaScript example.)
         this.marketDetails = new Map();
         this.currentMarketId = null;
 
@@ -70,7 +82,11 @@ class T4APIClient {
         if (this.isConnected) return;
 
         try {
+<<<<<<< HEAD
             this.log(`Connecting to WebSocket (${this.config.wsUrl}) ...`, 'info');
+=======
+            this.log('Connecting to WebSocket...', 'info');
+>>>>>>> 462b3ae (Creating a JavaScript example.)
 
             this.ws = new WebSocket(this.config.wsUrl);
             this.ws.binaryType = 'arraybuffer';
@@ -103,10 +119,13 @@ class T4APIClient {
         this.log('Disconnected', 'info');
     }
 
+<<<<<<< HEAD
     async getAuthTokenForAPI() {
         return await this.getAuthToken();
     }
 
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
     async subscribeAccount(accountId) {
         if (this.selectedAccount === accountId) return;
 
@@ -116,8 +135,12 @@ class T4APIClient {
                 accountSubscribe: {
                     subscribe: 0, // ACCOUNT_SUBSCRIBE_TYPE_NONE
                     subscribeAllAccounts: false,
+<<<<<<< HEAD
                     accountId: [this.selectedAccount],
                     uplMode: 0
+=======
+                    accountId: [this.selectedAccount]
+>>>>>>> 462b3ae (Creating a JavaScript example.)
                 }
             });
         }
@@ -129,8 +152,12 @@ class T4APIClient {
                 accountSubscribe: {
                     subscribe: 2, // ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES
                     subscribeAllAccounts: false,
+<<<<<<< HEAD
                     accountId: [accountId],
                     uplMode: 1
+=======
+                    accountId: [accountId]
+>>>>>>> 462b3ae (Creating a JavaScript example.)
                 }
             });
             this.log(`Subscribed to account: ${accountId}`, 'info');
@@ -139,6 +166,7 @@ class T4APIClient {
 
     async subscribeMarket(exchangeId, contractId, marketId) {
         const key = `${exchangeId}_${contractId}_${marketId}`;
+<<<<<<< HEAD
 
         // Unsubscribe from existing market subscriptions first
         if (this.currentSubscription) {
@@ -159,13 +187,22 @@ class T4APIClient {
 
         this.currentSubscription = {exchangeId, contractId, marketId};
         this.currentMarketId = marketId;
+=======
+        if (this.marketSubscriptions.has(key)) return;
+
+        this.marketSubscriptions.add(key);
+>>>>>>> 462b3ae (Creating a JavaScript example.)
 
         await this.sendMessage({
             marketDepthSubscribe: {
                 exchangeId,
                 contractId,
                 marketId,
+<<<<<<< HEAD
                 buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART_TRADE,
+=======
+                buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART,
+>>>>>>> 462b3ae (Creating a JavaScript example.)
                 depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_BEST_ONLY
             }
         });
@@ -173,6 +210,36 @@ class T4APIClient {
         this.log(`Subscribed to market: ${marketId}`, 'info');
     }
 
+<<<<<<< HEAD
+=======
+    async submitOrder(side, volume, price) {
+        if (!this.selectedAccount || !this.currentMarketId) {
+            throw new Error('No account or market selected');
+        }
+
+        const orderSubmit = {
+            orderSubmit: {
+                accountId: this.selectedAccount,
+                marketId: this.currentMarketId,
+                orderLink: 0, // ORDER_LINK_NONE
+                manualOrderIndicator: true,
+                orders: [{
+                    buySell: side, // 1 for BUY_SELL_BUY, -1 for BUY_SELL_SELL
+                    priceType: 1, // PRICE_TYPE_LIMIT
+                    timeType: 0, // TIME_TYPE_NORMAL
+                    volume: volume,
+                    limitPrice: {
+                        value: price.toString()
+                    }
+                }]
+            }
+        };
+
+        await this.sendMessage(orderSubmit);
+        this.log(`Order submitted: ${side === 1 ? 'Buy' : 'Sell'} ${volume} @ ${price}`, 'info');
+    }
+
+>>>>>>> 462b3ae (Creating a JavaScript example.)
     // WebSocket Event Handlers
     handleOpen() {
         this.log('WebSocket connected', 'info');
@@ -180,6 +247,7 @@ class T4APIClient {
         this.startHeartbeat();
     }
 
+<<<<<<< HEAD
     async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null) {
         if (!this.selectedAccount || !this.currentMarketId) {
             throw new Error('No account or market selected');
@@ -331,6 +399,8 @@ class T4APIClient {
         this.log(`Order revised: ${orderId} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
     }
 
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
     handleMessage(event) {
         this.lastMessageReceived = Date.now();
 
@@ -345,10 +415,14 @@ class T4APIClient {
             const messageType = Object.keys(message)[0];
             var shouldLog = !excludeFromLogging.includes(messageType);
 
+<<<<<<< HEAD
             // TEMP: Disable message logging.
             shouldLog = false;
 
             // Log message received.
+=======
+            shouldLog = false;
+>>>>>>> 462b3ae (Creating a JavaScript example.)
             if (shouldLog) {
                 this.log(`RECEIVED: ${JSON.stringify(message, null, 2)}`, 'received');
             }
@@ -392,14 +466,22 @@ class T4APIClient {
     async authenticate() {
         const loginRequest = {
             loginRequest: this.config.apiKey ?
+<<<<<<< HEAD
                 {apiKey: this.config.apiKey} :
+=======
+                { apiKey: this.config.apiKey } :
+>>>>>>> 462b3ae (Creating a JavaScript example.)
                 {
                     firm: this.config.firm,
                     username: this.config.userName,
                     password: this.config.password,
                     appName: this.config.appName,
+<<<<<<< HEAD
                     appLicense: this.config.appLicense,
                     priceFormat: this.config.priceFormat,
+=======
+                    appLicense: this.config.appLicense
+>>>>>>> 462b3ae (Creating a JavaScript example.)
                 }
         };
 
@@ -412,22 +494,31 @@ class T4APIClient {
             this.handleLoginResponse(message.loginResponse);
         } else if (message.authenticationToken) {
             this.handleAuthenticationToken(message.authenticationToken);
+<<<<<<< HEAD
         } else if (message.accountSubscribeResponse) {
             this.handleAccountSubscribeResponse(message.accountSubscribeResponse);
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
         } else if (message.accountDetails) {
             this.handleAccountDetails(message.accountDetails);
         } else if (message.accountPosition) {
             this.handleAccountPosition(message.accountPosition);
+<<<<<<< HEAD
         } else if (message.accountProfit) {
             this.handleAccountProfit(message.accountProfit);
         }else if (message.accountPositionProfit) {
             this.handleAccountPositionProfit(message.accountPositionProfit);
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
         } else if (message.accountUpdate) {
             this.handleAccountUpdate(message.accountUpdate);
         } else if (message.marketDepth) {
             this.handleMarketDepth(message.marketDepth);
+<<<<<<< HEAD
         } else if (message.marketDepthTrade) {
             this.handleMarketDepthTrade(message.marketDepthTrade);
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
         } else if (message.orderUpdate) {
             this.handleOrderUpdate(message.orderUpdate);
         } else if (message.accountSnapshot) {
@@ -524,7 +615,11 @@ class T4APIClient {
 
         // Resolve pending token request
         if (this.tokenResolvers && token.requestId && this.tokenResolvers.has(token.requestId)) {
+<<<<<<< HEAD
             const {resolve} = this.tokenResolvers.get(token.requestId);
+=======
+            const { resolve } = this.tokenResolvers.get(token.requestId);
+>>>>>>> 462b3ae (Creating a JavaScript example.)
             this.tokenResolvers.delete(token.requestId);
             resolve(token.token);
         }
@@ -532,6 +627,7 @@ class T4APIClient {
         this.log('Authentication token received', 'info');
     }
 
+<<<<<<< HEAD
     handleAccountSubscribeResponse(response) {
         if (response.success) {
             this.log('Account subscribe: Success', 'info');
@@ -540,6 +636,8 @@ class T4APIClient {
         }
     }
 
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
     handleAccountDetails(details) {
         this.log(`Account details received: ${details.accountId}`, 'info');
     }
@@ -557,6 +655,7 @@ class T4APIClient {
         }
     }
 
+<<<<<<< HEAD
     handleAccountProfit(accountProfit) {
         // Display the account profit, if wanted.
     }
@@ -616,6 +715,8 @@ class T4APIClient {
         }
     }
 
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
     handleAccountUpdate(update) {
         // TODO: Display account information (balance, p&l, etc.)
         //this.log(`Account update received: ${update.accountId}`, 'info');
@@ -642,11 +743,14 @@ class T4APIClient {
         }
     }
 
+<<<<<<< HEAD
 
     handleMarketDepthTrade(trade) {
         this.log(`Market Trade: ${trade.marketId} : ${trade.lastTradeVolume} @ ${trade.lastTradePrice.value}, TTV: ${trade.totalTradedVolume}`, 'info');
     }
 
+=======
+>>>>>>> 462b3ae (Creating a JavaScript example.)
     updateMarketHeader(contractId, expiryDate) {
         // Extract first 6 digits from expiryDate (YYYYMM format)
         const expiryShort = expiryDate ? expiryDate.toString().substring(0, 6) : '';
@@ -669,10 +773,16 @@ class T4APIClient {
             displayText += monthCode + year;
         }
 
+<<<<<<< HEAD
         // Update just the contract link span
         const contractLink = document.querySelector('.market-contract-link');
         if (contractLink) {
             contractLink.textContent = displayText;
+=======
+        // Update the UI header
+        if (this.onMarketHeaderUpdate) {
+            this.onMarketHeaderUpdate(displayText);
+>>>>>>> 462b3ae (Creating a JavaScript example.)
         }
     }
 
@@ -816,6 +926,7 @@ class T4APIClient {
 
     handleOrderUpdateTrade(tradeUpdate) {
         this.log(`Order trade update: ${tradeUpdate.uniqueId}, exchange trade: ${tradeUpdate.exchangeTradeId}`, 'info');
+<<<<<<< HEAD
 
         // Get existing order or create a minimal one
         let existingOrder = this.orders.get(tradeUpdate.uniqueId);
@@ -882,6 +993,10 @@ class T4APIClient {
 
         this.orders.set(tradeUpdate.uniqueId, updatedOrder);
         this.triggerOrdersUpdate();
+=======
+        //this.orders.set(tradeUpdate.uniqueId, tradeUpdate);
+        //this.triggerOrdersUpdate();
+>>>>>>> 462b3ae (Creating a JavaScript example.)
     }
 
     handleOrderUpdateTradeLeg(tradeLegUpdate) {
@@ -947,7 +1062,11 @@ class T4APIClient {
 
         try {
             // Wrap the message in ClientMessage envelope
+<<<<<<< HEAD
             const clientMessage = T4Proto.ClientMessageHelper.createClientMessage(messagePayload);
+=======
+            const clientMessage = this.createClientMessage(messagePayload);
+>>>>>>> 462b3ae (Creating a JavaScript example.)
             const encoded = this.encodeMessage(clientMessage);
             this.ws.send(encoded);
 
@@ -963,6 +1082,34 @@ class T4APIClient {
         }
     }
 
+<<<<<<< HEAD
+=======
+    // Create ClientMessage wrapper (equivalent to ClientMessageHelper.CreateClientMessage)
+    createClientMessage(messagePayload) {
+
+        // TODO: Get rid of this.
+
+        const clientMessage = { payload: {} };
+
+        // Map message types to ClientMessage fields
+        if (messagePayload.heartbeat) {
+            clientMessage.heartbeat = messagePayload.heartbeat;
+        } else if (messagePayload.loginRequest) {
+            clientMessage.loginRequest = messagePayload.loginRequest;
+        } else if (messagePayload.marketDepthSubscribe) {
+            clientMessage.marketDepthSubscribe = messagePayload.marketDepthSubscribe;
+        } else if (messagePayload.accountSubscribe) {
+            clientMessage.accountSubscribe = messagePayload.accountSubscribe;
+        } else if (messagePayload.orderSubmit) {
+            clientMessage.orderSubmit = messagePayload.orderSubmit;
+        } else {
+            throw new Error(`Unsupported message type: ${Object.keys(messagePayload)[0]}`);
+        }
+
+        return clientMessage;
+    }
+
+>>>>>>> 462b3ae (Creating a JavaScript example.)
     // Heartbeat Management
     startHeartbeat() {
         if (this.heartbeatTimer) {
@@ -1039,6 +1186,7 @@ class T4APIClient {
 
     // Market Data API
     async getMarketId(exchangeId, contractId) {
+<<<<<<< HEAD
         try {
             const headers = {'Content-Type': 'application/json'};
 
@@ -1069,6 +1217,42 @@ class T4APIClient {
             this.log(`Error getting market ID: ${error.message}`, 'error');
             throw error;
         }
+=======
+        // try {
+        //     const headers = { 'Content-Type': 'application/json' };
+        //
+        //     if (this.config.apiKey) {
+        //         headers['Authorization'] = `APIKey ${this.config.apiKey}`;
+        //     } else {
+        //         const token = await this.getAuthToken();
+        //         if (token) {
+        //             headers['Authorization'] = `Bearer ${token}`;
+        //         }
+        //     }
+        //
+        //     const response = await fetch(
+        //         `${this.config.apiUrl}/markets/picker/firstmarket?exchangeid=${exchangeId}&contractid=${contractId}`,
+        //         { headers }
+        //     );
+        //
+        //     if (!response.ok) {
+        //         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        //     }
+        //
+        //     const data = await response.json();
+        //     this.currentMarketId = data.marketID;
+        //     this.log(`Market ID retrieved: ${data.marketID}`, 'info');
+        //     return data;
+        //
+        // } catch (error) {
+        //     this.log(`Error getting market ID: ${error.message}`, 'error');
+        //     throw error;
+        // }
+
+        // TODO: Temp
+        this.currentMarketId = "XCME_Eq ES (M25)";
+        return this.currentMarketId;
+>>>>>>> 462b3ae (Creating a JavaScript example.)
     }
 
     // Utility Methods
@@ -1141,7 +1325,11 @@ class T4APIClient {
         // Wait for response (handled in processServerMessage)
         return new Promise((resolve, reject) => {
             this.tokenResolvers = this.tokenResolvers || new Map();
+<<<<<<< HEAD
             this.tokenResolvers.set(requestId, {resolve, reject});
+=======
+            this.tokenResolvers.set(requestId, { resolve, reject });
+>>>>>>> 462b3ae (Creating a JavaScript example.)
 
             // Timeout after 30 seconds
             setTimeout(() => {
@@ -1156,7 +1344,11 @@ class T4APIClient {
     generateUUID() {
 
         // *** TODO: Replace this. We don't need a UUID and can be simple for the demo app. ***
+<<<<<<< HEAD
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+=======
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+>>>>>>> 462b3ae (Creating a JavaScript example.)
             const r = Math.random() * 16 | 0;
             const v = c == 'x' ? r : (r & 0x3 | 0x8);
             return v.toString(16);
