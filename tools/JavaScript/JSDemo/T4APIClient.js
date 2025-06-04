@@ -9,9 +9,13 @@ class T4APIClient {
             wsUrl: T4_CONFIG.wsUrl,
             apiUrl: T4_CONFIG.apiUrl,
 <<<<<<< HEAD
+<<<<<<< HEAD
             apiKey: T4_CONFIG.apiKey,
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+            apiKey: T4_CONFIG.apiKey,
+>>>>>>> 424fd3c (Cleanup and improvement.)
             firm: T4_CONFIG.firm,
             userName: T4_CONFIG.userName,
             password: T4_CONFIG.password,
@@ -25,8 +29,14 @@ class T4APIClient {
             mdContractId: T4_CONFIG.mdContractId
 =======
             heartbeatIntervalMs: 20000,
+<<<<<<< HEAD
             messageTimeoutMs: 60000
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+            messageTimeoutMs: 60000,
+            mdExchangeId: T4_CONFIG.mdExchangeId,
+            mdContractId: T4_CONFIG.mdContractId
+>>>>>>> 424fd3c (Cleanup and improvement.)
         };
 
         // Connection state
@@ -83,10 +93,14 @@ class T4APIClient {
 
         try {
 <<<<<<< HEAD
+<<<<<<< HEAD
             this.log(`Connecting to WebSocket (${this.config.wsUrl}) ...`, 'info');
 =======
             this.log('Connecting to WebSocket...', 'info');
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+            this.log(`Connecting to WebSocket (${this.config.wsUrl}) ...`, 'info');
+>>>>>>> 424fd3c (Cleanup and improvement.)
 
             this.ws = new WebSocket(this.config.wsUrl);
             this.ws.binaryType = 'arraybuffer';
@@ -495,10 +509,15 @@ class T4APIClient {
         } else if (message.authenticationToken) {
             this.handleAuthenticationToken(message.authenticationToken);
 <<<<<<< HEAD
+<<<<<<< HEAD
         } else if (message.accountSubscribeResponse) {
             this.handleAccountSubscribeResponse(message.accountSubscribeResponse);
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+        } else if (message.accountSubscribeResponse) {
+            this.handleAccountSubscribeResponse(message.accountSubscribeResponse);
+>>>>>>> 424fd3c (Cleanup and improvement.)
         } else if (message.accountDetails) {
             this.handleAccountDetails(message.accountDetails);
         } else if (message.accountPosition) {
@@ -628,6 +647,9 @@ class T4APIClient {
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 424fd3c (Cleanup and improvement.)
     handleAccountSubscribeResponse(response) {
         if (response.success) {
             this.log('Account subscribe: Success', 'info');
@@ -636,8 +658,11 @@ class T4APIClient {
         }
     }
 
+<<<<<<< HEAD
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+>>>>>>> 424fd3c (Cleanup and improvement.)
     handleAccountDetails(details) {
         this.log(`Account details received: ${details.accountId}`, 'info');
     }
@@ -1187,6 +1212,7 @@ class T4APIClient {
     // Market Data API
     async getMarketId(exchangeId, contractId) {
 <<<<<<< HEAD
+<<<<<<< HEAD
         try {
             const headers = {'Content-Type': 'application/json'};
 
@@ -1253,6 +1279,38 @@ class T4APIClient {
         this.currentMarketId = "XCME_Eq ES (M25)";
         return this.currentMarketId;
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+        try {
+            const headers = { 'Content-Type': 'application/json' };
+
+            if (this.config.apiKey) {
+                headers['Authorization'] = `APIKey ${this.config.apiKey}`;
+            } else {
+                const token = await this.getAuthToken();
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+            }
+
+            const response = await fetch(
+                `${this.config.apiUrl}/markets/picker/firstmarket?exchangeid=${exchangeId}&contractid=${contractId}`,
+                { headers }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            this.currentMarketId = data.marketID;
+            this.log(`Market ID retrieved: ${data.marketID}`, 'info');
+            return data;
+
+        } catch (error) {
+            this.log(`Error getting market ID: ${error.message}`, 'error');
+            throw error;
+        }
+>>>>>>> 424fd3c (Cleanup and improvement.)
     }
 
     // Utility Methods

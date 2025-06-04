@@ -35,6 +35,7 @@
     <!-- Market Data -->
     <div class="section">
 <<<<<<< HEAD
+<<<<<<< HEAD
         <h2 id="marketDataHeader">
             <div class="market-header-container">
                 <span>Market Data - (<span class="market-contract-link">...</span>)</span>
@@ -44,6 +45,9 @@
 =======
         <h2 id="marketDataHeader">Market Data - (ES)</h2>
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+        <h2 id="marketDataHeader">Market Data - (...)</h2>
+>>>>>>> 424fd3c (Cleanup and improvement.)
         <div class="market-data">
             <div class="market-item">
                 <h4>Best Bid</h4>
@@ -408,12 +412,17 @@
                 setTimeout(async () => {
                     if (client.isConnected && !client.currentMarketId) {
 <<<<<<< HEAD
+<<<<<<< HEAD
                         await client.getMarketId(client.config.mdExchangeId, client.config.mdContractId);
                         await client.subscribeMarket(client.config.mdExchangeId, client.config.mdContractId, client.currentMarketId);
 =======
                         await client.getMarketId('CME_Eq', 'ES');
                         await client.subscribeMarket('CME_Eq', 'ES', client.currentMarketId);
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+                        await client.getMarketId(client.config.mdExchangeId, client.config.mdContractId);
+                        await client.subscribeMarket(client.config.mdExchangeId, client.config.mdContractId, client.currentMarketId);
+>>>>>>> 424fd3c (Cleanup and improvement.)
                     }
                 }, 2000);
 
