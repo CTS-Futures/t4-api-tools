@@ -8,13 +8,16 @@ class T4APIClient {
         this.config = {
             wsUrl: T4_CONFIG.wsUrl,
             apiUrl: T4_CONFIG.apiUrl,
+            apiKey: T4_CONFIG.apiKey,
             firm: T4_CONFIG.firm,
             userName: T4_CONFIG.userName,
             password: T4_CONFIG.password,
             appName: T4_CONFIG.appName,
             appLicense: T4_CONFIG.appLicense,
             heartbeatIntervalMs: 20000,
-            messageTimeoutMs: 60000
+            messageTimeoutMs: 60000,
+            mdExchangeId: T4_CONFIG.mdExchangeId,
+            mdContractId: T4_CONFIG.mdContractId
         };
 
         // Connection state
@@ -66,7 +69,7 @@ class T4APIClient {
         if (this.isConnected) return;
 
         try {
-            this.log('Connecting to WebSocket...', 'info');
+            this.log(`Connecting to WebSocket (${this.config.wsUrl}) ...`, 'info');
 
             this.ws = new WebSocket(this.config.wsUrl);
             this.ws.binaryType = 'arraybuffer';
@@ -257,6 +260,8 @@ class T4APIClient {
             this.handleLoginResponse(message.loginResponse);
         } else if (message.authenticationToken) {
             this.handleAuthenticationToken(message.authenticationToken);
+        } else if (message.accountSubscribeResponse) {
+            this.handleAccountSubscribeResponse(message.accountSubscribeResponse);
         } else if (message.accountDetails) {
             this.handleAccountDetails(message.accountDetails);
         } else if (message.accountPosition) {
@@ -367,6 +372,14 @@ class T4APIClient {
         }
 
         this.log('Authentication token received', 'info');
+    }
+
+    handleAccountSubscribeResponse(response) {
+        if (response.success) {
+            this.log('Account subscribe: Success', 'info');
+        } else {
+            this.log(`Account subscribe failed: ${response.errors.join(', ')}`, 'error');
+        }
     }
 
     handleAccountDetails(details) {
@@ -764,40 +777,36 @@ class T4APIClient {
 
     // Market Data API
     async getMarketId(exchangeId, contractId) {
-        // try {
-        //     const headers = { 'Content-Type': 'application/json' };
-        //
-        //     if (this.config.apiKey) {
-        //         headers['Authorization'] = `APIKey ${this.config.apiKey}`;
-        //     } else {
-        //         const token = await this.getAuthToken();
-        //         if (token) {
-        //             headers['Authorization'] = `Bearer ${token}`;
-        //         }
-        //     }
-        //
-        //     const response = await fetch(
-        //         `${this.config.apiUrl}/markets/picker/firstmarket?exchangeid=${exchangeId}&contractid=${contractId}`,
-        //         { headers }
-        //     );
-        //
-        //     if (!response.ok) {
-        //         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        //     }
-        //
-        //     const data = await response.json();
-        //     this.currentMarketId = data.marketID;
-        //     this.log(`Market ID retrieved: ${data.marketID}`, 'info');
-        //     return data;
-        //
-        // } catch (error) {
-        //     this.log(`Error getting market ID: ${error.message}`, 'error');
-        //     throw error;
-        // }
+        try {
+            const headers = { 'Content-Type': 'application/json' };
 
-        // TODO: Temp
-        this.currentMarketId = "XCME_Eq ES (M25)";
-        return this.currentMarketId;
+            if (this.config.apiKey) {
+                headers['Authorization'] = `APIKey ${this.config.apiKey}`;
+            } else {
+                const token = await this.getAuthToken();
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+            }
+
+            const response = await fetch(
+                `${this.config.apiUrl}/markets/picker/firstmarket?exchangeid=${exchangeId}&contractid=${contractId}`,
+                { headers }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            this.currentMarketId = data.marketID;
+            this.log(`Market ID retrieved: ${data.marketID}`, 'info');
+            return data;
+
+        } catch (error) {
+            this.log(`Error getting market ID: ${error.message}`, 'error');
+            throw error;
+        }
     }
 
     // Utility Methods
