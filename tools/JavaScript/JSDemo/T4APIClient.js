@@ -298,11 +298,16 @@ class T4APIClient {
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null) {
+=======
+    async submitOrder(side, volume, price) {
+>>>>>>> f448971 (Added missing method.)
         if (!this.selectedAccount || !this.currentMarketId) {
             throw new Error('No account or market selected');
         }
 
+<<<<<<< HEAD
         const marketDetails = this.getMarketDetails(this.currentMarketId);
 
         // Convert string price type to enum value
@@ -375,10 +380,13 @@ class T4APIClient {
         }
 
         // Create the order submit message
+=======
+>>>>>>> f448971 (Added missing method.)
         const orderSubmit = {
             orderSubmit: {
                 accountId: this.selectedAccount,
                 marketId: this.currentMarketId,
+<<<<<<< HEAD
                 orderLink: orderLinkValue,
                 manualOrderIndicator: true,
                 orders: orders
@@ -441,16 +449,35 @@ class T4APIClient {
                     uniqueId: orderId,
                     volume: volume,
                     limitPrice: priceType === 'limit' ? { value: price.toString() } : null
+=======
+                orderLink: 0, // ORDER_LINK_NONE
+                manualOrderIndicator: true,
+                orders: [{
+                    buySell: side, // 1 for BUY_SELL_BUY, -1 for BUY_SELL_SELL
+                    priceType: 1, // PRICE_TYPE_LIMIT
+                    timeType: 0, // TIME_TYPE_NORMAL
+                    volume: volume,
+                    limitPrice: {
+                        value: price.toString()
+                    }
+>>>>>>> f448971 (Added missing method.)
                 }]
             }
         };
 
+<<<<<<< HEAD
         await this.sendMessage(orderRevise);
         this.log(`Order revised: ${orderId} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
     }
 
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+        await this.sendMessage(orderSubmit);
+        this.log(`Order submitted: ${side === 1 ? 'Buy' : 'Sell'} ${volume} @ ${price}`, 'info');
+    }
+
+>>>>>>> f448971 (Added missing method.)
     handleMessage(event) {
         this.lastMessageReceived = Date.now();
 
