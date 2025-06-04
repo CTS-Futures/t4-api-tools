@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T4 WebSocket API Demo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="container">
+    <!-- Connection Status & Account Selection -->
+    <div class="section full-width">
+        <h2>Connection & Account</h2>
+        <div class="status">
+            <div class="status-indicator" id="connectionStatus"></div>
+            <span id="connectionText">Disconnected</span>
+        </div>
+        <div class="account-selector">
+            <label for="accountSelect">Account: </label>
+            <select id="accountSelect" disabled>
+                <option value="">Select Account...</option>
+            </select>
+            <button id="connectBtn">Connect</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
+        </div>
+    </div>
+
+    <!-- Market Data -->
+    <div class="section">
+        <h2 id="marketDataHeader">Market Data - (ES)</h2>
+        <div class="market-data">
+            <div class="market-item">
+                <h4>Best Bid</h4>
+                <div class="market-value bid" id="bestBid">-</div>
+            </div>
+            <div class="market-item">
+                <h4>Best Offer</h4>
+                <div class="market-value offer" id="bestOffer">-</div>
+            </div>
+            <div class="market-item">
+                <h4>Last Trade</h4>
+                <div class="market-value last" id="lastTrade">-</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Order Entry -->
+    <div class="section">
+        <h2>Submit Order</h2>
+        <div class="order-form">
+            <div class="form-group">
+                <label for="orderSide">Side:</label>
+                <select id="orderSide">
+                    <option value="1">Buy</option>
+                    <option value="-1">Sell</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="orderVolume">Volume:</label>
+                <input type="number" id="orderVolume" value="1" min="1">
+            </div>
+            <div class="form-group">
+                <label for="orderPrice">Price:</label>
+                <input type="number" id="orderPrice" step="0.01" value="100">
+            </div>
+            <div class="form-group">
+                <button id="submitOrderBtn" disabled>Submit Order</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Positions -->
+    <div class="section">
+        <h2>Positions</h2>
+        <div class="table-container">
+            <table id="positionsTable">
+                <thead>
+                <tr>
+                    <th>Market</th>
+                    <th>Net</th>
+                    <th>P&L</th>
+                    <th>Working</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Orders -->
+    <div class="section">
+        <h2>Orders</h2>
+        <div class="table-container">
+            <table id="ordersTable">
+                <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Market</th>
+                    <th>Side</th>
+                    <th>Volume</th>
+                    <th>Price</th>
+                    <th>Status</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Console -->
+    <div class="section full-width">
+        <h2>Console</h2>
+        <div class="console" id="console"></div>
+    </div>
+</div>
+
+<script src="config.js"></script>
+<script src="t4-proto.js"></script>
+<script src="T4APIClient.js"></script>
+
+<script>
+    // Wait for DOM to be fully loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        // DOM elements
+        const elements = {
+            connectionStatus: document.getElementById('connectionStatus'),
+            connectionText: document.getElementById('connectionText'),
+            accountSelect: document.getElementById('accountSelect'),
+            connectBtn: document.getElementById('connectBtn'),
+            disconnectBtn: document.getElementById('disconnectBtn'),
+            marketDataHeader: document.getElementById('marketDataHeader'),
+            bestBid: document.getElementById('bestBid'),
+            bestOffer: document.getElementById('bestOffer'),
+            lastTrade: document.getElementById('lastTrade'),
+            orderSide: document.getElementById('orderSide'),
+            orderVolume: document.getElementById('orderVolume'),
+            orderPrice: document.getElementById('orderPrice'),
+            submitOrderBtn: document.getElementById('submitOrderBtn'),
+            positionsTable: document.getElementById('positionsTable').querySelector('tbody'),
+            ordersTable: document.getElementById('ordersTable').querySelector('tbody'),
+            console: document.getElementById('console')
+        };
+
+        // Initialize T4 API Client
+        const client = new T4APIClient();
+
+        // Setup event handlers after DOM is ready
+        client.onConnectionStatusChanged = (status) => {
+            updateConnectionStatus(status.isConnected);
+            if (status.reconnectAttempts > 0) {
+                log(`Reconnection attempts: ${status.reconnectAttempts}`, 'info');
+            }
+        };
+
+        client.onAccountUpdate = (update) => {
+            if (update.type === 'accounts') {
+                updateAccountSelect(update.accounts);
+            } else if (update.type === 'positions') {
+                updatePositionsTable(update.positions);
+            } else if (update.type === 'orders') {
+                updateOrdersTable(update.orders);
+            }
+        };
+
+        client.onMarketHeaderUpdate = (headerText) => {
+            elements.marketDataHeader.textContent = `Market Data - (${headerText})`;
+        };
+
+        client.onMarketUpdate = (marketData) => {
+            elements.bestBid.textContent = marketData.bestBid;
+            elements.bestOffer.textContent = marketData.bestOffer;
+            elements.lastTrade.textContent = marketData.lastTrade;
+
+            // Update header if contract info is available
+            if (marketData.contractId && marketData.expiryDate) {
+                const expiryShort = marketData.expiryDate.toString().substring(0, 6);
+                let displayText = marketData.contractId;
+
+                if (expiryShort && expiryShort.length === 6) {
+                    const year = expiryShort.substring(2, 4);
+                    const month = expiryShort.substring(4, 6);
+
+                    const monthCodes = {
+                        '01': 'F', '02': 'G', '03': 'H', '04': 'J', '05': 'K', '06': 'M',
+                        '07': 'N', '08': 'Q', '09': 'U', '10': 'V', '11': 'X', '12': 'Z'
+                    };
+
+                    const monthCode = monthCodes[month] || month;
+                    displayText += monthCode + year;
+                }
+
+                elements.marketDataHeader.textContent = `Market Data - (${displayText})`;
+            }
+        };
+
+        client.onLog = (logEntry) => {
+            log(logEntry.message, logEntry.type);
+        };
+
+        // Logging function
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            elements.console.appendChild(logEntry);
+            elements.console.scrollTop = elements.console.scrollHeight;
+
+            // Keep only last 100 entries
+            while (elements.console.children.length > 100) {
+                elements.console.removeChild(elements.console.firstChild);
+            }
+        }
+
+        // Update connection status
+        function updateConnectionStatus(connected) {
+            elements.connectionStatus.classList.toggle('connected', connected);
+            elements.connectionText.textContent = connected ? 'Connected' : 'Disconnected';
+            elements.connectBtn.disabled = connected;
+            elements.disconnectBtn.disabled = !connected;
+            elements.accountSelect.disabled = !connected;
+            elements.submitOrderBtn.disabled = !connected || !client.selectedAccount;
+        }
+
+        function updateAccountSelect(accounts) {
+            elements.accountSelect.innerHTML = '<option value="">Select Account...</option>';
+            accounts.forEach(account => {
+                const option = document.createElement('option');
+                option.value = account.accountId;
+                option.textContent = `${account.accountName} (${account.accountId})`;
+                elements.accountSelect.appendChild(option);
+            });
+
+            // Auto-select first account
+            if (accounts.length > 0 && !client.selectedAccount) {
+                selectAccount(accounts[0].accountId);
+            }
+        }
+
+        function updatePositionsTable(positions) {
+            elements.positionsTable.innerHTML = '';
+            positions.forEach(position => {
+                const row = document.createElement('tr');
+                const net = position.buys - position.sells;
+                row.innerHTML = `
+                        <td>${position.marketId}</td>
+                        <td>${net}</td>
+                        <td>${position.rpl ? position.rpl.toFixed(2) : '0.00'}</td>
+                        <td>${position.workingBuys}/${position.workingSells}</td>
+                    `;
+                elements.positionsTable.appendChild(row);
+            });
+        }
+
+        function updateOrdersTable(orders) {
+            elements.ordersTable.innerHTML = '';
+            const sortedOrders = orders.sort((a, b) => new Date(b.time.seconds * 1000) - new Date(a.time.seconds * 1000));
+
+            sortedOrders.forEach(order => {
+                const row = document.createElement('tr');
+                const time = new Date(order.time.seconds * 1000).toLocaleTimeString();
+                const side = order.buySell === 1 ? 'Buy' : 'Sell';
+                row.innerHTML = `
+                        <td>${time}</td>
+                        <td>${order.marketId}</td>
+                        <td>${side}</td>
+                        <td>${order.currentVolume}</td>
+                        <td>${order.currentLimitPrice ? order.currentLimitPrice.value : '-'}</td>
+                        <td>${order.status}</td>
+                    `;
+                elements.ordersTable.appendChild(row);
+            });
+        }
+
+        async function selectAccount(accountId) {
+            await client.subscribeAccount(accountId);
+            elements.accountSelect.value = accountId;
+            elements.submitOrderBtn.disabled = !client.isConnected || !accountId;
+        }
+
+        // Connection functions
+        async function connect() {
+            try {
+                // Connect to WebSocket
+                await client.connect();
+
+                // Subscribe to market data after connection
+                setTimeout(async () => {
+                    if (client.isConnected && !client.currentMarketId) {
+                        await client.getMarketId('CME_Eq', 'ES');
+                        await client.subscribeMarket('CME_Eq', 'ES', client.currentMarketId);
+                    }
+                }, 2000);
+
+            } catch (error) {
+                log(`Connection error: ${error.message}`, 'error');
+            }
+        }
+
+        function disconnect() {
+            client.disconnect();
+            updatePositionsTable([]);
+            updateOrdersTable([]);
+            updateAccountSelect([]);
+        }
+
+        async function submitOrder() {
+            try {
+                const side = parseInt(elements.orderSide.value);
+                const volume = parseInt(elements.orderVolume.value);
+                const price = parseFloat(elements.orderPrice.value);
+
+                await client.submitOrder(side, volume, price);
+            } catch (error) {
+                log(`Order submission error: ${error.message}`, 'error');
+            }
+        }
+
+        // Event listeners
+        elements.connectBtn.addEventListener('click', connect);
+        elements.disconnectBtn.addEventListener('click', disconnect);
+        elements.accountSelect.addEventListener('change', (e) => {
+            if (e.target.value) {
+                selectAccount(e.target.value);
+            }
+        });
+        elements.submitOrderBtn.addEventListener('click', submitOrder);
+
+        // Initialize
+        log('T4 WebSocket Demo initialized', 'info');
+        log('Click Connect to start', 'info');
+    });
+</script>
+</body>
+</html>
