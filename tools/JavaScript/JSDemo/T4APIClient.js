@@ -34,7 +34,7 @@ class T4APIClient {
 
         // Market data
         this.marketSnapshots = new Map();
-        this.marketSubscriptions = new Set();
+        this.currentSubscription = null;
         this.marketDetails = new Map();
         this.currentMarketId = null;
 
@@ -102,6 +102,10 @@ class T4APIClient {
         this.log('Disconnected', 'info');
     }
 
+    async getAuthTokenForAPI() {
+        return await this.getAuthToken();
+    }
+
     async subscribeAccount(accountId) {
         if (this.selectedAccount === accountId) return;
 
@@ -132,9 +136,26 @@ class T4APIClient {
 
     async subscribeMarket(exchangeId, contractId, marketId) {
         const key = `${exchangeId}_${contractId}_${marketId}`;
-        if (this.marketSubscriptions.has(key)) return;
 
-        this.marketSubscriptions.add(key);
+        // Unsubscribe from existing market subscriptions first
+        if (this.currentSubscription) {
+            await this.sendMessage({
+                marketDepthSubscribe: {
+                    exchangeId: this.currentSubscription.exchangeId,
+                    contractId: this.currentSubscription.contractId,
+                    marketId: this.currentSubscription.marketId,
+                    buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
+                    depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_UNDEFINED
+                }
+            });
+
+            this.log(`Unsubscribed from market: ${this.currentSubscription.marketId}`, 'info');
+
+            this.currentSubscription = null;
+        }
+
+        this.currentSubscription = {exchangeId, contractId, marketId};
+        this.currentMarketId = marketId;
 
         await this.sendMessage({
             marketDepthSubscribe: {
@@ -147,33 +168,6 @@ class T4APIClient {
         });
 
         this.log(`Subscribed to market: ${marketId}`, 'info');
-    }
-
-    async submitOrder(side, volume, price) {
-        if (!this.selectedAccount || !this.currentMarketId) {
-            throw new Error('No account or market selected');
-        }
-
-        const orderSubmit = {
-            orderSubmit: {
-                accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
-                orderLink: 0, // ORDER_LINK_NONE
-                manualOrderIndicator: true,
-                orders: [{
-                    buySell: side, // 1 for BUY_SELL_BUY, -1 for BUY_SELL_SELL
-                    priceType: 1, // PRICE_TYPE_LIMIT
-                    timeType: 0, // TIME_TYPE_NORMAL
-                    volume: volume,
-                    limitPrice: {
-                        value: price.toString()
-                    }
-                }]
-            }
-        };
-
-        await this.sendMessage(orderSubmit);
-        this.log(`Order submitted: ${side === 1 ? 'Buy' : 'Sell'} ${volume} @ ${price}`, 'info');
     }
 
     // WebSocket Event Handlers
@@ -241,7 +235,7 @@ class T4APIClient {
     async authenticate() {
         const loginRequest = {
             loginRequest: this.config.apiKey ?
-                { apiKey: this.config.apiKey } :
+                {apiKey: this.config.apiKey} :
                 {
                     firm: this.config.firm,
                     username: this.config.userName,
@@ -366,7 +360,7 @@ class T4APIClient {
 
         // Resolve pending token request
         if (this.tokenResolvers && token.requestId && this.tokenResolvers.has(token.requestId)) {
-            const { resolve } = this.tokenResolvers.get(token.requestId);
+            const {resolve} = this.tokenResolvers.get(token.requestId);
             this.tokenResolvers.delete(token.requestId);
             resolve(token.token);
         }
@@ -447,9 +441,10 @@ class T4APIClient {
             displayText += monthCode + year;
         }
 
-        // Update the UI header
-        if (this.onMarketHeaderUpdate) {
-            this.onMarketHeaderUpdate(displayText);
+        // Update just the contract link span
+        const contractLink = document.querySelector('.market-contract-link');
+        if (contractLink) {
+            contractLink.textContent = displayText;
         }
     }
 
@@ -681,7 +676,7 @@ class T4APIClient {
 
         // TODO: Get rid of this.
 
-        const clientMessage = { payload: {} };
+        const clientMessage = {payload: {}};
 
         // Map message types to ClientMessage fields
         if (messagePayload.heartbeat) {
@@ -778,7 +773,7 @@ class T4APIClient {
     // Market Data API
     async getMarketId(exchangeId, contractId) {
         try {
-            const headers = { 'Content-Type': 'application/json' };
+            const headers = {'Content-Type': 'application/json'};
 
             if (this.config.apiKey) {
                 headers['Authorization'] = `APIKey ${this.config.apiKey}`;
@@ -791,7 +786,7 @@ class T4APIClient {
 
             const response = await fetch(
                 `${this.config.apiUrl}/markets/picker/firstmarket?exchangeid=${exchangeId}&contractid=${contractId}`,
-                { headers }
+                {headers}
             );
 
             if (!response.ok) {
@@ -879,7 +874,7 @@ class T4APIClient {
         // Wait for response (handled in processServerMessage)
         return new Promise((resolve, reject) => {
             this.tokenResolvers = this.tokenResolvers || new Map();
-            this.tokenResolvers.set(requestId, { resolve, reject });
+            this.tokenResolvers.set(requestId, {resolve, reject});
 
             // Timeout after 30 seconds
             setTimeout(() => {
@@ -894,7 +889,7 @@ class T4APIClient {
     generateUUID() {
 
         // *** TODO: Replace this. We don't need a UUID and can be simple for the demo app. ***
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
             const r = Math.random() * 16 | 0;
             const v = c == 'x' ? r : (r & 0x3 | 0x8);
             return v.toString(16);

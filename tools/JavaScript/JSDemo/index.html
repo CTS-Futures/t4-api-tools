@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>T4 WebSocket API Demo</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="contract-picker.css">
 </head>
 <body>
 <div class="container">
@@ -27,7 +28,7 @@
 
     <!-- Market Data -->
     <div class="section">
-        <h2 id="marketDataHeader">Market Data - (...)</h2>
+        <h2 id="marketDataHeader">Market Data - (<span class="market-contract-link">...</span>)</h2>
         <div class="market-data">
             <div class="market-item">
                 <h4>Best Bid</h4>
@@ -117,6 +118,7 @@
 <script src="config.js"></script>
 <script src="t4-proto.js"></script>
 <script src="T4APIClient.js"></script>
+<script src="ContractPicker.js"></script>
 
 <script>
     // Wait for DOM to be fully loaded
@@ -143,6 +145,7 @@
 
         // Initialize T4 API Client
         const client = new T4APIClient();
+        window.client = client; // To better support contract and market pickers.
 
         // Setup event handlers after DOM is ready
         client.onConnectionStatusChanged = (status) => {
@@ -325,6 +328,27 @@
             }
         });
         elements.submitOrderBtn.addEventListener('click', submitOrder);
+
+        // Contract picker handler
+        document.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('market-contract-link')) {
+                if (!client.isConnected) return;
+
+                const contractPicker = new ContractPicker(client.config);
+                const result = await contractPicker.show();
+
+                if (result) {
+                    log(`Contract selected: ${result.contractId} (${result.exchangeId})`, 'info');
+
+                    try {
+                        await client.getMarketId(result.exchangeId, result.contractId);
+                        await client.subscribeMarket(result.exchangeId, result.contractId, client.currentMarketId);
+                    } catch (error) {
+                        log(`Error subscribing to new contract: ${error.message}`, 'error');
+                    }
+                }
+            }
+        });
 
         // Initialize
         log('T4 WebSocket Demo initialized', 'info');
