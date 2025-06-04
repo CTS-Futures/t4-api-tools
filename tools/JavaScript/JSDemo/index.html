@@ -6,12 +6,16 @@
     <title>T4 WebSocket API Demo</title>
     <link rel="stylesheet" href="styles.css">
 <<<<<<< HEAD
+<<<<<<< HEAD
     <link rel="stylesheet" href="contract-picker.css">
     <link rel="stylesheet" href="expiry-picker.css">
     <link rel="stylesheet" href="revise-dialog.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+    <link rel="stylesheet" href="contract-picker.css">
+>>>>>>> 3f5c049 (Added a contract picker.)
 </head>
 <body>
 <div class="container">
@@ -36,6 +40,7 @@
     <div class="section">
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         <h2 id="marketDataHeader">
             <div class="market-header-container">
                 <span>Market Data - (<span class="market-contract-link">...</span>)</span>
@@ -48,6 +53,9 @@
 =======
         <h2 id="marketDataHeader">Market Data - (...)</h2>
 >>>>>>> 424fd3c (Cleanup and improvement.)
+=======
+        <h2 id="marketDataHeader">Market Data - (<span class="market-contract-link">...</span>)</h2>
+>>>>>>> 3f5c049 (Added a contract picker.)
         <div class="market-data">
             <div class="market-item">
                 <h4>Best Bid</h4>
@@ -172,11 +180,15 @@
 <script src="t4-proto.js"></script>
 <script src="T4APIClient.js"></script>
 <<<<<<< HEAD
+<<<<<<< HEAD
 <script src="ContractPicker.js"></script>
 <script src="ExpiryPicker.js"></script>
 <script src="ReviseDialog.js"></script>
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+<script src="ContractPicker.js"></script>
+>>>>>>> 3f5c049 (Added a contract picker.)
 
 <script>
     // Wait for DOM to be fully loaded
@@ -208,9 +220,13 @@
         // Initialize T4 API Client
         const client = new T4APIClient();
 <<<<<<< HEAD
+<<<<<<< HEAD
         window.client = client; // To better support contract and market pickers.
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+        window.client = client; // To better support contract and market pickers.
+>>>>>>> 3f5c049 (Added a contract picker.)
 
         // Setup event handlers after DOM is ready
         client.onConnectionStatusChanged = (status) => {
@@ -475,6 +491,9 @@
         elements.submitOrderBtn.addEventListener('click', submitOrder);
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3f5c049 (Added a contract picker.)
         // Contract picker handler
         document.addEventListener('click', async (e) => {
             if (e.target.classList.contains('market-contract-link')) {
@@ -496,6 +515,7 @@
             }
         });
 
+<<<<<<< HEAD
         document.addEventListener('click', async (e) => {
             if (e.target.classList.contains('calendar-icon')) {
                 if (!client.isConnected || !client.currentSubscription) {
@@ -525,6 +545,8 @@
 
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+>>>>>>> 3f5c049 (Added a contract picker.)
         // Initialize
         log('T4 WebSocket Demo initialized', 'info');
         log('Click Connect to start', 'info');

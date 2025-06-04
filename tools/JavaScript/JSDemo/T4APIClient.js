@@ -54,10 +54,14 @@ class T4APIClient {
         // Market data
         this.marketSnapshots = new Map();
 <<<<<<< HEAD
+<<<<<<< HEAD
         this.currentSubscription = null;
 =======
         this.marketSubscriptions = new Set();
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+        this.currentSubscription = null;
+>>>>>>> 3f5c049 (Added a contract picker.)
         this.marketDetails = new Map();
         this.currentMarketId = null;
 
@@ -134,12 +138,18 @@ class T4APIClient {
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3f5c049 (Added a contract picker.)
     async getAuthTokenForAPI() {
         return await this.getAuthToken();
     }
 
+<<<<<<< HEAD
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+>>>>>>> 3f5c049 (Added a contract picker.)
     async subscribeAccount(accountId) {
         if (this.selectedAccount === accountId) return;
 
@@ -181,6 +191,7 @@ class T4APIClient {
     async subscribeMarket(exchangeId, contractId, marketId) {
         const key = `${exchangeId}_${contractId}_${marketId}`;
 <<<<<<< HEAD
+<<<<<<< HEAD
 
         // Unsubscribe from existing market subscriptions first
         if (this.currentSubscription) {
@@ -206,6 +217,28 @@ class T4APIClient {
 
         this.marketSubscriptions.add(key);
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+
+        // Unsubscribe from existing market subscriptions first
+        if (this.currentSubscription) {
+            await this.sendMessage({
+                marketDepthSubscribe: {
+                    exchangeId: this.currentSubscription.exchangeId,
+                    contractId: this.currentSubscription.contractId,
+                    marketId: this.currentSubscription.marketId,
+                    buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
+                    depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_UNDEFINED
+                }
+            });
+
+            this.log(`Unsubscribed from market: ${this.currentSubscription.marketId}`, 'info');
+
+            this.currentSubscription = null;
+        }
+
+        this.currentSubscription = {exchangeId, contractId, marketId};
+        this.currentMarketId = marketId;
+>>>>>>> 3f5c049 (Added a contract picker.)
 
         await this.sendMessage({
             marketDepthSubscribe: {
@@ -224,6 +257,7 @@ class T4APIClient {
         this.log(`Subscribed to market: ${marketId}`, 'info');
     }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
     async submitOrder(side, volume, price) {
@@ -254,6 +288,8 @@ class T4APIClient {
     }
 
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+>>>>>>> 3f5c049 (Added a contract picker.)
     // WebSocket Event Handlers
     handleOpen() {
         this.log('WebSocket connected', 'info');
@@ -481,10 +517,14 @@ class T4APIClient {
         const loginRequest = {
             loginRequest: this.config.apiKey ?
 <<<<<<< HEAD
+<<<<<<< HEAD
                 {apiKey: this.config.apiKey} :
 =======
                 { apiKey: this.config.apiKey } :
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+                {apiKey: this.config.apiKey} :
+>>>>>>> 3f5c049 (Added a contract picker.)
                 {
                     firm: this.config.firm,
                     username: this.config.userName,
@@ -635,10 +675,14 @@ class T4APIClient {
         // Resolve pending token request
         if (this.tokenResolvers && token.requestId && this.tokenResolvers.has(token.requestId)) {
 <<<<<<< HEAD
+<<<<<<< HEAD
             const {resolve} = this.tokenResolvers.get(token.requestId);
 =======
             const { resolve } = this.tokenResolvers.get(token.requestId);
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+            const {resolve} = this.tokenResolvers.get(token.requestId);
+>>>>>>> 3f5c049 (Added a contract picker.)
             this.tokenResolvers.delete(token.requestId);
             resolve(token.token);
         }
@@ -799,15 +843,21 @@ class T4APIClient {
         }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 3f5c049 (Added a contract picker.)
         // Update just the contract link span
         const contractLink = document.querySelector('.market-contract-link');
         if (contractLink) {
             contractLink.textContent = displayText;
+<<<<<<< HEAD
 =======
         // Update the UI header
         if (this.onMarketHeaderUpdate) {
             this.onMarketHeaderUpdate(displayText);
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+>>>>>>> 3f5c049 (Added a contract picker.)
         }
     }
 
@@ -1114,7 +1164,7 @@ class T4APIClient {
 
         // TODO: Get rid of this.
 
-        const clientMessage = { payload: {} };
+        const clientMessage = {payload: {}};
 
         // Map message types to ClientMessage fields
         if (messagePayload.heartbeat) {
@@ -1281,7 +1331,7 @@ class T4APIClient {
 >>>>>>> 462b3ae (Creating a JavaScript example.)
 =======
         try {
-            const headers = { 'Content-Type': 'application/json' };
+            const headers = {'Content-Type': 'application/json'};
 
             if (this.config.apiKey) {
                 headers['Authorization'] = `APIKey ${this.config.apiKey}`;
@@ -1294,7 +1344,7 @@ class T4APIClient {
 
             const response = await fetch(
                 `${this.config.apiUrl}/markets/picker/firstmarket?exchangeid=${exchangeId}&contractid=${contractId}`,
-                { headers }
+                {headers}
             );
 
             if (!response.ok) {
@@ -1384,10 +1434,14 @@ class T4APIClient {
         return new Promise((resolve, reject) => {
             this.tokenResolvers = this.tokenResolvers || new Map();
 <<<<<<< HEAD
+<<<<<<< HEAD
             this.tokenResolvers.set(requestId, {resolve, reject});
 =======
             this.tokenResolvers.set(requestId, { resolve, reject });
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+            this.tokenResolvers.set(requestId, {resolve, reject});
+>>>>>>> 3f5c049 (Added a contract picker.)
 
             // Timeout after 30 seconds
             setTimeout(() => {
@@ -1403,10 +1457,14 @@ class T4APIClient {
 
         // *** TODO: Replace this. We don't need a UUID and can be simple for the demo app. ***
 <<<<<<< HEAD
+<<<<<<< HEAD
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
 =======
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+>>>>>>> 3f5c049 (Added a contract picker.)
             const r = Math.random() * 16 | 0;
             const v = c == 'x' ? r : (r & 0x3 | 0x8);
             return v.toString(16);
