@@ -9,6 +9,7 @@
 <<<<<<< HEAD
     <link rel="stylesheet" href="contract-picker.css">
     <link rel="stylesheet" href="expiry-picker.css">
+<<<<<<< HEAD
     <link rel="stylesheet" href="revise-dialog.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 =======
@@ -16,6 +17,9 @@
 =======
     <link rel="stylesheet" href="contract-picker.css">
 >>>>>>> 3f5c049 (Added a contract picker.)
+=======
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+>>>>>>> 449d1f1 (Added expiry picker.)
 </head>
 <body>
 <div class="container">
@@ -41,12 +45,16 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 449d1f1 (Added expiry picker.)
         <h2 id="marketDataHeader">
             <div class="market-header-container">
                 <span>Market Data - (<span class="market-contract-link">...</span>)</span>
                 <i class="far fa-calendar-alt calendar-icon" title="Change Expiry"></i>
             </div>
         </h2>
+<<<<<<< HEAD
 =======
         <h2 id="marketDataHeader">Market Data - (ES)</h2>
 >>>>>>> 462b3ae (Creating a JavaScript example.)
@@ -56,6 +64,8 @@
 =======
         <h2 id="marketDataHeader">Market Data - (<span class="market-contract-link">...</span>)</h2>
 >>>>>>> 3f5c049 (Added a contract picker.)
+=======
+>>>>>>> 449d1f1 (Added expiry picker.)
         <div class="market-data">
             <div class="market-item">
                 <h4>Best Bid</h4>
@@ -183,12 +193,15 @@
 <<<<<<< HEAD
 <script src="ContractPicker.js"></script>
 <script src="ExpiryPicker.js"></script>
+<<<<<<< HEAD
 <script src="ReviseDialog.js"></script>
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
 =======
 <script src="ContractPicker.js"></script>
 >>>>>>> 3f5c049 (Added a contract picker.)
+=======
+>>>>>>> 449d1f1 (Added expiry picker.)
 
 <script>
     // Wait for DOM to be fully loaded
@@ -274,14 +287,20 @@
                 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 449d1f1 (Added expiry picker.)
                 // Update just the contract span, not the entire header
                 const contractLink = document.querySelector('.market-contract-link');
                 if (contractLink) {
                     contractLink.textContent = displayText;
                 }
+<<<<<<< HEAD
 =======
                 elements.marketDataHeader.textContent = `Market Data - (${displayText})`;
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+>>>>>>> 449d1f1 (Added expiry picker.)
             }
         };
 
@@ -516,6 +535,9 @@
         });
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 449d1f1 (Added expiry picker.)
         document.addEventListener('click', async (e) => {
             if (e.target.classList.contains('calendar-icon')) {
                 if (!client.isConnected || !client.currentSubscription) {
@@ -543,10 +565,13 @@
             }
         });
 
+<<<<<<< HEAD
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
 =======
 >>>>>>> 3f5c049 (Added a contract picker.)
+=======
+>>>>>>> 449d1f1 (Added expiry picker.)
         // Initialize
         log('T4 WebSocket Demo initialized', 'info');
         log('Click Connect to start', 'info');
