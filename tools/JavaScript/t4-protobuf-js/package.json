@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
   "name": "@t4/protobuf",
   "version": "1.0.0",
   "main": "dist/t4-proto.cjs.js",
@@ -32,3 +33,19 @@
     "protobufjs": "^7.5.3"
   }
 }
+=======
+  "name": "@t4/protobuf-js",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "browser": "dist/index.umd.js",
+  "types": "types/index.d.ts",
+  "files": ["dist", "types"],
+  "scripts": {
+    "clean": "node -e \"const fs=require('fs'); ['dist','types','src/generated','src/proto'].forEach(d=>{try{fs.rmSync(d,{recursive:true})}catch(e){}})\"",
+    "copy-proto": "node copy-proto.js",
+    "build:proto": "npm run copy-proto && pbjs -t static-module -w commonjs -o src/generated/proto.js --path src/proto src/proto/t4/v1/service.proto && pbts -o src/generated/proto.d.ts src/generated/proto.js",    "prepublishOnly": "npm run build",
+    "build": "npm run build:proto && webpack && tsc --declaration --emitDeclarationOnly --outDir types --declarationDir types"
+  }
+}
+>>>>>>> bdb97c8 (Creating a JavaScript example.)
