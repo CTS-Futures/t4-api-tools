@@ -161,6 +161,30 @@ th {
     max-height: 500px;
 }
 
+.market-header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.calendar-icon {
+    cursor: pointer;
+    color: #007bff;
+    font-size: 18px;
+    padding: 6px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+    margin-left: auto;
+}
+
+.calendar-icon:hover {
+    background-color: #e9ecef;
+    color: #0056b3;
+    border-color: #007bff;
+}
+
 .log-sent { color: #00ff00; }
 .log-received { color: #ffff00; }
 .log-error { color: #ff0000; }

@@ -1,0 +1,161 @@
+/* Expiry Picker Dialog Styles */
+
+.expiry-picker-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.expiry-picker-dialog {
+    background: white;
+    border-radius: 8px;
+    width: 500px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.expiry-picker-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.expiry-picker-header h3 {
+    margin: 0;
+    color: #333;
+    font-size: 1.25rem;
+}
+
+.expiry-picker-content {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 400px;
+    position: relative;
+}
+
+.groups-list {
+    padding: 0;
+}
+
+.group-item {
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.group-header {
+    display: flex;
+    align-items: center;
+    padding: 15px 20px;
+    cursor: pointer;
+    background: #f8f9fa;
+    transition: background-color 0.2s;
+}
+
+.group-header:hover {
+    background: #e9ecef;
+}
+
+.group-header.expanded {
+    background: #e9ecef;
+}
+
+.expand-icon {
+    width: 20px;
+    font-size: 14px;
+    color: #666;
+}
+
+.group-name {
+    font-weight: 500;
+    color: #333;
+}
+
+.markets-container {
+    background: white;
+}
+
+.markets-loading {
+    padding: 15px 20px;
+    color: #666;
+    font-style: italic;
+    text-align: center;
+}
+
+.markets-list {
+    padding-left: 40px;
+}
+
+.market-item {
+    padding: 10px 20px;
+    cursor: pointer;
+    border-bottom: 1px solid #f5f5f5;
+    transition: background-color 0.2s;
+}
+
+.market-item:hover {
+    background-color: #f8f9fa;
+}
+
+.market-item.selected {
+    background-color: #007bff;
+    color: white;
+}
+
+.market-item.selected:hover {
+    background-color: #0056b3;
+}
+
+.market-name {
+    font-size: 14px;
+}
+
+.expiry-picker-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 20px;
+    border-top: 1px solid #e0e0e0;
+    background: #f8f9fa;
+}
+
+.error {
+    text-align: center;
+    padding: 20px;
+    color: #dc3545;
+    font-style: italic;
+}
+
+/* Calendar icon style */
+.market-header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.calendar-icon {
+    cursor: pointer;
+    color: #007bff;
+    font-size: 18px;
+    padding: 6px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+    margin-left: auto;
+}
+
+.calendar-icon:hover {
+    background-color: #e9ecef;
+    color: #0056b3;
+    border-color: #007bff;
+}

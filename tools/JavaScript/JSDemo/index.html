@@ -6,6 +6,8 @@
     <title>T4 WebSocket API Demo</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="contract-picker.css">
+    <link rel="stylesheet" href="expiry-picker.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
 <div class="container">
@@ -28,7 +30,12 @@
 
     <!-- Market Data -->
     <div class="section">
-        <h2 id="marketDataHeader">Market Data - (<span class="market-contract-link">...</span>)</h2>
+        <h2 id="marketDataHeader">
+            <div class="market-header-container">
+                <span>Market Data - (<span class="market-contract-link">...</span>)</span>
+                <i class="far fa-calendar-alt calendar-icon" title="Change Expiry"></i>
+            </div>
+        </h2>
         <div class="market-data">
             <div class="market-item">
                 <h4>Best Bid</h4>
@@ -119,6 +126,7 @@
 <script src="t4-proto.js"></script>
 <script src="T4APIClient.js"></script>
 <script src="ContractPicker.js"></script>
+<script src="ExpiryPicker.js"></script>
 
 <script>
     // Wait for DOM to be fully loaded
@@ -192,7 +200,11 @@
                     displayText += monthCode + year;
                 }
 
-                elements.marketDataHeader.textContent = `Market Data - (${displayText})`;
+                // Update just the contract span, not the entire header
+                const contractLink = document.querySelector('.market-contract-link');
+                if (contractLink) {
+                    contractLink.textContent = displayText;
+                }
             }
         };
 
@@ -345,6 +357,33 @@
                         await client.subscribeMarket(result.exchangeId, result.contractId, client.currentMarketId);
                     } catch (error) {
                         log(`Error subscribing to new contract: ${error.message}`, 'error');
+                    }
+                }
+            }
+        });
+
+        document.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('calendar-icon')) {
+                if (!client.isConnected || !client.currentSubscription) {
+                    log('Connect and select a contract first', 'error');
+                    return;
+                }
+
+                const expiryPicker = new ExpiryPicker(
+                    client.config,
+                    client.currentSubscription.exchangeId,
+                    client.currentSubscription.contractId
+                );
+
+                const result = await expiryPicker.show();
+
+                if (result) {
+                    log(`Expiry selected: ${result.description} (Market ID: ${result.marketId})`, 'info');
+
+                    try {
+                        await client.subscribeMarket(result.exchangeId, result.contractId, result.marketId);
+                    } catch (error) {
+                        log(`Error subscribing to new expiry: ${error.message}`, 'error');
                     }
                 }
             }
