@@ -1,0 +1,42 @@
+# Config
+config.js
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+types/
+
+# Generated protobuf files
+src/generated/
+src/proto/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage/
+.nyc_output
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+*.tmp
+*.temp
