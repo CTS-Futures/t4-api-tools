@@ -15,6 +15,7 @@ const T4_CONFIG = {
     password: 'your_password',
     appName: 'your_app_name',
 <<<<<<< HEAD
+<<<<<<< HEAD
     appLicense: 'your_app_license_guid',
 
     // Which product to load market data for.
@@ -26,4 +27,10 @@ const T4_CONFIG = {
 =======
     appLicense: 'your_app_license_guid'
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+    appLicense: 'your_app_license_guid',
+
+    // Optional
+    priceFormat: 2  /* 0: Decimal, 1: Real (Hint: Use Real if you ES price has a decimal like 6030.75, Decimal otherwise.) */
+>>>>>>> f06ebb3 (Added price format to the login message.)
 };

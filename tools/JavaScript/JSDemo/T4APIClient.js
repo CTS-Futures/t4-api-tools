@@ -22,6 +22,9 @@ class T4APIClient {
             appName: T4_CONFIG.appName,
             appLicense: T4_CONFIG.appLicense,
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> f06ebb3 (Added price format to the login message.)
             priceFormat: T4_CONFIG.priceFormat,
             heartbeatIntervalMs: 20000,
             messageTimeoutMs: 60000,
@@ -558,11 +561,16 @@ class T4APIClient {
                     password: this.config.password,
                     appName: this.config.appName,
 <<<<<<< HEAD
+<<<<<<< HEAD
                     appLicense: this.config.appLicense,
                     priceFormat: this.config.priceFormat,
 =======
                     appLicense: this.config.appLicense
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+                    appLicense: this.config.appLicense,
+                    priceFormat: this.config.priceFormat,
+>>>>>>> f06ebb3 (Added price format to the login message.)
                 }
         };
 
