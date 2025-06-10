@@ -14,6 +14,7 @@ class T4APIClient {
             password: T4_CONFIG.password,
             appName: T4_CONFIG.appName,
             appLicense: T4_CONFIG.appLicense,
+            priceFormat: T4_CONFIG.priceFormat,
             heartbeatIntervalMs: 20000,
             messageTimeoutMs: 60000,
             mdExchangeId: T4_CONFIG.mdExchangeId,
@@ -268,7 +269,8 @@ class T4APIClient {
                     username: this.config.userName,
                     password: this.config.password,
                     appName: this.config.appName,
-                    appLicense: this.config.appLicense
+                    appLicense: this.config.appLicense,
+                    priceFormat: this.config.priceFormat,
                 }
         };
 

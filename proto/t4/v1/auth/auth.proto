@@ -14,6 +14,7 @@ message LoginRequest {
   string password = 4;
   string app_name = 5;
   string app_license = 6;
+  t4proto.v1.common.PriceFormat price_format = 10;
 }
 
 message LoginResponse {
