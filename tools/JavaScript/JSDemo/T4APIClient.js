@@ -178,10 +178,12 @@ class T4APIClient {
         this.startHeartbeat();
     }
 
-    async submitOrder(side, volume, price, priceType = 'limit', takeProfit = null, stopLoss = null) {
+    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null) {
         if (!this.selectedAccount || !this.currentMarketId) {
             throw new Error('No account or market selected');
         }
+
+        const marketDetails = this.getMarketDetails(this.currentMarketId);
 
         // Convert string price type to enum value
         const priceTypeValue = priceType.toLowerCase() === 'market'
@@ -196,7 +198,7 @@ class T4APIClient {
             : side;
 
         // Determine if we need OCO order linking
-        const hasBracketOrders = takeProfit !== null || stopLoss !== null;
+        const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
         const orderLinkValue = hasBracketOrders
             ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO  // 2
             : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;     // 0
@@ -219,26 +221,34 @@ class T4APIClient {
             : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY;
 
         // Add take profit order if specified
-        if (takeProfit !== null) {
+        if (takeProfitDollars !== null) {
+
+            const takeProfitPoints = takeProfitDollars / marketDetails.pointValue.value;
+            const takeProfitPrice = takeProfitPoints * marketDetails.minPriceIncrement.value;
+
             orders.push({
                 buySell: protectionSide,
                 priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT, // Always limit for take profit
                 timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
                 volume: 0, // Volume should be 0 for bracket orders
-                limitPrice: { value: takeProfit.toString() },
+                limitPrice: { value: takeProfitPrice.toString() },
                 // Hold activation means order is not active until parent order is filled
                 activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
             });
         }
 
         // Add stop loss order if specified
-        if (stopLoss !== null) {
+        if (stopLossDollars !== null) {
+
+            const stopLossPoints = stopLossDollars / marketDetails.pointValue.value;
+            const stopLossPrice = stopLossPoints * marketDetails.minPriceIncrement.value;
+
             orders.push({
                 buySell: protectionSide,
                 priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
                 timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
                 volume: 0, // Volume should be 0 for bracket orders
-                stopPrice: { value: stopLoss.toString() },
+                stopPrice: { value: stopLossPrice.toString() },
                 // Hold activation means order is not active until parent order is filled
                 activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
             });
@@ -264,12 +274,12 @@ class T4APIClient {
 
         this.log(`Order submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType})`, 'info');
 
-        if (takeProfit !== null) {
-            this.log(`Take profit: ${takeProfit} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+        if (takeProfitDollars !== null) {
+            this.log(`Take profit: $${takeProfitDollars} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
-        if (stopLoss !== null) {
-            this.log(`Stop loss: ${stopLoss} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+        if (stopLossDollars !== null) {
+            this.log(`Stop loss: $${stopLossDollars} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (hasBracketOrders) {
