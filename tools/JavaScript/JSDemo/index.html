@@ -10,6 +10,9 @@
     <link rel="stylesheet" href="contract-picker.css">
     <link rel="stylesheet" href="expiry-picker.css">
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> a97112a (Added support for market and bracket orders.)
     <link rel="stylesheet" href="revise-dialog.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 =======
@@ -83,15 +86,22 @@
     </div>
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     <!-- Submit Order -->
 =======
     <!-- Order Entry -->
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+    <!-- Submit Order -->
+>>>>>>> a97112a (Added support for market and bracket orders.)
     <div class="section">
         <h2>Submit Order</h2>
         <div class="order-form">
             <div class="form-group">
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> a97112a (Added support for market and bracket orders.)
                 <label for="orderType">Type:</label>
                 <select id="orderType">
                     <option value="limit">Limit</option>
@@ -99,8 +109,11 @@
                 </select>
             </div>
             <div class="form-group">
+<<<<<<< HEAD
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+>>>>>>> a97112a (Added support for market and bracket orders.)
                 <label for="orderSide">Side:</label>
                 <select id="orderSide">
                     <option value="1">Buy</option>
@@ -112,14 +125,19 @@
                 <input type="number" id="orderVolume" value="1" min="1">
             </div>
 <<<<<<< HEAD
+<<<<<<< HEAD
             <div class="form-group" id="priceGroup">
 =======
             <div class="form-group">
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+            <div class="form-group" id="priceGroup">
+>>>>>>> a97112a (Added support for market and bracket orders.)
                 <label for="orderPrice">Price:</label>
                 <input type="number" id="orderPrice" step="0.01" value="100">
             </div>
             <div class="form-group">
+<<<<<<< HEAD
 <<<<<<< HEAD
                 <label for="takeProfitPrice">Take Profit ($):</label>
                 <input type="number" id="takeProfitPrice" step="1" placeholder="Optional">
@@ -133,6 +151,17 @@
 =======
                 <button id="submitOrderBtn" disabled>Submit Order</button>
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+                <label for="takeProfitPrice">Take Profit:</label>
+                <input type="number" id="takeProfitPrice" step="0.01" placeholder="Optional">
+            </div>
+            <div class="form-group">
+                <label for="stopLossPrice">Stop Loss:</label>
+                <input type="number" id="stopLossPrice" step="0.01" placeholder="Optional">
+            </div>
+            <div class="form-group submit-btn-container">
+                <button id="submitOrderBtn" class="submit-order-btn">Submit Order</button>
+>>>>>>> a97112a (Added support for market and bracket orders.)
             </div>
         </div>
     </div>
@@ -169,9 +198,13 @@
                     <th>Price</th>
                     <th>Status</th>
 <<<<<<< HEAD
+<<<<<<< HEAD
                     <th>Action</th>
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+                    <th>Action</th>
+>>>>>>> a97112a (Added support for market and bracket orders.)
                 </tr>
                 </thead>
                 <tbody></tbody>
@@ -194,6 +227,7 @@
 <script src="ContractPicker.js"></script>
 <script src="ExpiryPicker.js"></script>
 <<<<<<< HEAD
+<<<<<<< HEAD
 <script src="ReviseDialog.js"></script>
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
@@ -202,6 +236,9 @@
 >>>>>>> 3f5c049 (Added a contract picker.)
 =======
 >>>>>>> 449d1f1 (Added expiry picker.)
+=======
+<script src="ReviseDialog.js"></script>
+>>>>>>> a97112a (Added support for market and bracket orders.)
 
 <script>
     // Wait for DOM to be fully loaded
@@ -218,9 +255,13 @@
             bestOffer: document.getElementById('bestOffer'),
             lastTrade: document.getElementById('lastTrade'),
 <<<<<<< HEAD
+<<<<<<< HEAD
             orderType: document.getElementById('orderType'), // Add this line
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+            orderType: document.getElementById('orderType'), // Add this line
+>>>>>>> a97112a (Added support for market and bracket orders.)
             orderSide: document.getElementById('orderSide'),
             orderVolume: document.getElementById('orderVolume'),
             orderPrice: document.getElementById('orderPrice'),
@@ -395,6 +436,7 @@
                 const time = new Date(order.time.seconds * 1000).toLocaleTimeString();
                 const side = order.buySell === 1 ? 'Buy' : 'Sell';
 <<<<<<< HEAD
+<<<<<<< HEAD
                 const isEditable = order.status === 1; // Assume status 1 is active/working
 
                 row.innerHTML = `
@@ -418,16 +460,34 @@
                     editBtn.addEventListener('click', () => window.showOrderEditDialog(order));
                 }
 =======
+=======
+                const isEditable = order.status === 1; // Assume status 1 is active/working
+
+>>>>>>> a97112a (Added support for market and bracket orders.)
                 row.innerHTML = `
-                        <td>${time}</td>
-                        <td>${order.marketId}</td>
-                        <td>${side}</td>
-                        <td>${order.currentVolume}</td>
-                        <td>${order.currentLimitPrice ? order.currentLimitPrice.value : '-'}</td>
-                        <td>${order.status}</td>
-                    `;
+            <td>${time}</td>
+            <td>${order.marketId}</td>
+            <td>${side}</td>
+            <td>${order.currentVolume}</td>
+            <td>${order.currentLimitPrice ? order.currentLimitPrice.value : '-'}</td>
+            <td>${order.status}</td>
+            <td>
+                <button class="action-btn" ${!isEditable ? 'disabled' : ''} data-order-id="${order.uniqueId}">
+                    <i class="fas fa-edit"></i>
+                </button>
+            </td>
+        `;
                 elements.ordersTable.appendChild(row);
+<<<<<<< HEAD
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+
+                // Add click handler to edit button if order is editable
+                if (isEditable) {
+                    const editBtn = row.querySelector('.action-btn');
+                    editBtn.addEventListener('click', () => window.showOrderEditDialog(order));
+                }
+>>>>>>> a97112a (Added support for market and bracket orders.)
             });
         }
 
@@ -478,6 +538,7 @@
                 const side = parseInt(elements.orderSide.value);
                 const volume = parseInt(elements.orderVolume.value);
 <<<<<<< HEAD
+<<<<<<< HEAD
                 const priceType = elements.orderType.value; // 'limit' or 'market'
                 const price = parseFloat(elements.orderPrice.value);
 
@@ -494,6 +555,19 @@
 
                 await client.submitOrder(side, volume, price);
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+                const priceType = elements.orderType.value; // 'limit' or 'market'
+                const price = parseFloat(elements.orderPrice.value);
+
+                // Get take profit and stop loss values if provided
+                const takeProfitElement = document.getElementById('takeProfitPrice');
+                const stopLossElement = document.getElementById('stopLossPrice');
+
+                const takeProfit = takeProfitElement && takeProfitElement.value ? parseFloat(takeProfitElement.value) : null;
+                const stopLoss = stopLossElement && stopLossElement.value ? parseFloat(stopLossElement.value) : null;
+
+                await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss);
+>>>>>>> a97112a (Added support for market and bracket orders.)
             } catch (error) {
                 log(`Order submission error: ${error.message}`, 'error');
             }
@@ -578,6 +652,9 @@
     });
 </script>
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> a97112a (Added support for market and bracket orders.)
 
 <div class="order-edit-overlay" id="orderEditOverlay" style="display: none;">
     <div class="order-edit-dialog">
@@ -603,7 +680,10 @@
     </div>
 </div>
 
+<<<<<<< HEAD
 =======
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+>>>>>>> a97112a (Added support for market and bracket orders.)
 </body>
 </html>

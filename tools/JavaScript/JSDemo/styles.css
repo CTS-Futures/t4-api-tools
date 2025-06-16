@@ -398,6 +398,7 @@ th {
     color: #ccc;
     background: none;
     opacity: 0.6;
+<<<<<<< HEAD
 }
 
 /* P&L color coding */
@@ -418,3 +419,6 @@ th {
 .log-error { color: #ff0000; }
 .log-info { color: #00ffff; }
 >>>>>>> 462b3ae (Creating a JavaScript example.)
+=======
+}
+>>>>>>> a97112a (Added support for market and bracket orders.)
