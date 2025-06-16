@@ -178,31 +178,145 @@ class T4APIClient {
         this.startHeartbeat();
     }
 
-    async submitOrder(side, volume, price) {
+    async submitOrder(side, volume, price, priceType = 'limit', takeProfit = null, stopLoss = null) {
         if (!this.selectedAccount || !this.currentMarketId) {
             throw new Error('No account or market selected');
         }
 
+        // Convert string price type to enum value
+        const priceTypeValue = priceType.toLowerCase() === 'market'
+            ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET  // 0
+            : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;  // 1
+
+        // Convert buy/sell string to enum value
+        const buySellValue = typeof side === 'string'
+            ? (side.toLowerCase() === 'buy'
+                ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY    // 1
+                : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL)  // -1
+            : side;
+
+        // Determine if we need OCO order linking
+        const hasBracketOrders = takeProfit !== null || stopLoss !== null;
+        const orderLinkValue = hasBracketOrders
+            ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO  // 2
+            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;     // 0
+
+        // Create orders array with main order first
+        const orders = [{
+            buySell: buySellValue,
+            priceType: priceTypeValue,
+            timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
+            volume: volume,
+            // Only set limit price if it's a limit order
+            limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
+                ? { value: price.toString() }
+                : null
+        }];
+
+        // For bracket orders, we need to use the opposite side
+        const protectionSide = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY
+            ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL
+            : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY;
+
+        // Add take profit order if specified
+        if (takeProfit !== null) {
+            orders.push({
+                buySell: protectionSide,
+                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT, // Always limit for take profit
+                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                volume: 0, // Volume should be 0 for bracket orders
+                limitPrice: { value: takeProfit.toString() },
+                // Hold activation means order is not active until parent order is filled
+                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
+            });
+        }
+
+        // Add stop loss order if specified
+        if (stopLoss !== null) {
+            orders.push({
+                buySell: protectionSide,
+                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
+                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                volume: 0, // Volume should be 0 for bracket orders
+                stopPrice: { value: stopLoss.toString() },
+                // Hold activation means order is not active until parent order is filled
+                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
+            });
+        }
+
+        // Create the order submit message
         const orderSubmit = {
             orderSubmit: {
                 accountId: this.selectedAccount,
                 marketId: this.currentMarketId,
-                orderLink: 0, // ORDER_LINK_NONE
+                orderLink: orderLinkValue,
                 manualOrderIndicator: true,
-                orders: [{
-                    buySell: side, // 1 for BUY_SELL_BUY, -1 for BUY_SELL_SELL
-                    priceType: 1, // PRICE_TYPE_LIMIT
-                    timeType: 0, // TIME_TYPE_NORMAL
-                    volume: volume,
-                    limitPrice: {
-                        value: price.toString()
-                    }
+                orders: orders
+            }
+        };
+
+        // Send the order
+        await this.sendMessage(orderSubmit);
+
+        // Log order details
+        const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+        const priceText = priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET ? 'Market' : price;
+
+        this.log(`Order submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType})`, 'info');
+
+        if (takeProfit !== null) {
+            this.log(`Take profit: ${takeProfit} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+        }
+
+        if (stopLoss !== null) {
+            this.log(`Stop loss: ${stopLoss} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+        }
+
+        if (hasBracketOrders) {
+            this.log(`OCO (One Cancels Other) bracket order applied`, 'info');
+        }
+    }
+
+    async pullOrder(orderId) {
+        if (!this.selectedAccount) {
+            throw new Error('No account selected');
+        }
+
+        const orderPull = {
+            orderPull: {
+                accountId: this.selectedAccount,
+                marketId: this.currentMarketId,
+                manualOrderIndicator: true,
+                pulls: [{
+                    uniqueId: orderId
                 }]
             }
         };
 
-        await this.sendMessage(orderSubmit);
-        this.log(`Order submitted: ${side === 1 ? 'Buy' : 'Sell'} ${volume} @ ${price}`, 'info');
+        await this.sendMessage(orderPull);
+        this.log(`Order cancelled: ${orderId}`, 'info');
+    }
+
+    async reviseOrder(orderId, volume, price, priceType = 'limit') {
+        if (!this.selectedAccount) {
+            throw new Error('No account selected');
+        }
+
+        const orderRevise = {
+            orderRevise: {
+                accountId: this.selectedAccount,
+                marketId: this.currentMarketId,
+                manualOrderIndicator: true,
+                revisions: [{
+                    uniqueId: orderId,
+                    volume: volume,
+                    limitPrice: priceType === 'limit' ? { value: price.toString() } : null
+                }]
+            }
+        };
+
+        await this.sendMessage(orderRevise);
+        this.log(`Order revised: ${orderId} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
     }
 
     handleMessage(event) {
@@ -684,7 +798,7 @@ class T4APIClient {
 
         try {
             // Wrap the message in ClientMessage envelope
-            const clientMessage = this.createClientMessage(messagePayload);
+            const clientMessage = T4Proto.ClientMessageHelper.createClientMessage(messagePayload);
             const encoded = this.encodeMessage(clientMessage);
             this.ws.send(encoded);
 
@@ -698,31 +812,6 @@ class T4APIClient {
             this.log(`Error sending message: ${error.message}`, 'error');
             throw error;
         }
-    }
-
-    // Create ClientMessage wrapper (equivalent to ClientMessageHelper.CreateClientMessage)
-    createClientMessage(messagePayload) {
-
-        // TODO: Get rid of this.
-
-        const clientMessage = {payload: {}};
-
-        // Map message types to ClientMessage fields
-        if (messagePayload.heartbeat) {
-            clientMessage.heartbeat = messagePayload.heartbeat;
-        } else if (messagePayload.loginRequest) {
-            clientMessage.loginRequest = messagePayload.loginRequest;
-        } else if (messagePayload.marketDepthSubscribe) {
-            clientMessage.marketDepthSubscribe = messagePayload.marketDepthSubscribe;
-        } else if (messagePayload.accountSubscribe) {
-            clientMessage.accountSubscribe = messagePayload.accountSubscribe;
-        } else if (messagePayload.orderSubmit) {
-            clientMessage.orderSubmit = messagePayload.orderSubmit;
-        } else {
-            throw new Error(`Unsupported message type: ${Object.keys(messagePayload)[0]}`);
-        }
-
-        return clientMessage;
     }
 
     // Heartbeat Management
