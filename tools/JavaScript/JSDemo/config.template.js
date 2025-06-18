@@ -7,14 +7,14 @@ const T4_CONFIG = {
     apiUrl: 'https://api-sim.t4login.com',
 
     // Option 1: API Key
-    apiKey: 'your_api_key',
+    apiKey: '',
 
     // Option 2: Credentials
-    firm: 'your_firm',
-    userName: 'your_username',
-    password: 'your_password',
-    appName: 'your_app_name',
-    appLicense: 'your_app_license_guid',
+    firm: 'CTS',
+    userName: 'JGarner',
+    password: 'Temp123$',
+     appName: 'T4WebSite',
+    appLicense: '81CE8199-0D41-498C-8A0B-EC5510A395F4',
 
     // Optional
     priceFormat: 2  /* 0: Decimal, 1: Real (Hint: Use Real if you ES price has a decimal like 6030.75, Decimal otherwise.) */
