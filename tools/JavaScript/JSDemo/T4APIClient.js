@@ -101,6 +101,10 @@ class T4APIClient {
         try {
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+            //where does connections status change?
+>>>>>>> aa901d6 (Changed config and starting APIClient in Java)
             this.log(`Connecting to WebSocket (${this.config.wsUrl}) ...`, 'info');
 =======
             this.log('Connecting to WebSocket...', 'info');
