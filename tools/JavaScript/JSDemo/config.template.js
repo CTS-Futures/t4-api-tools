@@ -16,6 +16,10 @@ const T4_CONFIG = {
     appName: 'your_app_name',
     appLicense: 'your_app_license_guid',
 
+    // Which product to load market data for.
+    mdExchangeId: 'CME_Eq',
+    mdContractId: 'ES',
+
     // Optional
     priceFormat: 2  /* 0: Decimal, 1: Real (Hint: Use Real if you ES price has a decimal like 6030.75, Decimal otherwise.) */
 };
