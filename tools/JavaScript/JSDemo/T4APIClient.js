@@ -70,6 +70,7 @@ class T4APIClient {
         if (this.isConnected) return;
 
         try {
+            //where does connections status change?
             this.log(`Connecting to WebSocket (${this.config.wsUrl}) ...`, 'info');
 
             this.ws = new WebSocket(this.config.wsUrl);
