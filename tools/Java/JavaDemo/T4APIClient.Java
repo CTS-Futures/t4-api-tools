@@ -95,26 +95,26 @@
         private static Session session;
 
 
-        @OnOpen
+        @onOpen
 
         public void onOpen(Session session){
          System.out.println("Connected to Websocket");
         }
 
-        @OnMessage
+        @onMessage
 
         public void onMessage(String message){
          System.out.println("Recieved message:" + message);
         }
 
-        @OnError
+        @onError
 
         public void onError(Session session, Throwable error){
          System.out.println("Error occurred: ");
          error.printStackTrace();
         }
 
-        @OnClose
+        @onClose
         public void onClose(Session session, CloseReason reason){
 
          System.out.println("Disconnected: " + reason);

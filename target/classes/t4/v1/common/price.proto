@@ -1,0 +1,10 @@
+syntax = "proto3";
+package t4proto.v1.common;
+
+message Decimal {
+  string value = 1;
+}
+
+message Price {
+  string value = 1;
+}
