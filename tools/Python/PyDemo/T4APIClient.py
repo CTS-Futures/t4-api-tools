@@ -38,15 +38,21 @@ class Client:
     async def connect(self):
     
         try:
-            async with websockets.connect(self.wsUrl) as self.ws:
-                await asyncio.gather(
-                    self.authenticate(),
-                    self.send_heartbeat(),
-                    self.listen()
-            )
-                
-                if not self.running: #if authentication fails give error message
-                    print("authentication failed")
+            # async with websockets.connect(self.wsUrl) as self.ws:
+            #     await asyncio.gather(
+            #         self.authenticate(),
+            #         self.send_heartbeat(),
+            #         self.listen()
+            # )
+            self.ws = await websockets.connect(self.wsUrl)
+            self.running = True
+
+            # Start background tasks
+            asyncio.create_task(self.authenticate())
+            asyncio.create_task(self.send_heartbeat())
+            asyncio.create_task(self.listen())    
+            if not self.running: #if authentication fails give error message
+                print("authentication failed")
         except Exception as e:
             print("Failure", e)
     
@@ -75,6 +81,7 @@ class Client:
     def handle_login(self, message):
         
         #successful connection
+        print(message)
         if message.result == 0:
             self.login_response = message
 
@@ -131,6 +138,7 @@ class Client:
             await self.send_message({"heartbeat": heartbeat_msg})
 
             print("Heartbeat sent.")
+            print(self.running)
             await asyncio.sleep(self.heartbeat_time) #20 second timer
 
 
