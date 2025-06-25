@@ -33,7 +33,8 @@ class Client:
         #tokens
         self.jw_token = None
         self.jw_expiration = None
-        #connects to api
+    
+    #connects to api
     async def connect(self):
     
         try:
@@ -43,7 +44,6 @@ class Client:
                     self.send_heartbeat(),
                     self.listen()
             )
-                 #authenitcation returns 
                 
                 if not self.running: #if authentication fails give error message
                     print("authentication failed")
