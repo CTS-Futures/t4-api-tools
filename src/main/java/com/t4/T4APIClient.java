@@ -6,7 +6,7 @@
      */
 
      package com.t4;
-     //import javax.websocket.*;
+     import javax.websocket.*;
      import javax.websocket.OnOpen;
      import javax.websocket.OnMessage;
      import javax.websocket.OnError;
@@ -16,15 +16,16 @@
      import javax.websocket.ContainerProvider;
      import javax.websocket.WebSocketContainer;
      import java.net.URI;
-     import java.util.HashMap;
-     import java.util.Map;
-     import java.util.Timer;
-     import t4proto.v1.auth.Auth;
-     import java.nio.ByteBuffer;
+   //   import java.util.HashMap;
+   //   import java.util.Map;
+   //   import java.util.Timer;
+   //   import t4proto.v1.auth.Auth;
+   //   import java.nio.ByteBuffer;
 
+     @ClientEndpoint
      public class T4APIClient{
         //Configuration variables 
-        public String wsUrl;
+        /* public String wsUrl;
         public String apiUrl;
         public String apiKey;
         public String firm;
@@ -39,26 +40,27 @@
         public String mdContractId;
         
      
-   //   public T4APIClient(){
-   //      //configuration from Config file
-   //    //   this.wsUrl = T4_CONFIG.wsUrl;
-   //    //   this.apiUrl = T4_CONFIG.apiUrl;
-   //    //   this.apiKey =T4_CONFIG.apiKey;
-   //    //   this.firm = T4_CONFIG.firm;
-   //    //   this.userName = T4_CONFIG.userName;
-   //    //   this.password = T4_CONFIG.password;
-   //    //   this.appName = T4_CONFIG.appName;
-   //    //   this.appLicense = T4_CONFIG.appLicense;
-   //    //   this.priceFormat = T4_CONFIG.priceFormat;
-   //    //   this.heartbeatIntervalMs = 20000;
-   //    //   this.messageTimeoutMs = 60000;
-   //    //   this.mdExchangeId = T4_CONFIG.mdExchangeId;
-   //    //   this.mdContractId = T4_CONFIG.mdContractId;
-
-   //   }
+     public T4APIClient(){
+        configuration from Config file
+        this.wsUrl = T4_CONFIG.wsUrl;
+        this.apiUrl = T4_CONFIG.apiUrl;
+        this.apiKey =T4_CONFIG.apiKey;
+        this.firm = T4_CONFIG.firm;
+        this.userName = T4_CONFIG.userName;
+        this.password = T4_CONFIG.password;
+        this.appName = T4_CONFIG.appName;
+        this.appLicense = T4_CONFIG.appLicense;
+        this.priceFormat = T4_CONFIG.priceFormat;
+        this.heartbeatIntervalMs = 20000;
+        this.messageTimeoutMs = 60000;
+        this.mdExchangeId = T4_CONFIG.mdExchangeId;
+        this.mdContractId = T4_CONFIG.mdContractId;
+     }
+ */
+     
 
       // Connection state
-        private Object ws = null; //placeholder for the WebSocket connection
+        /* private Object ws = null; //placeholder for the WebSocket connection
         private boolean isConnected = false;
         private Object loginResponse = null;
         private Map<String, Object> accounts = new HashMap<>();
@@ -101,7 +103,7 @@
         private boolean isDisposed = false;
 
 
-        private static Session session;
+        private static Session session; */
 
 
         @OnOpen
