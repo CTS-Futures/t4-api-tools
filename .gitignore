@@ -61,3 +61,6 @@ appsettings.Development.json
 # Optional: If you're using JetBrains Rider
 .idea/
 
+# --- Java/Protobuf Generated Code ---
+/target/
+!**/*.proto
