@@ -34,7 +34,7 @@
     <dependency>
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java</artifactId>
-      <version>3.25.1</version>
+      <version>3.24.4</version>
     </dependency>
   </dependencies>
 
@@ -76,7 +76,7 @@
         <artifactId>protobuf-maven-plugin</artifactId>
         <version>0.6.1</version>
         <configuration>
-          <protocArtifact>com.google.protobuf:protoc:3.25.1:exe:${os.detected.classifier}</protocArtifact>
+          <protocArtifact>com.google.protobuf:protoc:3.24.4:exe:${os.detected.classifier}</protocArtifact>
           <protoSourceRoot>${project.basedir}/proto</protoSourceRoot>
         </configuration>
         <executions>
