@@ -1,0 +1,155 @@
+syntax = "proto3";
+package t4proto.v1.account;
+
+import "google/protobuf/timestamp.proto";
+import "t4/v1/common/enums.proto";
+import "t4/v1/common/price.proto";
+import "t4/v1/market/market.proto";
+import "t4/v1/orderrouting/orderrouting.proto";
+
+message AccountSubscribe {
+  t4proto.v1.common.AccountSubscribeType subscribe = 1;
+  bool subscribe_all_accounts = 2;
+  repeated string account_id = 3;
+}
+
+message AccountSubscribeResponse {
+  bool success = 1;
+  repeated string errors = 2;
+}
+
+message AccountCurrency {
+  string currency = 1;
+  double rate = 2;
+  double import_factor = 3;
+}
+
+message AccountPosition {
+  string account_id = 1;
+  string exchange_id = 2;
+  string contract_id = 3;
+  string market_id = 4;
+  int32 buys = 5;
+  int32 sells = 6;
+  int32 working_buys = 7;
+  int32 working_sells = 8;
+  double rpl = 9;
+  double overnight_upl = 10;
+  double margin = 11;
+  double mp = 12;
+  int32 overnight_position = 13;
+  double currency_rate = 14;
+  google.protobuf.Timestamp trade_date = 15;
+  double premium = 16;
+  int32 total_open_volume = 17;
+  double fees_and_commissions = 18;
+  double long_mp = 19;
+  double short_mp = 20;
+  int32 prev_position = 21;
+  double prev_margin = 22;
+  double prev_rpl = 23;
+  double prev_upl = 24;
+  int32 day_buys = 25;
+  int32 day_sells = 26;
+  optional t4proto.v1.common.Price average_open_price = 27;
+  optional t4proto.v1.common.Price total_open_price = 28;
+  optional t4proto.v1.common.Price total_buy_fill_price = 29;
+  optional t4proto.v1.common.Price total_sell_fill_price = 30;
+  optional t4proto.v1.common.Price day_total_buy_fill_price = 31;
+  optional t4proto.v1.common.Price day_total_sell_fill_price = 32;
+  optional t4proto.v1.common.Price total_overnight_price = 33;
+  t4proto.v1.common.ContractRiskStatus risk_status = 34;
+  google.protobuf.Timestamp margin_time = 35;
+  double alerting_margin = 36;
+  google.protobuf.Timestamp alerting_time = 37;
+  double day_margin = 38;
+  double full_margin = 39;
+  double pre_trade_margin = 40;
+}
+
+message AccountUpdate {
+  string account_id = 1;
+  t4proto.v1.common.AccountStatus status = 2;
+  double balance = 3;
+  double rpl = 4;
+  double overnight_upl = 5;
+  double margin = 6;
+  double day_margin = 7;
+  double full_margin = 8;
+  double base_margin = 9;
+  double alerting_margin = 10;
+  double pre_trade_margin = 11;
+  double mp = 12;
+  double premium = 13;
+  double long_mp = 14;
+  double short_mp = 15;
+  double fees_and_commissions = 16;
+  double prev_margin = 17;
+  double imported_net_liq = 18;
+  google.protobuf.Timestamp imported_net_liq_date = 19;
+  double prev_imported_net_liq = 20;
+  google.protobuf.Timestamp prev_imported_net_liq_date = 21;
+  double filled_delta = 22;
+  double working_delta = 23;
+  google.protobuf.Timestamp margin_time = 24;
+  google.protobuf.Timestamp alerting_time = 25;
+}
+
+message AccountDetails {
+  string account_id = 1;
+  string account_name = 2;
+  string account = 3;
+  t4proto.v1.common.AccountEnabled enabled = 4;
+  bool deleted = 5;
+  int32 max_clip_size = 6;
+  bool pre_trade_disabled = 7;
+  bool position_rollover = 8;
+  bool pl_rollover = 9;
+  string firm_id = 10;
+  double min_balance = 11;
+  int32 margin_pc = 12;
+  double loss_limit = 13;
+  int32 loss_limit_pc = 14;
+  int32 overnight_margin_pc = 15;
+  bool order_routing = 16;
+  string active_time_start = 17;
+  string active_time_stop = 18;
+  int32 warning_threshold_pl = 19;
+  int32 warning_threshold_loss_limit = 20;
+  int32 warning_threshold_margin = 21;
+  string firm = 22;
+  t4proto.v1.common.AccountMode mode = 23;
+  int32 max_account_position = 24;
+  double day_loss_limit = 25;
+  string display_name = 26;
+  int32 wide_market = 27;
+  bool use_pl_for_margin = 28;
+  t4proto.v1.common.AccountMarginType margin_type = 29;
+  string risk_details = 30;
+  int32 price_banding = 31;
+  int32 day_loss_limit_pc = 32;
+  bool options_settlement = 33;
+  string group_name = 34;
+  bool use_premium_for_margin = 35;
+  double warning_threshold_min_net_equity = 36;
+}
+
+message AccountSnapshotMessage {
+    oneof payload {
+        AccountPosition account_position = 3;
+        AccountUpdate account_update = 4;
+        AccountDetails account_details = 5;
+        AccountCurrency account_currency = 6;
+        t4proto.v1.market.MarketDetails market_details = 7;
+        t4proto.v1.orderrouting.OrderUpdateMulti order_update_multi = 8;
+    }
+}
+
+message AccountSnapshot {
+ string account_id = 1;
+ int64 last_update_requested = 2; 
+ int64 last_update_supplied = 3;
+ t4proto.v1.common.AccountStatus status = 4;
+ bool due_to_connection = 5;
+ repeated AccountSnapshotMessage messages = 6;
+}

@@ -1,0 +1,230 @@
+﻿syntax = "proto3";
+package t4proto.v1.market;
+
+import "google/protobuf/timestamp.proto";
+import "t4/v1/common/enums.proto";
+import "t4/v1/common/price.proto";
+
+message MarketDepthSubscribe {
+  string exchange_id = 1;
+  string contract_id = 2;
+  string market_id = 3;
+  t4proto.v1.common.DepthBuffer buffer = 4;
+  t4proto.v1.common.DepthLevels depth_levels = 5;
+}
+
+message MarketDepthSubscribeReject {
+  string market_id = 1;
+  google.protobuf.Timestamp time = 2;
+  t4proto.v1.common.MarketMode mode = 3;
+}
+
+message MarketByOrderSubscribe {
+  string exchange_id = 1;
+  string contract_id = 2;
+  string market_id = 3;
+  bool subscribe = 4;
+}
+
+message MarketByOrderSubscribeReject {
+  string market_id = 1;
+  google.protobuf.Timestamp time = 2;
+  t4proto.v1.common.MarketMode mode = 3;
+}
+
+message MarketDetails {
+  string market_id = 1;
+  string exchange_id = 2;
+  string contract_id = 3;
+  int32 expiry_date = 4;
+  t4proto.v1.common.ContractType contract_type = 5;
+  int32 decimals = 6;
+  t4proto.v1.common.Decimal point_value = 7;
+  t4proto.v1.common.Price min_price_increment = 8;
+  int32 order_types = 9;
+  google.protobuf.Timestamp activation_date = 10;
+  google.protobuf.Timestamp last_trading_date = 11;
+  google.protobuf.Timestamp last_client_update_time = 12;
+  int64 delist_date = 13;
+  int64 exchange_delist_date = 14;
+  string market_ref = 15;
+  string group = 16;
+
+  repeated LegItem legs = 17;
+
+  string details = 18;
+  t4proto.v1.common.StrategyType strategy_type = 19;
+  string price_code = 20;
+  int32 real_decimals = 21;
+  int32 display_decimals = 22;
+  int32 clearing_decimals = 23;
+  optional t4proto.v1.common.Price min_cab_price = 24;
+  optional t4proto.v1.common.Price strike_price = 25;
+  int32 volume_increment = 26;
+  double strategy_ratio = 27;
+  bool disabled = 28;
+  string underlying_market_id = 29;
+  string vtt = 30;
+  double maint_intra_margin = 31;
+  double maint_margin = 32;
+  double maint_vol_scan = 33;
+
+  message LegItem {
+    string market_id = 1;
+    int32 group = 2;
+    int32 volume = 3;
+    string delta = 4;
+    t4proto.v1.common.Price price = 5;
+  }
+}
+
+
+message MarketDepth {
+  string market_id = 1;
+  t4proto.v1.common.DepthLevels depth_levels = 2;
+  t4proto.v1.common.DepthBuffer depth_buffer = 3;
+  google.protobuf.Timestamp time = 4;
+  bool delayed = 5;
+  repeated DepthLine bids = 6;
+  repeated DepthLine offers = 7;
+  repeated DepthLine implied_bids = 8;
+  repeated DepthLine implied_offers = 9;
+  t4proto.v1.common.MarketMode mode = 10;
+  t4proto.v1.common.MarketFlags2 flags = 11;
+
+  TradeData trade_data = 12;
+    
+  message DepthLine {
+    t4proto.v1.common.Price price = 1;
+    int32 volume = 2;
+    int32 num_orders = 3;
+  }
+
+  message TradeData {
+    int32 total_traded_volume = 1;
+    int32 total_trade_count = 2;
+    t4proto.v1.common.Price last_trade_price = 3;
+    int32 last_trade_volume = 4;
+    int32 last_trade_total_volume = 5;
+    t4proto.v1.common.Price last_trade_spd_price = 6;
+    int32 last_trade_spd_volume = 7;
+    int32 last_trade_spd_total_volume = 8;
+    bool due_to_spread = 9;
+    t4proto.v1.common.BidOffer at_bid_or_offer = 10;
+    google.protobuf.Timestamp time = 11;
+  }
+}
+
+message MarketDepthTrade {
+  string market_id = 1;
+  google.protobuf.Timestamp time = 2;
+  int32 total_traded_volume = 3;
+  int32 last_trade_volume = 4;
+  bool due_to_spread = 5;
+  t4proto.v1.common.BidOffer at_bid_or_offer = 6;
+  bool delayed = 7;
+  repeated int32 order_volumes = 8;
+  int32 total_trade_count = 9;
+  t4proto.v1.common.Price last_trade_price = 10;
+  t4proto.v1.common.MarketMode mode = 11;
+}
+
+message MarketHighLow {
+  string market_id = 1;
+  t4proto.v1.common.Price open_price = 2;
+  t4proto.v1.common.Price high_price = 3;
+  t4proto.v1.common.Price low_price = 4;
+  int64 trade_date = 5;
+  google.protobuf.Timestamp time = 6;
+  bool delayed = 7;
+}
+
+message MarketPriceLimits {
+  string market_id = 1;
+  t4proto.v1.common.Price high_price = 2;
+  t4proto.v1.common.Price low_price = 3;
+  google.protobuf.Timestamp time = 4;
+  bool delayed = 5;
+}
+
+message MarketSettlement {
+  string exchange_id = 1;
+  string market_id = 2;
+  bool delayed = 3;
+  t4proto.v1.common.Price settlement_price = 4;
+  google.protobuf.Timestamp settlement_time = 5;
+  google.protobuf.Timestamp settlement_trade_date = 6;
+  string settlement_held_price = 7;
+  google.protobuf.Timestamp settlement_held_time = 8;
+  google.protobuf.Timestamp settlement_held_trade_date = 9;
+  t4proto.v1.common.Price implied_price = 10;
+  t4proto.v1.common.Price implied_held_price = 11;
+  google.protobuf.Timestamp implied_time = 12;
+  int32 open_interest = 13;
+  google.protobuf.Timestamp open_interest_time = 14;
+  google.protobuf.Timestamp open_interest_trade_date = 15;
+  int32 cleared_volume = 16;
+  google.protobuf.Timestamp cleared_volume_time = 17;
+  google.protobuf.Timestamp cleared_volume_trade_date = 18;
+  t4proto.v1.common.Price vwap_price = 19;
+  google.protobuf.Timestamp vwap_time = 20;
+  google.protobuf.Timestamp vwap_trade_date = 21;
+}
+
+message MarketSnapshotMessage {
+    oneof payload {
+        MarketDepth market_depth = 3;
+        MarketDepthTrade market_depth_trade = 4;
+        MarketHighLow market_high_low = 5;
+        MarketPriceLimits market_price_limits = 6;
+        MarketSettlement market_settlement = 7;
+    }
+}
+
+message MarketSnapshot {
+    string market_id = 1;
+    t4proto.v1.common.MarketMode mode = 2;
+    bool due_to_connection = 3;
+    bool delayed = 4;
+    repeated MarketSnapshotMessage messages = 5;
+}
+
+
+message MarketByOrderSnapshot {
+  string market_id = 1;
+  google.protobuf.Timestamp time = 2;
+  t4proto.v1.common.MarketMode mode = 3;
+  uint64 last_sequence = 4;
+  repeated Order orders = 5;
+
+  message Order {
+    uint64 order_id = 1;
+    t4proto.v1.common.BidOffer bid_offer = 2;
+    t4proto.v1.common.Price price = 3;
+    int32 volume = 4;
+    uint64 priority = 5;
+  }
+}
+
+message MarketByOrderUpdate {
+  string market_id = 1;
+  google.protobuf.Timestamp time = 2;
+  t4proto.v1.common.MarketMode mode = 3;
+  uint64 sequence = 4;
+  repeated Update updates = 5;
+
+  enum UpdateType {
+    UPDATE_TYPE_ADD_OR_UPDATE = 0;
+    UPDATE_TYPE_DELETE = 1;
+    UPDATE_TYPE_CLEAR = 2;
+  }
+
+  message Update {
+    UpdateType update_type = 1;
+    uint64 order_id = 2;
+    t4proto.v1.common.BidOffer bid_offer = 3;
+    t4proto.v1.common.Price price = 4;
+    int32 volume = 5;
+    uint64 priority = 6;
+  }
+}
