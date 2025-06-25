@@ -7,20 +7,19 @@
 
      package com.t4;
      import javax.websocket.*;
-     import javax.websocket.OnOpen;
-     import javax.websocket.OnMessage;
-     import javax.websocket.OnError;
-     import javax.websocket.OnClose;
-     import javax.websocket.CloseReason;
-     import javax.websocket.Session;
-     import javax.websocket.ContainerProvider;
-     import javax.websocket.WebSocketContainer;
-     import java.net.URI;
-   //   import java.util.HashMap;
+
+import com.t4.helpers.ClientMessageHelper;
+
+import t4proto.v1.auth.Auth;
+
+import java.net.URI;
+import java.nio.ByteBuffer;
+//   import java.util.HashMap;
    //   import java.util.Map;
    //   import java.util.Timer;
    //   import t4proto.v1.auth.Auth;
    //   import java.nio.ByteBuffer;
+import java.security.Provider.Service;
 
      @ClientEndpoint
      public class T4APIClient{
@@ -110,12 +109,43 @@
 
         public void onOpen(Session session){
          System.out.println("Connected to Websocket");
+
+         try{
+            Auth.LoginRequest loginRequest = Auth.LoginRequest.newBuilder()
+            .setApiKey(apiKey)
+            .setAppName(appName)
+            .setAppLicense(appLicense)
+            .setFirm(firm)
+            .setUsername(userName)
+            .setPassword(password)
+            .build();
+
+            Service.ClientMessage clientMessage = ClientMessageHelper.wrapLoginRequest(loginRequest);
+
+            session.getAsyncRemote().sendBinary(ByteBuffer.wrap(clientMessage.toByteArray()));
+            System.out.println("Login message sent.");
+         }
+         catch(Exception e){
+             e.printStackTrace();
+         }
         }
 
         @OnMessage
 
-        public void onMessage(String message){
+        public void onMessage(String message, ByteBuffer bytes){
          System.out.println("Recieved message:" + message);
+         try {
+        // Attempt to parse as LoginResponse
+            Auth.LoginResponse response = Auth.LoginResponse.parseFrom(bytes.array());
+            System.out.println("📬 Login response received: " + response.toString());
+
+        // TODO: check if login was successful and move to subscribe to data
+        } catch (Exception e) {
+            System.err.println("Could not parse incoming message.");
+            e.printStackTrace();
+         }
+
+
         }
 
         @OnError
