@@ -10,11 +10,14 @@ package com.t4;
 // Protobuf-generated classes (adjust these based on actual generated package structure)
 import t4proto.v1.auth.Auth; // For LoginRequest, AuthenticationTokenRequest, AuthenticationToken
 import t4proto.v1.common.PriceOuterClass; // For PriceFormat
+import t4proto.v1.common.Enums.PriceFormat;
 import t4proto.v1.service.Service; // For ClientMessage
+import static t4proto.v1.service.Service.ServerMessage.PayloadCase.*;
 
 // WebSocket imports
 import javax.websocket.*;
 
+import com.google.protobuf.ProtoSyntax;
 // Helper class you’ve written
 import com.t4.helpers.ClientMessageHelper;
 
@@ -108,7 +111,10 @@ import java.util.Timer;
 
         private static Session session; */
 
-
+      //Step 1: Connect to WebSocket
+      //Step 2: give it auth keys and info
+      //Step 3: listen for messsage
+      //Step 4:
         @OnOpen
 
         public void onOpen(Session session){
@@ -122,6 +128,7 @@ import java.util.Timer;
             .setPassword("Temp123$")
             .setAppName("T4WebSite")
             .setAppLicense("81CE8199-0D41-498C-8A0B-EC5510A395F4")
+            .setPriceFormat(PriceFormat.PRICE_FORMAT_DECIMAL)
             .build();
 
             Service.ClientMessage clientMessage = ClientMessageHelper.wrapLoginRequest(loginRequest);
@@ -137,16 +144,71 @@ import java.util.Timer;
         @OnMessage
 
         public void onMessage(ByteBuffer bytes) {
-         System.out.println("📬 Received binary message");
+    System.out.println("Received binary message:");
+    try {
+        Service.ClientMessage clientMessage = Service.ClientMessage.parseFrom(bytes.array());
+        Service.ClientMessage.PayloadCase payloadCase = clientMessage.getPayloadCase();
+
+        switch (payloadCase) {
+            case LOGIN_REQUEST:
+                Auth.LoginRequest loginRequest = clientMessage.getLoginRequest();
+                System.out.println("Received LoginRequest: " + loginRequest);
+                break;
+
+            case HEARTBEAT:
+                System.out.println("Received Heartbeat: " + clientMessage.getHeartbeat());
+                break;
+
+            case PAYLOAD_NOT_SET:
+                System.out.println("Payload is not set");
+                break;
+
+            default:
+                System.out.println("Received unknown payload: " + payloadCase);
+        }
+
+    } catch (Exception e) {
+        System.err.println("Failed to parse message:");
+        e.printStackTrace();
+    }
+}
+
+        /*public void onMessage(ByteBuffer bytes)  {
+         System.out.println("Received binary message:");
          try {
         // Parse the Protobuf message
-            Auth.LoginResponse response = Auth.LoginResponse.parseFrom(bytes.array());
-            System.out.println(" Login response parsed: " + response);
+            Service.ClientMessage clientMessage = Service.ClientMessage.parseFrom(bytes.array());
+
+            if(clientMessage.hasLoginResponse()){
+               Auth.LoginResponse loginResponse = clientMessage.getLoginResponse();
+               System.out.println(" Login response parsed: " + loginResponse);
+            }
+            else{
+               System.out.println(" Received non-login message: " + clientMessage);
+            }
+            
          } catch (Exception e) {
             System.err.println(" Failed to parse login response:");
             e.printStackTrace();
-      }
-}
+         }
+      } */
+
+     /*  public void onMessage(String message, ByteBuffer bytes){
+         System.out.println("Recieved message:" + message);
+         try {
+        // Attempt to parse as LoginResponse
+            Auth.LoginResponse response = Auth.LoginResponse.parseFrom(bytes.array());
+            System.out.println(" Login response received: " + response.toString());
+
+        // TODO: check if login was successful and move to subscribe to data
+        } catch (Exception e) {
+            System.err.println("Could not parse incoming message.");
+            e.printStackTrace();
+         }
+
+
+        } */
+
 
         @OnError
 
