@@ -5,6 +5,7 @@ from tools.ClientMessageHelper import ClientMessageHelper
 from tools.ProtoUtils import encode_message, decode_message
 from proto.t4.v1.auth import auth_pb2
 from proto.t4.v1 import service_pb2
+import uuid
 
 class Client:
 
@@ -36,6 +37,8 @@ class Client:
         #tokens
         self.jw_token = None
         self.jw_expiration = None
+        self.pending_token_request = None
+        self.token_resolvers = {} #maps a requestID to a resolve/reject callback
     
     #connects to api
     async def connect(self):
@@ -119,7 +122,7 @@ class Client:
             
                 self.jw_token = message.authentication_token.token
                 if message.authentication_token.expire_time:
-                    self.jw_expiration = message.authentication_token.expire_time.seconds * 1000
+                    self.jw_expiration = int(message.authentication_token.expire_time.seconds) * 1000
                 
             #store accounts
             if message.accounts:
@@ -137,6 +140,21 @@ class Client:
             #     })
         else:
             print("login failed")
+    
+    def handle_authentication_token(self, message):
+        
+        #reinitialize the new token
+        self.jw_token = message.token
+
+        #reinitialize the expire time
+        self.jw_expiration = int(message.expire_time.seconds) * 1000
+
+        request_id = getattr(message, "request_id", None)
+        if request_id and request_id in self.token_resolvers:
+            future = self.token_resolvers.pop(request_id)
+            if not future.done():
+                future.set_result(message.token)
+             
         
     
     async def listen(self): #listens for any websocket messages
@@ -164,6 +182,8 @@ class Client:
         msg = decode_message(msg)
         if msg.login_response:
             self.handle_login(msg.login_response)
+        elif msg.authentication_token:
+            self.handle_authentication(msg.authentication_token)
     
         
 
@@ -183,6 +203,50 @@ class Client:
             print("Exiting heartbeat()")
 
 
+    #the following have to do with token things
+    async def refresh_token(self):   
+        ID = str(uuid.uuid4()) #gets uuid from python library (random)
+
+        future = asyncio.get_event_loop().create_future()
+        self.token_resolvers[ID] = future
+
+        ID = auth_pb2.AuthenticationTokenRequest(requestID=ID)
+        await self.send_message({"authentication_token_request": ID})
+
+
+        try:
+            #waits up to 30 seconds for a response
+            token = await asyncio.wait_for(future, timeout=30)
+            return token
+
+        except asyncio.TimeoutError:
+            del self.token_resolvers[ID]
+            raise Exception("Token request timeout")
+
+
+
+    async def get_auth_token(self):
+
+        # check if there is a valid jwt token from login
+        # condtions: it exists and it hasnt expired yet
+        # if the expiration time is farther then the curernt time, then it hasnt expired yet
+        if self.jw_token and self.jw_expiration and self.jw_expiration > time.time() + 30:
+            return self.jw_token\
+            
+        #make sure that we don't already have a token request present
+        elif self.pending_token_request:
+            return await self.pending_token_request
         
+        #let's try to get a new token now
+        self.pending_token_request = asyncio.create_task(self.refresh_token())
+        try:
+            token = await self.pending_token_request
+            return token
+        finally:
+            self.pending_token_request = None
+
+
+    
+
 
 
