@@ -10,7 +10,7 @@ class T4_GUI(tk.Tk):
         self.root = root
         self.client = client
         self.root.title("T4 API Demo")
-        self.root.geometry("1000x750")
+        self.root.geometry("1250x1080")
 
         self.create_widgets()
 
@@ -50,11 +50,93 @@ class T4_GUI(tk.Tk):
         self.disconnect_button.grid(row=3, column=3, padx=5)
 
         # --- Main Content Frame ---
-        self.main_frame = tk.Frame(self.root, bg="white")
-        self.main_frame.place(relx=0.05, rely=0.25, relwidth=0.9, relheight=0.7)
+        # self.main_frame = tk.Frame(self.root, bg="white")
+        # self.main_frame.place(relx=0.05, rely=0.25, relwidth=0.9, relheight=0.7)
 
 
-        #
+        #market frame
+        self.market_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
+        self.market_frame.place(relx=0.05, rely=0.25, relwidth=0.44, relheight=0.3)
+
+        #allows for resizing
+        self.market_frame.columnconfigure(0, weight=1)
+        self.market_frame.rowconfigure(2, weight=1)
+
+        #container for data. ensures things are touching the borders (padx and pady)
+        market_container = tk.Frame(self.market_frame, bg="white", padx=20, pady=20)
+        market_container.grid(row=0, column=0, sticky="nsew")
+
+        market_title = tk.Label(market_container, text="Market Data", font=("Arial", 16, "bold"), bg="white")
+        market_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        separator = tk.Frame(market_container, height=2, bg="#3b82f6", bd=0)
+        separator.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+        #we will put the dynamic changing ui within this frame. (the same pattern for the following three big frames)
+        self.market_inner = tk.Frame(market_container, bg="#f9f9f9")
+        self.market_inner.grid(row=2, column=0, sticky="nsew")
+
+
+        #Submit frame
+        self.submit_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
+        self.submit_frame.place(relx=0.51, rely=0.25, relwidth=0.44, relheight=0.3)
+
+        self.submit_frame.columnconfigure(0, weight=1)
+        self.submit_frame.rowconfigure(2, weight=1)
+
+        submit_container = tk.Frame(self.submit_frame, bg="white", padx=20, pady=20)
+        submit_container.grid(row=0, column=0, sticky="nsew")
+
+        submit_title = tk.Label(submit_container, text="Submit Order", font=("Arial", 16, "bold"), bg="white")
+        submit_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        separator = tk.Frame(submit_container, height=2, bg="#3b82f6", bd=0)
+        separator.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+        self.submit_inner = tk.Frame(submit_container, bg="#f9f9f9")
+        self.submit_inner.grid(row=2, column=0, sticky="nsew")
+
+
+        #positions frame
+        self.positions_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
+        self.positions_frame.place(relx=0.05, rely=0.60, relwidth=0.44, relheight=0.3)
+
+        self.positions_frame.columnconfigure(0, weight=1)
+        self.positions_frame.rowconfigure(2, weight=1)
+
+        positions_container = tk.Frame(self.positions_frame, bg="white", padx=20, pady=20)
+        positions_container.grid(row=0, column=0, sticky="nsew")
+
+        positions_title = tk.Label(positions_container, text="Positions", font=("Arial", 16, "bold"), bg="white")
+        positions_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        separator = tk.Frame(positions_container, height=2, bg="#3b82f6", bd=0)
+        separator.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+        self.positions_inner = tk.Frame(positions_container, bg="#f9f9f9")
+        self.positions_inner.grid(row=2, column=0, sticky="nsew")
+
+
+        # orders frame
+        self.orders_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
+        self.orders_frame.place(relx=0.51, rely=0.60, relwidth=0.44, relheight=0.3)
+
+        self.orders_frame.columnconfigure(0, weight=1)
+        self.orders_frame.rowconfigure(2, weight=1)
+
+        orders_container = tk.Frame(self.orders_frame, bg="white", padx=20, pady=20)
+        orders_container.grid(row=0, column=0, sticky="nsew")
+
+        orders_title = tk.Label(orders_container, text="Orders", font=("Arial", 16, "bold"), bg="white")
+        orders_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        separator = tk.Frame(orders_container, height=2, bg="#3b82f6", bd=0)
+        separator.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+
+        self.orders_inner = tk.Frame(orders_container, bg="#f9f9f9")
+        self.orders_inner.grid(row=2, column=0, sticky="nsew")
+
+
     #command for when the button is pressed
     def start_connection(self):
         self.status_label.config(text="Status: Connecting...")
@@ -76,17 +158,15 @@ class T4_GUI(tk.Tk):
             self.status_label.config(text="Status: Failed to connect", foreground="red")
 
     async def disconnect(self):
-        
-        await self.client.disconnect()
-
-        
-
         #turns status to red
         self.status_label.config(text="Status:Disconnected", foreground="red")
         self.status_icon.itemconfig(1, fill="red")
 
         #remove accounts 
         self.account_dropdown.set("Select Account...")
+        await self.client.disconnect()
+
+        
 
     def populate_accounts(self):
         account_names = [v.account_name for v in self.client.accounts.values()]
