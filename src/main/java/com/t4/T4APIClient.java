@@ -5,21 +5,25 @@
      * 
      */
 
-     package com.t4;
-     import javax.websocket.*;
+package com.t4;
 
+// Protobuf-generated classes (adjust these based on actual generated package structure)
+import t4proto.v1.auth.Auth; // For LoginRequest, AuthenticationTokenRequest, AuthenticationToken
+import t4proto.v1.common.PriceOuterClass; // For PriceFormat
+import t4proto.v1.service.Service; // For ClientMessage
+
+// WebSocket imports
+import javax.websocket.*;
+
+// Helper class you’ve written
 import com.t4.helpers.ClientMessageHelper;
 
-import t4proto.v1.auth.Auth;
-
+// Java stdlib
 import java.net.URI;
 import java.nio.ByteBuffer;
-//   import java.util.HashMap;
-   //   import java.util.Map;
-   //   import java.util.Timer;
-   //   import t4proto.v1.auth.Auth;
-   //   import java.nio.ByteBuffer;
-import java.security.Provider.Service;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Timer;
 
      @ClientEndpoint
      public class T4APIClient{
@@ -112,12 +116,12 @@ import java.security.Provider.Service;
 
          try{
             Auth.LoginRequest loginRequest = Auth.LoginRequest.newBuilder()
-            .setApiKey(apiKey)
-            .setAppName(appName)
-            .setAppLicense(appLicense)
-            .setFirm(firm)
-            .setUsername(userName)
-            .setPassword(password)
+            .setApiKey("")
+            .setFirm("CTS")
+            .setUsername("JGarner")
+            .setPassword("Temp123$")
+            .setAppName("T4WebSite")
+            .setAppLicense("81CE8199-0D41-498C-8A0B-EC5510A395F4")
             .build();
 
             Service.ClientMessage clientMessage = ClientMessageHelper.wrapLoginRequest(loginRequest);
@@ -132,21 +136,17 @@ import java.security.Provider.Service;
 
         @OnMessage
 
-        public void onMessage(String message, ByteBuffer bytes){
-         System.out.println("Recieved message:" + message);
+        public void onMessage(ByteBuffer bytes) {
+         System.out.println("📬 Received binary message");
          try {
-        // Attempt to parse as LoginResponse
+        // Parse the Protobuf message
             Auth.LoginResponse response = Auth.LoginResponse.parseFrom(bytes.array());
-            System.out.println("📬 Login response received: " + response.toString());
-
-        // TODO: check if login was successful and move to subscribe to data
-        } catch (Exception e) {
-            System.err.println("Could not parse incoming message.");
+            System.out.println(" Login response parsed: " + response);
+         } catch (Exception e) {
+            System.err.println(" Failed to parse login response:");
             e.printStackTrace();
-         }
-
-
-        }
+      }
+}
 
         @OnError
 
