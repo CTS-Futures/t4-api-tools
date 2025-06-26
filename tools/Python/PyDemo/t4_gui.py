@@ -41,22 +41,30 @@ class T4_GUI(tk.Tk):
         self.account_dropdown.set("Select Account...")
         self.account_dropdown.grid(row=3, column=1, padx=10, sticky="w")
 
-        # Connect Button
+        #connect Button
         self.connect_button = tk.Button(self.connect_frame, text="Connect", bg="#6b7280", fg="white", command=self.start_connection)
         self.connect_button.grid(row=3, column=2, padx=(10, 5))
 
-        # Disconnect Button
-        self.disconnect_button = tk.Button(self.connect_frame, text="Disconnect", bg="#3b82f6", fg="white", state="disabled")
+        #disconnect Button
+        self.disconnect_button = tk.Button(self.connect_frame, text="Disconnect", bg="#3b82f6", fg="white", command=self.end_connection)
         self.disconnect_button.grid(row=3, column=3, padx=5)
 
         # --- Main Content Frame ---
         self.main_frame = tk.Frame(self.root, bg="white")
         self.main_frame.place(relx=0.05, rely=0.25, relwidth=0.9, relheight=0.7)
 
+
+        #
+    #command for when the button is pressed
     def start_connection(self):
         self.status_label.config(text="Status: Connecting...")
         asyncio.create_task(self.connect_and_listen())
+    
+    def end_connection(self):
+        self.status_label.config(text="Sttus: Disconnecting...")
+        #task to disconnect
 
+    #creates this task to actually connect to the client
     async def connect_and_listen(self):
         await self.client.connect()
         print(self.client.running)
@@ -67,3 +75,22 @@ class T4_GUI(tk.Tk):
         else:
             self.status_label.config(text="Status: Failed to connect", foreground="red")
 
+    async def disconnect(self):
+        #await'
+        #insert command here
+
+        if not self.client.running:
+            self.status_label.config(text="Status:Disconnected")
+            self.status_icon.itemconfig(1, fill="red")
+
+            #remove accounts perhaps?
+
+    def populate_accounts(self):
+        account_names = [v.account_name for v in self.client.accounts.values()]
+        print([type(v) for v in self.client.accounts.values()])
+
+        self.account_dropdown['values'] = account_names
+        if account_names:
+            self.account_dropdown.set(account_names[0])
+        print("here")
+        print(account_names)

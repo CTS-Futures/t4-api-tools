@@ -22,10 +22,10 @@ class Client:
         self.lastMessage = None
         self.running = False
         self.heartbeat_time = 20 
-
+        self.login_event = asyncio.Event()
         #accounts
-        self.accounts = dict()
-            
+        self.accounts = {}
+        self.selected_account = None
         #connection
         self.login_response = None
 
@@ -50,7 +50,14 @@ class Client:
             # Start background tasks
             asyncio.create_task(self.authenticate())
             asyncio.create_task(self.send_heartbeat())
-            asyncio.create_task(self.listen())    
+            asyncio.create_task(self.listen()) 
+
+            #wait for log in to complete.
+            try:
+                await asyncio.wait_for(self.login_event.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                print("Login timed out.")
+                self.running = False   
             if not self.running: #if authentication fails give error message
                 print("authentication failed")
         except Exception as e:
@@ -84,7 +91,7 @@ class Client:
         print(message)
         if message.result == 0:
             self.login_response = message
-
+            
             # store token   
             if message.authentication_token and message.authentication_token.token:
             
@@ -96,6 +103,10 @@ class Client:
             if message.accounts:
                 for acc in message.accounts:
                     self.accounts[acc.account_id] = acc
+
+            self.login_event.set()
+            print(self.accounts)
+            
         
             # if self.on_account_update:
             #     self.on_account_update({
