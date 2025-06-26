@@ -61,8 +61,8 @@ class T4_GUI(tk.Tk):
         asyncio.create_task(self.connect_and_listen())
     
     def end_connection(self):
-        self.status_label.config(text="Sttus: Disconnecting...")
-        #task to disconnect
+        self.status_label.config(text="Status: Disconnecting...", foreground="red")
+        asyncio.create_task(self.disconnect())
 
     #creates this task to actually connect to the client
     async def connect_and_listen(self):
@@ -76,14 +76,17 @@ class T4_GUI(tk.Tk):
             self.status_label.config(text="Status: Failed to connect", foreground="red")
 
     async def disconnect(self):
-        #await'
-        #insert command here
+        
+        await self.client.disconnect()
 
-        if not self.client.running:
-            self.status_label.config(text="Status:Disconnected")
-            self.status_icon.itemconfig(1, fill="red")
+        
 
-            #remove accounts perhaps?
+        #turns status to red
+        self.status_label.config(text="Status:Disconnected", foreground="red")
+        self.status_icon.itemconfig(1, fill="red")
+
+        #remove accounts 
+        self.account_dropdown.set("Select Account...")
 
     def populate_accounts(self):
         account_names = [v.account_name for v in self.client.accounts.values()]

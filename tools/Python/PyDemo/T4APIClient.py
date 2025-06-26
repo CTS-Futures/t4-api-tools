@@ -29,7 +29,10 @@ class Client:
         #connection
         self.login_response = None
 
-
+        
+        #main tasks
+        self.listen_task = None
+        self.heartbeat_task = None
         #tokens
         self.jw_token = None
         self.jw_expiration = None
@@ -49,8 +52,8 @@ class Client:
 
             # Start background tasks
             asyncio.create_task(self.authenticate())
-            asyncio.create_task(self.send_heartbeat())
-            asyncio.create_task(self.listen()) 
+            self.heartbeat_task = asyncio.create_task(self.send_heartbeat())
+            self.listen_task = asyncio.create_task(self.listen()) 
 
             #wait for log in to complete.
             try:
@@ -62,7 +65,26 @@ class Client:
                 print("authentication failed")
         except Exception as e:
             print("Failure", e)
-    
+
+
+    async def disconnect(self):
+        self.running = False #turns off all the loops going
+        if self.ws:
+            await self.ws.close(code=1000, reason="client disconnect")
+            print("disconnect success")
+        else:
+            print("already disconnected")
+        
+        #cancels the recurring listening and heartbeat monitors.
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
+        if self.listen_task:
+            self.listen_task.cancel()
+
+        #gathers the tasks together to cancel
+        await asyncio.gather(self.listen_task, self.heartbeat_task)
+        print("check 2")
+
     #envelopes, encrypts, and sends message to the server
     async def send_message(self, message):
         request = ClientMessageHelper.create_client_message(message)
@@ -121,9 +143,14 @@ class Client:
         
         try:
             while self.running:
-                msg = await self.ws.recv()
-                self.proccess_server_message(msg)
+                try:
+                    msg = await asyncio.wait_for(self.ws.recv(), timeout=2)
+                    self.proccess_server_message(msg)
+                except asyncio.TimeoutError:
+                    continue  # keep looping to check `self.running`
     
+        except asyncio.CancelledError:
+            print("listen() task cancelled.")
         except websockets.exceptions.ConnectionClosed:
             print("Connection closed by server.")
             self.running = False
@@ -143,15 +170,17 @@ class Client:
     async def send_heartbeat(self):
         
         #will continuously send heartbeats until connection breaks
-        while self.running:
-            
-            heartbeat_msg = service_pb2.Heartbeat(timestamp=int(time.time() * 1000))
-            await self.send_message({"heartbeat": heartbeat_msg})
-
-            print("Heartbeat sent.")
-            print(self.running)
-            await asyncio.sleep(self.heartbeat_time) #20 second timer
-
+    
+        try:
+            while self.running:
+                heartbeat_msg = service_pb2.Heartbeat(timestamp=int(time.time() * 1000))
+                await self.send_message({"heartbeat": heartbeat_msg})
+                print("Heartbeat sent.")
+                await asyncio.sleep(self.heartbeat_time)
+        except asyncio.CancelledError:
+            print("heartbeat() task cancelled.")
+        finally:
+            print("Exiting heartbeat()")
 
 
         
