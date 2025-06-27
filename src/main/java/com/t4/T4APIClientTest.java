@@ -12,7 +12,7 @@ import t4proto.v1.auth.Auth; // For LoginRequest, AuthenticationTokenRequest, Au
 import t4proto.v1.common.PriceOuterClass; // For PriceFormat
 import t4proto.v1.common.Enums.PriceFormat;
 import t4proto.v1.service.Service; // For ClientMessage
-import static t4proto.v1.service.Service.ServerMessage.PayloadCase.*;
+//import static t4proto.v1.service.Service.ServerMessage.PayloadCase.*;
 
 // WebSocket imports
 import javax.websocket.*;
@@ -21,15 +21,22 @@ import com.google.protobuf.ProtoSyntax;
 // Helper class you’ve written
 import com.t4.helpers.ClientMessageHelper;
 
+import java.io.IOException;
 // Java stdlib
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Timer;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+//Having some threading problems
 
      @ClientEndpoint
-     public class T4APIClient{
+     public class T4APIClientTest{
         //Configuration variables 
         /* public String wsUrl;
         public String apiUrl;
@@ -66,7 +73,7 @@ import java.util.Timer;
      
 
       // Connection state
-        /* private Object ws = null; //placeholder for the WebSocket connection
+        private Object ws = null; //placeholder for the WebSocket connection
         private boolean isConnected = false;
         private Object loginResponse = null;
         private Map<String, Object> accounts = new HashMap<>();
@@ -89,7 +96,7 @@ import java.util.Timer;
 
         // Heartbeat management
         private Object heartbeatTimer = null;
-        private int lastMessageReceived = 0;
+        private long lastMessageReceived = System.currentTimeMillis();
 
         // Event handlers
         private Object onConnectionStatusChanged = null;
@@ -109,7 +116,7 @@ import java.util.Timer;
         private boolean isDisposed = false;
 
 
-        private static Session session; */
+        private static Session session;
 
       //Step 1: Connect to WebSocket
       //Step 2: give it auth keys and info
@@ -134,6 +141,8 @@ import java.util.Timer;
             Service.ClientMessage clientMessage = ClientMessageHelper.wrapLoginRequest(loginRequest);
 
             session.getAsyncRemote().sendBinary(ByteBuffer.wrap(clientMessage.toByteArray()));
+            startHeartbeatMonitor(session);
+            startClientHeartbeat(session);
             System.out.println("Login message sent.");
          }
          catch(Exception e){
@@ -144,36 +153,40 @@ import java.util.Timer;
         @OnMessage
 
         public void onMessage(ByteBuffer bytes) {
-    System.out.println("Received binary message:");
-    try {
-        Service.ClientMessage clientMessage = Service.ClientMessage.parseFrom(bytes.array());
-        Service.ClientMessage.PayloadCase payloadCase = clientMessage.getPayloadCase();
+      System.out.println("Received binary message:");
+      try {
+         Service.ClientMessage clientMessage = Service.ClientMessage.parseFrom(bytes.array());
+         Service.ClientMessage.PayloadCase payloadCase = clientMessage.getPayloadCase();
 
-        switch (payloadCase) {
-            case LOGIN_REQUEST:
-                Auth.LoginRequest loginRequest = clientMessage.getLoginRequest();
-                System.out.println("Received LoginRequest: " + loginRequest);
-                break;
+         switch (payloadCase) {
+               case LOGIN_REQUEST:
+                  Auth.LoginRequest loginRequest = clientMessage.getLoginRequest();
+                  System.out.println("Received LoginRequest: " + loginRequest);
+                  break;
 
-            case HEARTBEAT:
-                System.out.println("Received Heartbeat: " + clientMessage.getHeartbeat());
-                break;
+               case HEARTBEAT:
+                  lastMessageReceived = System.currentTimeMillis();
+                   System.out.println("Received Heartbeat: " + clientMessage.getHeartbeat());
+                   break;
 
-            case PAYLOAD_NOT_SET:
-                System.out.println("Payload is not set");
-                break;
+               case PAYLOAD_NOT_SET:
+                   System.out.println("Payload is not set");
+                   break;
 
-            default:
-                System.out.println("Received unknown payload: " + payloadCase);
-        }
+               default:
+                   System.out.println("Received unknown payload: " + payloadCase);
+         }
 
-    } catch (Exception e) {
-        System.err.println("Failed to parse message:");
-        e.printStackTrace();
-    }
-}
+      } 
+         catch (Exception e) {
+            System.err.println("Failed to parse message:");
+            e.printStackTrace();
+         }
+      }
 
-        /*public void onMessage(ByteBuffer bytes)  {
+        /* Attempt 1
+        
+        public void onMessage(ByteBuffer bytes)  {
          System.out.println("Received binary message:");
          try {
         // Parse the Protobuf message
@@ -215,19 +228,69 @@ import java.util.Timer;
         public void onError(Session session, Throwable error){
          System.out.println("Error occurred: ");
          error.printStackTrace();
+         reconnect();
         }
 
         @OnClose
         public void onClose(Session session, CloseReason reason){
-
          System.out.println("Disconnected: " + reason);
+         //reconnect();
 
         }
+
+        private void reconnect() {
+         try {
+           Thread.sleep(2000); // small backoff
+           WebSocketContainer container = ContainerProvider.getWebSocketContainer();
+           container.connectToServer(this, URI.create("wss://wss-sim.t4login.com/v1"));
+           System.out.println("Reconnecting...");
+         } catch (Exception e) {
+           System.err.println("Reconnection failed:");
+           e.printStackTrace();
+          }
+      }
+
+        private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+
+        private void startHeartbeatMonitor(Session session) {
+            scheduler.scheduleAtFixedRate(() -> {
+            long now = System.currentTimeMillis();
+            if (now - lastMessageReceived > 30000) { // 30 seconds without heartbeat
+               System.err.println(" No heartbeat received in 30s. Reconnecting...");
+               try {
+                   session.close();
+               } catch (IOException e) {
+                   e.printStackTrace();
+               }
+               reconnect();
+            }
+         }, 10, 10, TimeUnit.SECONDS);
+      }
+
+      private void startClientHeartbeat(Session session) 
+      {
+         scheduler.scheduleAtFixedRate(() -> {
+         try {
+            // Construct and send a protobuf Heartbeat
+            Service.Heartbeat heartbeat = Service.Heartbeat.newBuilder()
+                .setTimestamp(System.currentTimeMillis())
+                .build();
+            Service.ClientMessage ping = Service.ClientMessage.newBuilder()
+                .setHeartbeat(heartbeat)
+                .build();
+            session.getAsyncRemote().sendBinary(ByteBuffer.wrap(ping.toByteArray()));
+            System.out.println("Sent heartbeat ping");
+         } catch (Exception e) {
+            System.err.println("Failed to send heartbeat ping");
+            e.printStackTrace();
+         }
+         }, 0, 20, TimeUnit.SECONDS); // every 20s
+      }
 
         public static void main(String[] args){
          try{
             WebSocketContainer container = ContainerProvider.getWebSocketContainer();
-            container.connectToServer(T4APIClient.class, URI.create("wss://wss-sim.t4login.com/v1"));
+            container.connectToServer(T4APIClientTest.class, URI.create("wss://wss-sim.t4login.com/v1"));
             Thread.sleep(5000);
          }
          catch(Exception e){

@@ -64,7 +64,7 @@
       <artifactId>exec-maven-plugin</artifactId>
       <version>3.1.0</version>
       <configuration>
-        <mainClass>com.t4.T4APIClient</mainClass>
+        <mainClass>com.t4.T4APIClientTest</mainClass>
       </configuration>
     </plugin>
 
@@ -85,7 +85,7 @@
       </executions>
     </plugin>
 
-    <!-- 👇 Add this to link generated sources -->
+    <!--  Add this to link generated sources -->
     <plugin>
       <groupId>org.codehaus.mojo</groupId>
       <artifactId>build-helper-maven-plugin</artifactId>
