@@ -12,7 +12,6 @@ def load_config(path="config/config.yaml"):
 
 async def main():
     config = load_config()
-    print(config)
     client = Client(config)
 
     root = tk.Tk()

@@ -12,6 +12,8 @@ websocket:
 
 
   #which product to load market data for
+  md_exchange_id: 'CME_Eq'
+  md_contract_id: 'ES'
 
   ##optional
   priceFormat: 2

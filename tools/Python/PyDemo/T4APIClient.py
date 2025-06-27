@@ -5,20 +5,28 @@ from tools.ClientMessageHelper import ClientMessageHelper
 from tools.ProtoUtils import encode_message, decode_message
 from proto.t4.v1.auth import auth_pb2
 from proto.t4.v1 import service_pb2
+from proto.t4.v1.market import market_pb2
+from proto.t4.v1.common.enums_pb2 import DepthBuffer, DepthLevels
 import uuid
+import httpx
 
 class Client:
 
     #initializes core attributes
     def __init__(self, config):
+        #config file settings
         self.wsUrl = config['websocket']['url']
         self.apiUrl = config['websocket']['api']
+        self.apiKey = None
         self.firm= config['websocket']['firm']
         self.username=config['websocket']['username']
         self.password=config['websocket']['password']
         self.app_name= config['websocket']['app_name']
         self.app_license= config['websocket']['app_license']
         self.priceFormat= config['websocket']['priceFormat']
+        self.md_exchange_id = config['websocket']['md_exchange_id']
+        self.md_contract_id = config['websocket']['md_contract_id']
+
         self.ws = None
         self.lastMessage = None
         self.running = False
@@ -39,6 +47,11 @@ class Client:
         self.jw_expiration = None
         self.pending_token_request = None
         self.token_resolvers = {} #maps a requestID to a resolve/reject callback
+
+        #market data
+        self.current_market_id = None
+        self.current_subscription = None
+        self.market_details = {}
     
     #connects to api
     async def connect(self):
@@ -154,8 +167,31 @@ class Client:
             future = self.token_resolvers.pop(request_id)
             if not future.done():
                 future.set_result(message.token)
-             
+
+    def handle_market_detail(self, message): 
+        self.market_details[message.market_id] = message
+        print('market details stored')
+
+    def handle_market_snapshot(self, message):
+        print(message)
+        print("received market snapshot")
+
+        #each message snapshot has a markte detph
+        if message.messages:
+            for market_depth in message.messages:
+                self.handle_market_depth(market_depth)
         
+        #if we have all the necessary info, we will update the market header
+        market_details = self.market_details.get(message.market_id)
+        if market_details and market_details.contract_id and market_details.expiry_date:
+            self.update_market_header(market_details.contract_id, market_details.expiry_date)
+
+
+    def handle_market_depth(self, message):
+        pass
+
+    def handle_subscribe_response(self, message):
+        print(message)
     
     async def listen(self): #listens for any websocket messages
         
@@ -163,7 +199,7 @@ class Client:
             while self.running:
                 try:
                     msg = await asyncio.wait_for(self.ws.recv(), timeout=2)
-                    self.proccess_server_message(msg)
+                    self.process_server_message(msg)
                 except asyncio.TimeoutError:
                     continue  # keep looping to check `self.running`
     
@@ -178,13 +214,34 @@ class Client:
 
     #this will be inside of the listen function.
     #sends each message to a handling funciton. Which will just parse the data that is needed
-    def proccess_server_message(self, msg):
+    def process_server_message(self, msg):
         msg = decode_message(msg)
-        if msg.login_response:
+      #  print(msg)
+        # if msg.login_response:
+        #     self.handle_login(msg.login_response)
+        # elif msg.authentication_token:
+        #     self.handle_authentication(msg.authentication_token)
+        # elif msg.subscribe_response:
+        #     self.handle_subscribe_response(msg.subscribe_response)
+        message_type = msg.WhichOneof("payload")
+     
+        if message_type == "login_response":
             self.handle_login(msg.login_response)
-        elif msg.authentication_token:
+        elif message_type == "authentication_token":
             self.handle_authentication(msg.authentication_token)
-    
+        elif message_type == "account_subscribe_response":
+            self.handle_subscribe_response(msg.account_subscribe_response)
+        elif message_type == "market_details":
+            self.handle_market_detail(msg.market_details)    
+        elif message_type == "market_snapshot":
+            self.handle_market_snapshot(msg.market_snapshot)
+       
+        elif message_type == "market_depth":
+            pass
+        
+        
+        else:
+            print(msg)
         
 
     async def send_heartbeat(self):
@@ -246,7 +303,65 @@ class Client:
             self.pending_token_request = None
 
 
+    async def get_market_id(self, exchange_id, contract_id):
+        
+
+        try:
+
+            #this section checks which authorization type to use
+            headers = {'Content-type': 'application/json'}
+
+            if (self.apiKey):
+                headers['Authorization'] = f'APIKey {self.apikey}'
+            else:
+                token = await self.get_auth_token()
+                if (token):
+                    headers['Authorization'] = f'Bearer {token}'
+            
+            #now let's do an async request
+            async with httpx.AsyncClient() as rest:
+              
+                response = await rest.get(f'{self.apiUrl}/markets/picker/firstmarket?exchangeid={exchange_id}&contractid={contract_id}'
+                                        , headers=headers)
+                #check if the response is valid
+                if not response.status_code == 200:
+                     print('error inside')
+                     return
+                
+                #get the marketid.
+                data = response.json()
+                self.current_market_id = data.get("marketID")
+               
+                return data
+
+        except Exception as e:
+            print("error outside:", e)
     
+    async def subscribe_market(self, exchange_id, contract_id, market_id):
+        key = f'{exchange_id}_{contract_id}_{market_id}'
+      
+       # if currently subscribed, let's unsubscribe and subscribe to the other
+        if self.current_subscription:
+            
+
+            print("unsubscribed from market")
+            self.current_subscription = None
+        
+        self.current_subscription = {exchange_id, contract_id, market_id}
+        self.current_market_id = market_id
+
+        # creates subscripton message
+        depth_sub = market_pb2.MarketDepthSubscribe(
+            exchange_id= exchange_id,
+            contract_id= contract_id,
+            market_id = market_id,
+            buffer = DepthBuffer.DEPTH_BUFFER_SMART,
+            depth_levels= DepthLevels.DEPTH_LEVELS_BEST_ONLY
+        )
+
+        # sends the message out
+        await self.send_message({"market_depth_subscribe": depth_sub})
 
 
-
+    def update_market_header(self, contract_id, expiry_date):
+        pass

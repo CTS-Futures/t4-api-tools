@@ -989,17 +989,7 @@ class T4APIClient {
         }
     }
 
-    // Auth token management.
-    async requestNewToken() {
-        const requestId = this.generateUUID();
-
-        await this.sendMessage({
-            authenticationTokenRequest: {
-                requestId: requestId
-            }
-        });
-
-        // Wait for response (handled in processServerMessage)
+    // Wait for response (handled in processServerMessage)
         return new Promise((resolve, reject) => {
             this.tokenResolvers = this.tokenResolvers || new Map();
             this.tokenResolvers.set(requestId, {resolve, reject});
@@ -1012,7 +1002,6 @@ class T4APIClient {
                 }
             }, 30000);
         });
-    }
 
     generateUUID() {
 

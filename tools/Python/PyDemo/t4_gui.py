@@ -156,6 +156,8 @@ class T4_GUI(tk.Tk):
             self.populate_accounts()
         else:
             self.status_label.config(text="Status: Failed to connect", foreground="red")
+        
+        await self.get_and_subscribe()
 
     async def disconnect(self):
         #turns status to red
@@ -170,10 +172,17 @@ class T4_GUI(tk.Tk):
 
     def populate_accounts(self):
         account_names = [v.account_name for v in self.client.accounts.values()]
-        print([type(v) for v in self.client.accounts.values()])
+     #   print([type(v) for v in self.client.accounts.values()])
 
         self.account_dropdown['values'] = account_names
         if account_names:
             self.account_dropdown.set(account_names[0])
-        print("here")
-        print(account_names)
+        #print("here")
+       # print(account_names)
+
+    async def get_and_subscribe(self):
+        await asyncio.sleep(2)
+
+        await self.client.get_market_id(self.client.md_exchange_id, self.client.md_contract_id)
+        await self.client.subscribe_market(self.client.md_exchange_id, self.client.md_contract_id, self.client.current_market_id)
+        #will be adding subscribe next
