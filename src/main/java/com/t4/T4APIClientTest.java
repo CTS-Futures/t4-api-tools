@@ -12,7 +12,7 @@ import t4proto.v1.auth.Auth; // For LoginRequest, AuthenticationTokenRequest, Au
 import t4proto.v1.common.PriceOuterClass; // For PriceFormat
 import t4proto.v1.common.Enums.PriceFormat;
 import t4proto.v1.service.Service; // For ClientMessage
-//import static t4proto.v1.service.Service.ServerMessage.PayloadCase.*;
+import t4proto.v1.account.Account;//import static t4proto.v1.service.Service.ServerMessage.PayloadCase.*;
 
 // WebSocket imports
 import javax.websocket.*;
@@ -32,6 +32,8 @@ import java.util.Timer;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import com.t4.helpers.TestDecoder;
 
 //Having some threading problems
 
@@ -116,7 +118,6 @@ import java.util.concurrent.TimeUnit;
         private boolean isDisposed = false;
 
 
-        private static Session session;
 
       //Step 1: Connect to WebSocket
       //Step 2: give it auth keys and info
@@ -156,6 +157,7 @@ import java.util.concurrent.TimeUnit;
       System.out.println("Received binary message:");
       try {
          Service.ClientMessage clientMessage = Service.ClientMessage.parseFrom(bytes.array());
+         Service.ServerMessage serverMessage = Service.ServerMessage.parseFrom(bytes.array());
          Service.ClientMessage.PayloadCase payloadCase = clientMessage.getPayloadCase();
 
          switch (payloadCase) {
@@ -171,6 +173,18 @@ import java.util.concurrent.TimeUnit;
 
                case PAYLOAD_NOT_SET:
                    System.out.println("Payload is not set");
+                   break;
+               
+               case AUTHENTICATION_TOKEN_REQUEST:
+                  Auth.AuthenticationToken token = serverMessage.getAuthenticationToken();
+                  System.out.println("Received token: " + token);
+                  try {
+                     Map<String, Object> decoded = TestDecoder.decodeToken(token.getToken());
+                     System.out.println("🔓 Decoded token: " + decoded);
+               } catch (Exception e) {
+                     System.err.println("❌ Failed to decode token:");
+                     e.printStackTrace();
+               }
                    break;
 
                default:
@@ -286,6 +300,25 @@ import java.util.concurrent.TimeUnit;
          }
          }, 0, 20, TimeUnit.SECONDS); // every 20s
       }
+
+
+       public void handleIncomingMessage(String jwtToken) 
+       {
+         Map<String, Object> claims = TestDecoder.decodeToken(jwtToken);
+
+         if (claims.containsKey("error")) 
+         {
+            System.out.println("Error decoding token: " + claims.get("error"));
+         } 
+        else 
+        {
+            System.out.println("Decoded Username: " + claims.get("t4_Username"));
+            System.out.println("Token Expires At: " + claims.get("exp"));
+        }
+      }
+
+
+
 
         public static void main(String[] args){
          try{
