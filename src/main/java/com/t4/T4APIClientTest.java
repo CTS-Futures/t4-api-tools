@@ -9,6 +9,7 @@ package com.t4;
 
 // Protobuf-generated classes (adjust these based on actual generated package structure)
 import t4proto.v1.auth.Auth; // For LoginRequest, AuthenticationTokenRequest, AuthenticationToken
+import t4proto.v1.auth.Auth.AuthenticationToken;
 import t4proto.v1.common.PriceOuterClass; // For PriceFormat
 import t4proto.v1.common.Enums.PriceFormat;
 import t4proto.v1.service.Service; // For ClientMessage
@@ -17,7 +18,9 @@ import t4proto.v1.account.Account;//import static t4proto.v1.service.Service.Ser
 // WebSocket imports
 import javax.websocket.*;
 
+import com.auth0.jwt.interfaces.DecodedJWT;
 import com.google.protobuf.ProtoSyntax;
+import com.google.protobuf.Descriptors.FieldDescriptor;
 // Helper class you’ve written
 import com.t4.helpers.ClientMessageHelper;
 
@@ -34,6 +37,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import com.t4.helpers.TestDecoder;
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.interfaces.DecodedJWT;
+import com.auth0.jwt.interfaces.Claim;
 
 //Having some threading problems
 
@@ -119,8 +125,8 @@ import com.t4.helpers.TestDecoder;
 
 
 
-      //Step 1: Connect to WebSocket
-      //Step 2: give it auth keys and info
+      //Step 1: Connect to WebSocket!
+      //Step 2: give it auth keys and info!
       //Step 3: listen for messsage
       //Step 4:
         @OnOpen
@@ -156,37 +162,34 @@ import com.t4.helpers.TestDecoder;
         public void onMessage(ByteBuffer bytes) {
       System.out.println("Received binary message:");
       try {
-         Service.ClientMessage clientMessage = Service.ClientMessage.parseFrom(bytes.array());
          Service.ServerMessage serverMessage = Service.ServerMessage.parseFrom(bytes.array());
-         Service.ClientMessage.PayloadCase payloadCase = clientMessage.getPayloadCase();
-
+         Service.ServerMessage.PayloadCase payloadCase = serverMessage.getPayloadCase();
+         System.out.println(payloadCase);
          switch (payloadCase) {
-               case LOGIN_REQUEST:
-                  Auth.LoginRequest loginRequest = clientMessage.getLoginRequest();
-                  System.out.println("Received LoginRequest: " + loginRequest);
-                  break;
-
                case HEARTBEAT:
                   lastMessageReceived = System.currentTimeMillis();
-                   System.out.println("Received Heartbeat: " + clientMessage.getHeartbeat());
+                   System.out.println("Received Heartbeat:  " + serverMessage.getHeartbeat());
                    break;
 
                case PAYLOAD_NOT_SET:
                    System.out.println("Payload is not set");
                    break;
-               
-               case AUTHENTICATION_TOKEN_REQUEST:
-                  Auth.AuthenticationToken token = serverMessage.getAuthenticationToken();
-                  System.out.println("Received token: " + token);
-                  try {
-                     Map<String, Object> decoded = TestDecoder.decodeToken(token.getToken());
-                     System.out.println("🔓 Decoded token: " + decoded);
-               } catch (Exception e) {
-                     System.err.println("❌ Failed to decode token:");
-                     e.printStackTrace();
-               }
-                   break;
 
+               case LOGIN_RESPONSE:
+                  System.out.println("Login Response Recieved: \n" + serverMessage.getLoginResponse());
+                  AuthenticationToken token = serverMessage.getLoginResponse().getAuthenticationToken();
+                  System.out.println("Token from the response: " + authTokenDecode(token));
+                  break;
+
+               case AUTHENTICATION_TOKEN:
+                  System.out.println("Made it to the token! ");
+                  jwtToken = true;
+                  Auth.AuthenticationToken tokenA = serverMessage.getAuthenticationToken();
+                  Map<FieldDescriptor, Object> decodedJWT = tokenA.getAllFields();
+                  System.out.println(tokenA.getExpireTime().getSeconds()/60);
+                  System.out.println("Recieved Token: " + decodedJWT);
+                  break;
+               
                default:
                    System.out.println("Received unknown payload: " + payloadCase);
          }
@@ -197,6 +200,7 @@ import com.t4.helpers.TestDecoder;
             e.printStackTrace();
          }
       }
+
 
         /* Attempt 1
         
@@ -232,8 +236,6 @@ import com.t4.helpers.TestDecoder;
             System.err.println("Could not parse incoming message.");
             e.printStackTrace();
          }
-
-
         } */
 
 
@@ -242,13 +244,19 @@ import com.t4.helpers.TestDecoder;
         public void onError(Session session, Throwable error){
          System.out.println("Error occurred: ");
          error.printStackTrace();
-         reconnect();
+         //reconnect(); // on any error it will reconnect must change to certian errors
         }
 
         @OnClose
         public void onClose(Session session, CloseReason reason){
          System.out.println("Disconnected: " + reason);
          //reconnect();
+        }
+
+        public  String authTokenDecode(AuthenticationToken token) {
+         String tokenString = AuthenticationToken.getDescriptor().getFullName();
+
+         return tokenString;
 
         }
 
@@ -269,15 +277,15 @@ import com.t4.helpers.TestDecoder;
         private void startHeartbeatMonitor(Session session) {
             scheduler.scheduleAtFixedRate(() -> {
             long now = System.currentTimeMillis();
-            if (now - lastMessageReceived > 30000) { // 30 seconds without heartbeat
-               System.err.println(" No heartbeat received in 30s. Reconnecting...");
+            /* if (now - lastMessageReceived > 30000) { // 30 seconds without heartbeat
+               System.err.println(" No heartbeat received in 30s.");
                try {
                    session.close();
                } catch (IOException e) {
                    e.printStackTrace();
                }
                reconnect();
-            }
+            } */
          }, 10, 10, TimeUnit.SECONDS);
       }
 
@@ -302,7 +310,8 @@ import com.t4.helpers.TestDecoder;
       }
 
 
-       public void handleIncomingMessage(String jwtToken) 
+      //this is used to decode the token trying to make the switch statement less complex 
+       /* public void handleIncomingMessage(String jwtToken) 
        {
          Map<String, Object> claims = TestDecoder.decodeToken(jwtToken);
 
@@ -315,8 +324,7 @@ import com.t4.helpers.TestDecoder;
             System.out.println("Decoded Username: " + claims.get("t4_Username"));
             System.out.println("Token Expires At: " + claims.get("exp"));
         }
-      }
-
+      } */
 
 
 
