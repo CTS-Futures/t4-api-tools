@@ -12,6 +12,8 @@ class T4_GUI(tk.Tk):
         self.root.title("T4 API Demo")
         self.root.geometry("1250x1080")
 
+        self.client.on_market_update = self.update_market_ui
+        self.client.market_header_update = self.update_market_header_ui
         self.create_widgets()
 
     def create_widgets(self):
@@ -68,6 +70,11 @@ class T4_GUI(tk.Tk):
 
         market_title = tk.Label(market_container, text="Market Data", font=("Arial", 16, "bold"), bg="white")
         market_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
+        
+        #market header 
+        self.market_header_label = tk.Label(market_container, text="...", font=("Arial", 14), bg="white", fg="#3b82f6")
+        self.market_header_label.grid(row=0, column=1, sticky="e", padx=(10, 0), pady=(0, 10))
+
 
         separator = tk.Frame(market_container, height=2, bg="#3b82f6", bd=0)
         separator.grid(row=1, column=0, sticky="ew", pady=(0, 10))
@@ -168,7 +175,25 @@ class T4_GUI(tk.Tk):
         self.account_dropdown.set("Select Account...")
         await self.client.disconnect()
 
-        
+    def update_market_ui(self, data):
+        print("Market update received in GUI:", data)
+
+        # Example: dynamically create labels or update existing ones in self.market_inner
+        for widget in self.market_inner.winfo_children():
+            widget.destroy()  # clear old labels
+
+
+        for label_text in [
+        f"Best Bid: {data['best_bid']}",
+        f"Best Offer: {data['best_offer']}",
+        f"Last Trade: {data['last_trade']}"
+    ]:
+            box_frame = tk.Frame(self.market_inner, bg="#f9f9f9", bd=1, relief="solid", padx=6, pady=4)
+            box_frame.pack(anchor="w", pady=2, padx=2, fill="x")
+    
+            tk.Label(box_frame, text=label_text, font=("Arial", 12), bg="#f9f9f9").pack(anchor="w")
+    def update_market_header_ui(self, title):
+        self.market_header_label.config(text=title)
 
     def populate_accounts(self):
         account_names = [v.account_name for v in self.client.accounts.values()]

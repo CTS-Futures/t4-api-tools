@@ -48,10 +48,17 @@ class Client:
         self.pending_token_request = None
         self.token_resolvers = {} #maps a requestID to a resolve/reject callback
 
+        self.market_update = None
+        self.market_header_update = None
+
         #market data
         self.current_market_id = None
         self.current_subscription = None
         self.market_details = {}
+        self.market_snapshots = {}
+
+        
+
     
     #connects to api
     async def connect(self):
@@ -173,13 +180,17 @@ class Client:
         print('market details stored')
 
     def handle_market_snapshot(self, message):
-        print(message)
+        #print(message)
         print("received market snapshot")
 
         #each message snapshot has a markte detph
         if message.messages:
-            for market_depth in message.messages:
-                self.handle_market_depth(market_depth)
+            for msg in message.messages:
+                if hasattr(msg, "market_settlement"):
+                    pass
+                elif msg and hasattr(msg, "market_depth"):
+                    print(msg)
+                    self.handle_market_depth(msg.market_depth)
         
         #if we have all the necessary info, we will update the market header
         market_details = self.market_details.get(message.market_id)
@@ -188,11 +199,49 @@ class Client:
 
 
     def handle_market_depth(self, message):
-        pass
+        # Store the latest market snapshot
+        self.market_snapshots[message.market_id] = message
+
+        # Get market details (could be None)
+        market_detail = self.market_details.get(message.market_id)
+    
+        # Update market header if all required fields exist
+        if market_detail and market_detail.contract_id and market_detail.expiry_date:
+            self.update_market_header(market_detail.contract_id, market_detail.expiry_date)
+
+        # Notify listener if set
+        if self.on_market_update:
+            best_bid = (
+                f"{message.bids[0].volume}@{message.bids[0].price.value}"
+                if len(message.bids) > 0
+                else "-"
+            )
+            best_offer = (
+                f"{message.offers[0].volume}@{message.offers[0].price.value}"
+                if len(message.offers) > 0
+                else "-"
+            )
+            last_trade = (
+                f"{message.trade_data.last_trade_volume}@{message.trade_data.last_trade_price.value}"
+                if message.HasField("trade_data") and message.trade_data.HasField("last_trade_price")
+                else "-"
+            )
+
+            self.on_market_update({
+                "market_id": message.market_id,
+                "contract_id": market_detail.contract_id,
+                "expiry_date": market_detail.expiry_date,
+                "best_bid": best_bid,
+                "best_offer": best_offer,
+                "last_trade": last_trade,
+            })
+
 
     def handle_subscribe_response(self, message):
         print(message)
     
+
+    #TODO update the market header
     async def listen(self): #listens for any websocket messages
         
         try:
@@ -237,7 +286,7 @@ class Client:
             self.handle_market_snapshot(msg.market_snapshot)
        
         elif message_type == "market_depth":
-            pass
+            self.handle_market_depth(msg.market_depth)
         
         
         else:
@@ -288,7 +337,7 @@ class Client:
         # condtions: it exists and it hasnt expired yet
         # if the expiration time is farther then the curernt time, then it hasnt expired yet
         if self.jw_token and self.jw_expiration and self.jw_expiration > time.time() + 30:
-            return self.jw_token\
+            return self.jw_token
             
         #make sure that we don't already have a token request present
         elif self.pending_token_request:
@@ -342,8 +391,15 @@ class Client:
       
        # if currently subscribed, let's unsubscribe and subscribe to the other
         if self.current_subscription:
-            
-
+            #TODO: add unsubscribe functionality for when subscribing tod differnt markets.
+            depth_unsub = market_pb2.MarketDepthSubscribe(
+                exchange_id= exchange_id,
+                contract_id= contract_id,
+                market_id = market_id,
+                buffer = DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
+                depth_levels= DepthLevels.DEPTH_LEVELS_UNDEFINED
+            )
+            await self.send_message({"market_depth_subscribe": depth_unsub})
             print("unsubscribed from market")
             self.current_subscription = None
         
@@ -364,4 +420,24 @@ class Client:
 
 
     def update_market_header(self, contract_id, expiry_date):
-        pass
+
+        #extracts the first 6 digits from the expiry date(YYYYMM FORMAT)
+        expiry_short = str(expiry_date)[:6] if expiry_date else ""
+
+        #format as a contract + expirty (e.g. "ESM25")
+        display_text = contract_id or ""
+
+        if expiry_short and len(expiry_short) == 6:
+            year = expiry_short[2:4] ##gets last two digits of the year
+            month = expiry_short[4:6] # gets month
+
+            #CONVERST THE MONTHS TO ITS CORRESPONDING LETTER
+            month_codes = {
+                '01': 'F', '02': 'G', '03': 'H', '04': 'J', '05': 'K', '06': 'M',
+                '07': 'N', '08': 'Q', '09': 'U', '10': 'V', '11': 'X', '12': 'Z'
+            }
+            month_code = month_codes[month] or month
+            display_text += month_code + year
+
+        if self.market_header_update:
+            self.market_header_update(display_text)

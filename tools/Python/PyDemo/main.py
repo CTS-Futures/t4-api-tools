@@ -1,13 +1,23 @@
 import asyncio
 import websockets
 import yaml
+import os
 from T4APIClient import Client
 from t4_gui import T4_GUI
 import tkinter as tk
 
 
-def load_config(path="config/config.yaml"):
-    with open(path, "r") as file:
+def load_config(path="config\config.yaml"):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Build the full path to config/config.yaml
+    config_path = os.path.join(base_dir, "config", "config.yaml")
+
+
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config not found at: {config_path}")
+
+    with open(config_path, "r") as file:
         return yaml.safe_load(file)
 
 async def main():
