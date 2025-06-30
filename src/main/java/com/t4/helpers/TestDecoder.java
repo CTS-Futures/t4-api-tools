@@ -6,7 +6,7 @@ import com.auth0.jwt.interfaces.Claim;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Scanner;
+//import java.util.Scanner;
 import java.util.Date;
 
 public class TestDecoder {
@@ -15,6 +15,7 @@ public class TestDecoder {
      * Decodes a JWT token without verifying the signature.
      * @param token JWT string
      * @return Map of decoded claims
+     * Decodes token, categorizes it and then put it into a key value pair (key, claim)
      */
     public static Map<String, Object> decodeToken(String token) {
         Map<String, Object> decodedClaims = new HashMap<>();
