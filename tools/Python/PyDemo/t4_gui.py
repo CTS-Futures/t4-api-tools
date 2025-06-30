@@ -2,8 +2,8 @@ import asyncio
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 from T4APIClient import Client
-
-
+from contract_picker_dialog import Contract_Picker_Dialog
+from contract_picker import Contract_Picker
 class T4_GUI(tk.Tk):
 
     def __init__(self, root, client):
@@ -14,6 +14,7 @@ class T4_GUI(tk.Tk):
 
         self.client.on_market_update = self.update_market_ui
         self.client.market_header_update = self.update_market_header_ui
+        self.contract_picker = Contract_Picker(self.root, self.client)
         self.create_widgets()
 
     def create_widgets(self):
@@ -71,6 +72,11 @@ class T4_GUI(tk.Tk):
         market_title = tk.Label(market_container, text="Market Data", font=("Arial", 16, "bold"), bg="white")
         market_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
         
+        tk.Button(
+            self.market_frame,
+            text="Pick a Contract",
+            command=self.open_contract_picker
+        ).grid(row=5, column=0, pady=10)
         #market header 
         self.market_header_label = tk.Label(market_container, text="...", font=("Arial", 14), bg="white", fg="#3b82f6")
         self.market_header_label.grid(row=0, column=1, sticky="e", padx=(10, 0), pady=(0, 10))
@@ -176,7 +182,7 @@ class T4_GUI(tk.Tk):
         await self.client.disconnect()
 
     def update_market_ui(self, data):
-        print("Market update received in GUI:", data)
+        #print("Market update received in GUI:", data)
 
         # Example: dynamically create labels or update existing ones in self.market_inner
         for widget in self.market_inner.winfo_children():
@@ -211,3 +217,7 @@ class T4_GUI(tk.Tk):
         await self.client.get_market_id(self.client.md_exchange_id, self.client.md_contract_id)
         await self.client.subscribe_market(self.client.md_exchange_id, self.client.md_contract_id, self.client.current_market_id)
         #will be adding subscribe next
+
+    def open_contract_picker(self):
+        self.contract_picker.on_contract_selected = self.handle_contract_selection
+        Contract_Picker_Dialog(self.root, self.contract_picker)

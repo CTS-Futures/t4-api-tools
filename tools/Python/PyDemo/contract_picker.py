@@ -97,6 +97,7 @@ class Contract_Picker:
                 return contracts
         except Exception as e:
             print("error: contracts for exchanges", e)
+            return []
 
                 
     

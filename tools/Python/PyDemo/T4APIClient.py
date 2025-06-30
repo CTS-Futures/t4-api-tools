@@ -143,7 +143,7 @@ class Client:
                 self.jw_token = message.authentication_token.token
                 if message.authentication_token.expire_time:
                     self.jw_expiration = int(message.authentication_token.expire_time.seconds) * 1000
-                
+                    print(self.jw_expiration)
             #store accounts
             if message.accounts:
                 for acc in message.accounts:
@@ -346,7 +346,9 @@ class Client:
         #let's try to get a new token now
         self.pending_token_request = asyncio.create_task(self.refresh_token())
         try:
+            
             token = await self.pending_token_request
+            print("renewed the token")
             return token
         finally:
             self.pending_token_request = None
