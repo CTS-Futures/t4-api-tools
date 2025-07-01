@@ -48,18 +48,21 @@ class Contract_Picker_Dialog(tk.Toplevel):
         self.select_btn.pack(side="right", padx=5)
 
 
-    def render_exchanges(self):
+    def render_exchanges(self, filter_text=""):
         self.tree.delete(*self.tree.get_children())
         for ex in self.contract_picker.exchanges:
-            eid = ex.get("exchangeId")
-            desc = ex.get("description")
+            eid = ex.get("exchangeId", "")
+            desc = ex.get("description", "")
             if not eid or not desc:
                 continue
-            self.tree.insert("", "end", iid=eid, text=desc, values=("exchange", eid), open=False)
+
+            if filter_text.lower() in desc.lower():
+                self.tree.insert("", "end", iid=eid, text=desc, values=("exchange", eid), open=False)
 
     def on_search(self):
         # TODO: implement search logic (if needed)
-        pass
+        filter_text = self.search_var.get()
+        self.render_exchanges(filter_text)
 
     def on_select(self, event):
         selected = self.tree.selection()
@@ -99,12 +102,20 @@ class Contract_Picker_Dialog(tk.Toplevel):
 
     #loads all of the contracts for a particular exchange
     async def expand_contracts(self, parent_id, exchange_id):
-        contracts = await self.contract_picker.load_contracts_for_exchanges(exchange_id)
-        if contracts:
+        try:
+            contracts = await self.contract_picker.load_contracts_for_exchanges(exchange_id)
+            if not contracts:
+                print(f"No contracts found for exchange {exchange_id}")
+                return
+
             for contract in contracts:
-                name = f"{contract.get('description')} ({contract.get('contractID')})"
-                self.tree.insert(parent_id, "end", text=name,
-                                 values=("contract", exchange_id, contract.get("contractID"), contract.get("contractType")))
+                name = f"{contract.get('description', '')} ({contract.get('contractID', '')})"
+                self.tree.insert(
+                    parent_id, "end", text=name,
+                    values=("contract", exchange_id, contract.get("contractID"), contract.get("contractType"))
+                )
+        except Exception as e:
+            print(f"Failed to load contracts for {exchange_id}: {e}")
                 
     async def load_and_render_exchanges(self):
         await self.contract_picker.load_exchanges()
