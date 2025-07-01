@@ -5,7 +5,7 @@ from tkinter import ttk, scrolledtext
 from T4APIClient import Client
 
 class Contract_Picker:
-    def __init__(self, parent, client):
+    def __init__(self, client):
         #caches and storage
         self.exchanges = []
         self.contract_caches = {}
@@ -16,7 +16,8 @@ class Contract_Picker:
 
        
         #api authorization
-        self.api_key = client.apiKey
+        if client.apiKey:
+            self.api_key = client.apiKey
         self.api_url = client.apiUrl
 
 
@@ -55,6 +56,7 @@ class Contract_Picker:
                 self.exchanges.sort(key=lambda x: x.description.lower())
                
                 #call a function to render the exchanges
+                return self.exchanges
 
         except Exception as e:
             print("error outside", e)

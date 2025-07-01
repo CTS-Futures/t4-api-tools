@@ -14,7 +14,7 @@ class T4_GUI(tk.Tk):
 
         self.client.on_market_update = self.update_market_ui
         self.client.market_header_update = self.update_market_header_ui
-        self.contract_picker = Contract_Picker(self.root, self.client)
+        self.contract_picker = Contract_Picker(self.client)
         self.create_widgets()
 
     def create_widgets(self):
@@ -77,7 +77,7 @@ class T4_GUI(tk.Tk):
             text="Pick a Contract",
             command=self.open_contract_picker
         ).grid(row=5, column=0, pady=10)
-        #market header 
+        # market header 
         self.market_header_label = tk.Label(market_container, text="...", font=("Arial", 14), bg="white", fg="#3b82f6")
         self.market_header_label.grid(row=0, column=1, sticky="e", padx=(10, 0), pady=(0, 10))
 
@@ -169,6 +169,7 @@ class T4_GUI(tk.Tk):
             self.populate_accounts()
         else:
             self.status_label.config(text="Status: Failed to connect", foreground="red")
+            return
         
         await self.get_and_subscribe()
 
@@ -219,5 +220,4 @@ class T4_GUI(tk.Tk):
         #will be adding subscribe next
 
     def open_contract_picker(self):
-        self.contract_picker.on_contract_selected = self.handle_contract_selection
         Contract_Picker_Dialog(self.root, self.contract_picker)

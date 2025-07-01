@@ -1,20 +1,21 @@
 import asyncio
 import tkinter as tk
 from tkinter import ttk
+from contract_picker import Contract_Picker
 
+class Contract_Picker_Dialog(tk.Toplevel):
 
-class Contract_Picker_Dialog:
-
-    def __init__(self, parent, contract_picker):
-        self.parent = parent
-        self.contract_picker = contract_picker
-
+    def __init__(self, master=None, on_contract_selected=None):
+        super().__init__(master)
+       
         #creates the pop up window
-        self.dialog = tk.Toplevel(parent)
+        self.dialog = tk.Toplevel(master)
         self.dialog.title("Select a Contract")
         self.dialog.geometry("500x600")
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
+        self.dialog.transient(master) #ensures its on top of the root
+        self.dialog.grab_set() #locks user to the pop up
+
+        self.contract_picker = Contract_Picker(self.client)
 
         self.selected_contract = None
         self.selected_contract_meta = None
@@ -22,8 +23,11 @@ class Contract_Picker_Dialog:
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.on_search())
 
+        asyncio.create_task(self.contract_picker.load_exchanges())
         self.build_ui()
-        asyncio.create_task(self.load_exchanges())
+        self.render_exchanges()
+        
+        
 
     def build_ui(self):
         tk.Label(self.dialog, text="Search contracts:").pack(padx=10, pady=(10, 0), anchor='w')
@@ -34,15 +38,14 @@ class Contract_Picker_Dialog:
         self.tree.bind("<<TreeviewOpen>>", self.on_expand)
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
 
+        #button frame
         btn_frame = tk.Frame(self.dialog)
         btn_frame.pack(fill="x", padx=10, pady=10)
         tk.Button(btn_frame, text="Cancel", command=self.dialog.destroy).pack(side="right")
+        #confirm button
         self.select_btn = tk.Button(btn_frame, text="Select", command=self.confirm_selection, state="disabled")
         self.select_btn.pack(side="right", padx=5)
 
-    async def load_exchanges(self):
-        await self.contract_picker.load_exchanges()
-        self.render_exchanges()
 
     def render_exchanges(self):
         self.tree.delete(*self.tree.get_children())
