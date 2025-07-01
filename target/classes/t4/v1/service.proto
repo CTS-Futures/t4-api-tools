@@ -1,0 +1,79 @@
+syntax = "proto3";
+package t4proto.v1.service;
+
+import "t4/v1/auth/auth.proto";
+import "t4/v1/market/market.proto";
+import "t4/v1/account/account.proto";
+import "t4/v1/orderrouting/orderrouting.proto";
+
+message ClientMessage {
+    oneof payload {
+        // Shared
+        Heartbeat heartbeat = 1;
+
+        // Authentication
+        t4proto.v1.auth.LoginRequest login_request = 2;
+        t4proto.v1.auth.AuthenticationTokenRequest authentication_token_request = 3;
+
+        // Market Data Requests
+        t4proto.v1.market.MarketDepthSubscribe market_depth_subscribe = 100;
+        t4proto.v1.market.MarketByOrderSubscribe market_by_order_subscribe = 101;
+
+        // Account Data Requests
+        t4proto.v1.account.AccountSubscribe account_subscribe = 200;
+
+        // Order Rounting Messages
+        t4proto.v1.orderrouting.OrderSubmit order_submit = 300;
+        t4proto.v1.orderrouting.OrderRevise order_revise = 301;
+        t4proto.v1.orderrouting.OrderPull order_pull = 302;
+
+        t4proto.v1.orderrouting.CreateUDS create_uds = 340;
+    }
+}
+
+message ServerMessage {
+    oneof payload {
+        // Shared
+        Heartbeat heartbeat = 1;
+
+        // Authentication Responses
+        t4proto.v1.auth.LoginResponse login_response = 2;
+        t4proto.v1.auth.AuthenticationToken authentication_token = 3;
+
+        // Market Data Messages
+        t4proto.v1.market.MarketDepthSubscribeReject market_depth_subscribe_reject = 100;
+        t4proto.v1.market.MarketByOrderSubscribeReject market_by_order_subscribe_reject = 101;
+        t4proto.v1.market.MarketDetails market_details = 102;
+        t4proto.v1.market.MarketDepth market_depth = 103;
+        t4proto.v1.market.MarketDepthTrade market_depth_trade = 104;
+        t4proto.v1.market.MarketHighLow market_high_low = 105;
+        t4proto.v1.market.MarketPriceLimits market_price_limits = 106;
+        t4proto.v1.market.MarketSettlement market_settlement = 107;
+        t4proto.v1.market.MarketSnapshot market_snapshot = 108;
+        t4proto.v1.market.MarketByOrderSnapshot market_by_order_snapshot = 109;
+        t4proto.v1.market.MarketByOrderUpdate market_by_order_update = 110;
+
+        // Account Messages
+        t4proto.v1.account.AccountSubscribeResponse account_subscribe_response = 200;
+        t4proto.v1.account.AccountCurrency account_currency = 201;
+        t4proto.v1.account.AccountPosition account_position = 202;
+        t4proto.v1.account.AccountUpdate account_update = 203;
+        t4proto.v1.account.AccountDetails account_details = 204;
+        t4proto.v1.account.AccountSnapshot account_snapshot = 205;
+
+        // Order Routing Messages
+        t4proto.v1.orderrouting.OrderUpdate order_update = 300;
+        t4proto.v1.orderrouting.OrderUpdateMulti order_update_multi = 301;
+        t4proto.v1.orderrouting.OrderUpdateFailed order_update_failed = 302;
+        t4proto.v1.orderrouting.OrderUpdateStatus order_update_status = 303;
+        t4proto.v1.orderrouting.OrderUpdateTrade order_update_trade = 304;
+        t4proto.v1.orderrouting.OrderUpdateTradeLeg order_update_trade_leg = 305;
+
+        t4proto.v1.orderrouting.CreateUDSResponse create_uds_response = 340;
+
+    }
+}
+
+message Heartbeat {
+    int64 timestamp = 1;  // UTC timestamp in milliseconds
+}
