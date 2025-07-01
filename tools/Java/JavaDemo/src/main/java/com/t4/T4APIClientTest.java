@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import com.t4.helpers.TestDecoder;
@@ -87,6 +88,7 @@ import com.auth0.jwt.interfaces.Claim;
         private Object loginResponse = null;
         private Map<String, Object> accounts = new HashMap<>();
         private Object selectedAccount = null;
+        private boolean isLoggedIn = false; //starts heartbeats once loggedin and connncted
 
         // JWT token management
         private Object jwtToken = null;
@@ -123,18 +125,16 @@ import com.auth0.jwt.interfaces.Claim;
         private int reconnectDelay = 1000;
 
         private boolean isDisposed = false;
+        private static Session session;
 
 
 
-      //Step 1: Connect to WebSocket!
-      //Step 2: give it auth keys and info!
-      //Step 3: listen for messsage
-      //Step 4:
+      //made some functions for the UI! I am going to work on the UI and token handling tomorrow! 
         @OnOpen
 
-        public void onOpen(Session session){
+        public void onOpen(Session sessionO){
          System.out.println("Connected to Websocket");
-
+         isConnected = true;
          try{
             Auth.LoginRequest loginRequest = Auth.LoginRequest.newBuilder()
             .setApiKey("")
@@ -148,9 +148,10 @@ import com.auth0.jwt.interfaces.Claim;
 
             Service.ClientMessage clientMessage = ClientMessageHelper.wrapLoginRequest(loginRequest);
 
-            session.getAsyncRemote().sendBinary(ByteBuffer.wrap(clientMessage.toByteArray()));
+            sessionO.getAsyncRemote().sendBinary(ByteBuffer.wrap(clientMessage.toByteArray()));
             //startHeartbeatMonitor(session);
-            startClientHeartbeat(session);
+            startClientHeartbeat(sessionO);
+            session = sessionO;
             System.out.println("Login message sent.");
          }
          catch(Exception e){
@@ -180,6 +181,7 @@ import com.auth0.jwt.interfaces.Claim;
                   System.out.println("Login Response Recieved: \n" + serverMessage.getLoginResponse());
                   AuthenticationToken token = serverMessage.getLoginResponse().getAuthenticationToken();
                   System.out.println("Token from the response: " + tokenHandler(token));
+                  isLoggedIn = true;
                   break;
 
                case AUTHENTICATION_TOKEN:
@@ -203,56 +205,23 @@ import com.auth0.jwt.interfaces.Claim;
       }
 
 
-        /* Attempt 1
-        
-        public void onMessage(ByteBuffer bytes)  {
-         System.out.println("Received binary message:");
-         try {
-        // Parse the Protobuf message
-            Service.ClientMessage clientMessage = Service.ClientMessage.parseFrom(bytes.array());
-
-            if(clientMessage.hasLoginResponse()){
-               Auth.LoginResponse loginResponse = clientMessage.getLoginResponse();
-               System.out.println(" Login response parsed: " + loginResponse);
-            }
-            else{
-               System.out.println(" Received non-login message: " + clientMessage);
-            }
-            
-         } catch (Exception e) {
-            System.err.println(" Failed to parse login response:");
-            e.printStackTrace();
-         }
-      } */
-
-     /*  public void onMessage(String message, ByteBuffer bytes){
-         System.out.println("Recieved message:" + message);
-         try {
-        // Attempt to parse as LoginResponse
-            Auth.LoginResponse response = Auth.LoginResponse.parseFrom(bytes.array());
-            System.out.println(" Login response received: " + response.toString());
-
-        // TODO: check if login was successful and move to subscribe to data
-        } catch (Exception e) {
-            System.err.println("Could not parse incoming message.");
-            e.printStackTrace();
-         }
-        } */
-
-
         @OnError
 
         public void onError(Session session, Throwable error){
          System.out.println("Error occurred: ");
          error.printStackTrace();
+         stopClientHeartbeat();
          //reconnect(); // on any error it will reconnect must change to certian errors
         }
 
         @OnClose
         public void onClose(Session session, CloseReason reason){
+         isConnected = false; 
+         isLoggedIn = false; 
+         stopClientHeartbeat();
          System.out.println("Disconnected: " + reason);
-         //reconnect();
         }
+
 
         public  String tokenHandler(AuthenticationToken token) {
          jwtToken = token.toString();
@@ -269,6 +238,7 @@ import com.auth0.jwt.interfaces.Claim;
         
 
         private void reconnect() {
+         //this will be needed for when we start wokring on UI
          try {
            Thread.sleep(2000); // small backoff
            WebSocketContainer container = ContainerProvider.getWebSocketContainer();
@@ -279,10 +249,31 @@ import com.auth0.jwt.interfaces.Claim;
            e.printStackTrace();
           }
       }
+         //will be used for the buttons 
+         private static void connect() throws DeploymentException, IOException{
+            WebSocketContainer container = ContainerProvider.getWebSocketContainer();
+            container.connectToServer(T4APIClientTest.class, URI.create("wss://wss-sim.t4login.com/v1"));
+         }
+         //used for buttons 
+         private static void disconnect(){
+             try {
+               if (session != null && session.isOpen()) {
+                  session.close(new CloseReason(CloseReason.CloseCodes.NORMAL_CLOSURE, "Client requested disconnect"));
+                  System.out.println("Disconnect request sent.");
+               }
+            } catch (IOException e) {
+               System.err.println("Error while disconnecting:");
+               e.printStackTrace();
+            }
+         }
+
+
 
         private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        private ScheduledFuture<?> heartbeatTask;
 
         /* private void startHeartbeatMonitor(Session session) {
+        //Needed once we start UI
             scheduler.scheduleAtFixedRate(() -> {
             long now = System.currentTimeMillis();
             if (now - lastMessageReceived > 30000) { // 30 seconds without heartbeat
@@ -297,26 +288,47 @@ import com.auth0.jwt.interfaces.Claim;
          }, 10, 10, TimeUnit.SECONDS);
       } */
 
-      private void startClientHeartbeat(Session session) 
-      {
-         scheduler.scheduleAtFixedRate(() -> {
+   private void startClientHeartbeat(Session session) {
+      if (heartbeatTask != null && !heartbeatTask.isCancelled()) {
+         System.out.println("Heartbeat already running — skipping duplicate start.");
+         return;
+      }
+
+      heartbeatTask = scheduler.scheduleAtFixedRate(() -> {
          try {
-            // Construct and send a protobuf Heartbeat
-            Service.Heartbeat heartbeat = Service.Heartbeat.newBuilder()
-                .setTimestamp(System.currentTimeMillis())
-                .build();
-            Service.ClientMessage ping = Service.ClientMessage.newBuilder()
-                .setHeartbeat(heartbeat)
-                .build();
-            //wrap heartbeat and send to server
-            session.getAsyncRemote().sendBinary(ByteBuffer.wrap(ping.toByteArray()));
-            System.out.println("Sent heartbeat ping");
+            if (session != null && session.isOpen() && isLoggedIn) {
+               Service.Heartbeat heartbeat = Service.Heartbeat.newBuilder()
+                  .setTimestamp(System.currentTimeMillis())
+                  .build();
+               Service.ClientMessage ping = Service.ClientMessage.newBuilder()
+                  .setHeartbeat(heartbeat)
+                  .build();
+                  session.getAsyncRemote().sendBinary(ByteBuffer.wrap(ping.toByteArray()));
+                  System.out.println("\nSent heartbeat ping");
+            } 
+            else
+            {
+               System.out.println("\nHeartbeat paused — session closed or login not complete.");
+            }
          } catch (Exception e) {
-            System.err.println("Failed to send heartbeat ping");
+            System.err.println("/nFailed to send heartbeat ping");
             e.printStackTrace();
          }
-         }, 0, 20, TimeUnit.SECONDS); // send heartbeat every 20s
-      }
+      }, 0, 20, TimeUnit.SECONDS);
+   }
+
+
+   private void stopClientHeartbeat() {
+      if (heartbeatTask != null && !heartbeatTask.isCancelled()) {
+         heartbeatTask.cancel(true); // true = interrupt if running
+         System.out.println("\nHeartbeat task cancelled.");
+         heartbeatTask = null;
+      } 
+      else 
+      {
+         System.out.println("\nNo active heartbeat to stop.");
+      }  
+   }
 
 
       //this is used to decode the token trying to make the switch statement less complex 
@@ -339,9 +351,9 @@ import com.auth0.jwt.interfaces.Claim;
 
         public static void main(String[] args){
          try{
-            WebSocketContainer container = ContainerProvider.getWebSocketContainer();
-            container.connectToServer(T4APIClientTest.class, URI.create("wss://wss-sim.t4login.com/v1"));
-            Thread.sleep(5000);
+            connect();
+            Thread.sleep(50000);
+            disconnect();
          }
          catch(Exception e){
             e.printStackTrace();
