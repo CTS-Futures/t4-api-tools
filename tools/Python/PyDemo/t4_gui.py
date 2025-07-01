@@ -220,4 +220,4 @@ class T4_GUI(tk.Tk):
         #will be adding subscribe next
 
     def open_contract_picker(self):
-        Contract_Picker_Dialog(self.root, self.contract_picker)
+        Contract_Picker_Dialog(master=self.root, client=self.client)

@@ -5,7 +5,7 @@ from contract_picker import Contract_Picker
 
 class Contract_Picker_Dialog(tk.Toplevel):
 
-    def __init__(self, master=None, on_contract_selected=None):
+    def __init__(self, master=None, client=None , on_contract_selected=None):
         super().__init__(master)
        
         #creates the pop up window
@@ -14,7 +14,8 @@ class Contract_Picker_Dialog(tk.Toplevel):
         self.dialog.geometry("500x600")
         self.dialog.transient(master) #ensures its on top of the root
         self.dialog.grab_set() #locks user to the pop up
-
+        
+        self.client = client
         self.contract_picker = Contract_Picker(self.client)
 
         self.selected_contract = None
@@ -23,9 +24,9 @@ class Contract_Picker_Dialog(tk.Toplevel):
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.on_search())
 
-        asyncio.create_task(self.contract_picker.load_exchanges())
         self.build_ui()
-        self.render_exchanges()
+        asyncio.create_task(self.load_and_render_exchanges())
+
         
         
 
@@ -104,3 +105,7 @@ class Contract_Picker_Dialog(tk.Toplevel):
                 name = f"{contract.get('description')} ({contract.get('contractID')})"
                 self.tree.insert(parent_id, "end", text=name,
                                  values=("contract", exchange_id, contract.get("contractID"), contract.get("contractType")))
+                
+    async def load_and_render_exchanges(self):
+        await self.contract_picker.load_exchanges()
+        self.render_exchanges()

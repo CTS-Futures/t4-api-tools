@@ -16,9 +16,9 @@ class Contract_Picker:
 
        
         #api authorization
-        if client.apiKey:
-            self.api_key = client.apiKey
-        self.api_url = client.apiUrl
+        self.client = client
+        self.api_key = getattr(client, "apiKey", None)
+        self.api_url = getattr(client, "apiUrl", None)
 
 
         #loading and menus
@@ -36,14 +36,14 @@ class Contract_Picker:
                 headers['Authorization'] = f'APIKey {self.api_key}'
             else: #try to access using the token
                 #renew token 
-                token = await self.get_auth_token()
+                token = await self.client.get_auth_token()
                 if token:
                     headers['Authorization'] = f'Bearer {token}'
 
             #gets a rest api call
             async with httpx.AsyncClient() as rest:
               
-                response = await rest.get(f'{self.apiUrl}/markets/exchanges'
+                response = await rest.get(f'{self.api_url}/markets/exchanges'
                                         , headers=headers)
                 #check if the response is valid
                 if not response.status_code == 200:
@@ -52,8 +52,10 @@ class Contract_Picker:
                 
                 #get the marketid.
                 data = response.json()
+                
                 self.exchanges = data
-                self.exchanges.sort(key=lambda x: x.description.lower())
+                
+                self.exchanges.sort(key=lambda x: x["description"].lower())
                
                 #call a function to render the exchanges
                 return self.exchanges
@@ -75,13 +77,13 @@ class Contract_Picker:
             if self.api_key:
                 headers['Authorization'] = f'APIKey {self.api_key}'
             else:
-                token = await self.get_auth_token()
+                token = await self.client.get_auth_token()
                 if token:
                     headers['Authorization'] = f'Bearer {self.api_url}'
 
             async with httpx.AsyncClient() as rest:
               
-                response = await rest.get(f'{self.apiUrl}/markets/contracts?exchangeid={exchange_id}'
+                response = await rest.get(f'{self.api_url}/markets/contracts?exchangeid={exchange_id}'
                                         , headers=headers)
                 #check if the response is valid
                 if not response.status_code == 200:
