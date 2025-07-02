@@ -149,11 +149,11 @@ class Contract_Picker:
 
     #subscribes to the selected contract
     async def on_contract_selected(self, exchange_id, contract_id):
-
+        
         market_id = await self.client.get_market_id(exchange_id, contract_id)
-
+       
         await self.client.subscribe_market(exchange_id, contract_id, market_id)
-
+       
 
     async def get_auth_token(self):
         if (Client and Client.get_auth_token):

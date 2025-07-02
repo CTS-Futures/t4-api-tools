@@ -14,6 +14,7 @@ class T4_GUI(tk.Tk):
 
         self.client.on_market_update = self.update_market_ui
         self.client.market_header_update = self.update_market_header_ui
+        self.client.on_market_switch = self.reset_market_ui
         self.client._subscribed_once = False
         self.contract_picker = Contract_Picker(self.client)
         self.create_widgets()
@@ -225,3 +226,17 @@ class T4_GUI(tk.Tk):
 
     def open_contract_picker(self):
         Contract_Picker_Dialog(master=self.root, client=self.client)
+
+    def reset_market_ui(self):
+       
+        for widget in self.market_inner.winfo_children():
+            widget.destroy()
+
+        for label_text in [
+        "Best Bid: -",
+        "Best Offer: -",
+        "Last Trade: -"
+    ]:
+            box_frame = tk.Frame(self.market_inner, bg="#f9f9f9", bd=1, relief="solid", padx=6, pady=4)
+            box_frame.pack(anchor="w", pady=2, padx=2, fill="x")
+            tk.Label(box_frame, text=label_text, font=("Arial", 12), bg="#f9f9f9").pack(anchor="w")

@@ -50,6 +50,7 @@ class Client:
 
         self.market_update = None
         self.market_header_update = None
+        self.on_market_switch = None  # Callback from GUI
 
         #market data
         self.current_market_id = None
@@ -439,6 +440,9 @@ class Client:
     #     await self.send_message({"market_depth_subscribe": depth_sub})
 
     async def subscribe_market(self, exchange_id, contract_id, market_id):
+        if self.on_market_switch:
+            self.on_market_switch()
+        
         key = f'{exchange_id}_{contract_id}_{market_id}'
         print(key)
 
