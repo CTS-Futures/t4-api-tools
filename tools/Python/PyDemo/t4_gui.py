@@ -54,10 +54,6 @@ class T4_GUI(tk.Tk):
         self.disconnect_button = tk.Button(self.connect_frame, text="Disconnect", bg="#3b82f6", fg="white", command=self.end_connection)
         self.disconnect_button.grid(row=3, column=3, padx=5)
 
-        # --- Main Content Frame ---
-        # self.main_frame = tk.Frame(self.root, bg="white")
-        # self.main_frame.place(relx=0.05, rely=0.25, relwidth=0.9, relheight=0.7)
-
 
         #market frame
         self.market_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
@@ -93,24 +89,60 @@ class T4_GUI(tk.Tk):
 
 
         #Submit frame
+            # Submit frame
         self.submit_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
         self.submit_frame.place(relx=0.51, rely=0.25, relwidth=0.44, relheight=0.3)
 
-        self.submit_frame.columnconfigure(0, weight=1)
-        self.submit_frame.rowconfigure(2, weight=1)
-
         submit_container = tk.Frame(self.submit_frame, bg="white", padx=20, pady=20)
-        submit_container.grid(row=0, column=0, sticky="nsew")
+        submit_container.pack(fill="both", expand=True)
 
         submit_title = tk.Label(submit_container, text="Submit Order", font=("Arial", 16, "bold"), bg="white")
-        submit_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
+        submit_title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
         separator = tk.Frame(submit_container, height=2, bg="#3b82f6", bd=0)
-        separator.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        separator.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
-        self.submit_inner = tk.Frame(submit_container, bg="#f9f9f9")
-        self.submit_inner.grid(row=2, column=0, sticky="nsew")
+        # Type (Limit/Market)
+        tk.Label(submit_container, text="Type:", font=("Arial", 12, "bold"), bg="white").grid(row=2, column=0, sticky="w")
+        self.type_combo = ttk.Combobox(submit_container, values=["Limit", "Market"], state="readonly")
+        self.type_combo.set("Limit")
+        self.type_combo.grid(row=3, column=0, sticky="ew", padx=(0, 10))
 
+        # Side (Buy/Sell)
+        tk.Label(submit_container, text="Side:", font=("Arial", 12, "bold"), bg="white").grid(row=2, column=1, sticky="w")
+        self.side_combo = ttk.Combobox(submit_container, values=["Buy", "Sell"], state="readonly")
+        self.side_combo.set("Buy")
+        self.side_combo.grid(row=3, column=1, sticky="ew")
+
+        # Volume (Spinbox)
+        tk.Label(submit_container, text="Volume:", font=("Arial", 12, "bold"), bg="white").grid(row=4, column=0, sticky="w", pady=(10, 0))
+        self.volume_spinbox = tk.Spinbox(submit_container, from_=1, to=99999)
+        self.volume_spinbox.delete(0, "end")
+        self.volume_spinbox.insert(0, "1")
+        self.volume_spinbox.grid(row=5, column=0, sticky="ew", padx=(0, 10))
+
+        # Price (Spinbox)
+        tk.Label(submit_container, text="Price:", font=("Arial", 12, "bold"), bg="white").grid(row=4, column=1, sticky="w", pady=(10, 0))
+        self.price_spinbox = tk.Spinbox(submit_container, from_=0.01, to=99999.99, increment=0.01)
+        self.price_spinbox.delete(0, "end")
+        self.price_spinbox.insert(0, "100")
+        self.price_spinbox.grid(row=5, column=1, sticky="ew")
+
+        # Take Profit
+        tk.Label(submit_container, text="Take Profit ($):", font=("Arial", 12, "bold"), bg="white").grid(row=6, column=0, sticky="w", pady=(10, 0))
+        self.take_profit_entry = tk.Entry(submit_container)
+        self.take_profit_entry.insert(0, "Optional")
+        self.take_profit_entry.grid(row=7, column=0, sticky="ew", padx=(0, 10))
+
+        # Stop Loss
+        tk.Label(submit_container, text="Stop Loss ($):", font=("Arial", 12, "bold"), bg="white").grid(row=6, column=1, sticky="w", pady=(10, 0))
+        self.stop_loss_entry = tk.Entry(submit_container)
+        self.stop_loss_entry.insert(0, "Optional")
+        self.stop_loss_entry.grid(row=7, column=1, sticky="ew")
+
+        # Submit Button
+        submit_button = tk.Button(submit_container, text="Submit Order", bg="#3b82f6", fg="white", font=("Arial", 12, "bold"))
+        submit_button.grid(row=8, column=0, columnspan=2, pady=20, sticky="ew")
 
         #positions frame
         self.positions_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
@@ -227,6 +259,9 @@ class T4_GUI(tk.Tk):
     def open_contract_picker(self):
         Contract_Picker_Dialog(master=self.root, client=self.client)
 
+    def submit_order_button(self):
+        order_type = self.type_combo.get()
+        
     def reset_market_ui(self):
        
         for widget in self.market_inner.winfo_children():
