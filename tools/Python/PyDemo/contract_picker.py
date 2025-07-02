@@ -67,7 +67,7 @@ class Contract_Picker:
 
     async def load_contracts_for_exchanges(self, exchange_id):
         #edge case: if we already have the info, then skip
-        if self.contracts_cache.has(exchange_id):
+        if exchange_id in self.contract_caches:
             return self.contract_caches.get(exchange_id)
         
 
@@ -79,20 +79,22 @@ class Contract_Picker:
             else:
                 token = await self.client.get_auth_token()
                 if token:
-                    headers['Authorization'] = f'Bearer {self.api_url}'
+                    headers['Authorization'] = f'Bearer {token}'
 
             async with httpx.AsyncClient() as rest:
               
                 response = await rest.get(f'{self.api_url}/markets/contracts?exchangeid={exchange_id}'
                                         , headers=headers)
                 #check if the response is valid
+                print(f'{self.api_url}/markets/contracts?exchangeid={exchange_id}')
+                
                 if not response.status_code == 200:
                      print('error inside')
                      return
                 contracts = response.json()
                 
                 #alphabetize contractss
-                contracts.sort(key=lambda x: x.description.lower())
+                contracts.sort(key=lambda x: x["description"].lower())
 
                 #store contracts in the cache
                 self.contract_caches[exchange_id] = contracts
@@ -105,10 +107,7 @@ class Contract_Picker:
 
                 
     
-    def show_loading(self, show):
-        #changes whether or not we want to show a loading screen
-        if self.loading_indicator:
-            pass # function to show or remove the loading screen
+
     
     async def get_auth_token(self):
         if (Client and Client.get_auth_token):

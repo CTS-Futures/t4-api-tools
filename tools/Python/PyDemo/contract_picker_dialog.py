@@ -9,11 +9,11 @@ class Contract_Picker_Dialog(tk.Toplevel):
         super().__init__(master)
        
         #creates the pop up window
-        self.dialog = tk.Toplevel(master)
-        self.dialog.title("Select a Contract")
-        self.dialog.geometry("500x600")
-        self.dialog.transient(master) #ensures its on top of the root
-        self.dialog.grab_set() #locks user to the pop up
+       
+        self.title("Select a Contract")
+        self.geometry("500x600")
+        self.transient(master) #ensures its on top of the root
+        self.grab_set() #locks user to the pop up
         
         self.client = client
         self.contract_picker = Contract_Picker(self.client)
@@ -31,18 +31,18 @@ class Contract_Picker_Dialog(tk.Toplevel):
         
 
     def build_ui(self):
-        tk.Label(self.dialog, text="Search contracts:").pack(padx=10, pady=(10, 0), anchor='w')
-        tk.Entry(self.dialog, textvariable=self.search_var).pack(fill="x", padx=10)
+        tk.Label(self, text="Search contracts:").pack(padx=10, pady=(10, 0), anchor='w')
+        tk.Entry(self, textvariable=self.search_var).pack(fill="x", padx=10)
 
-        self.tree = ttk.Treeview(self.dialog)
+        self.tree = ttk.Treeview(self)
         self.tree.pack(fill="both", expand=True, padx=10, pady=10)
         self.tree.bind("<<TreeviewOpen>>", self.on_expand)
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
 
         #button frame
-        btn_frame = tk.Frame(self.dialog)
+        btn_frame = tk.Frame(self)
         btn_frame.pack(fill="x", padx=10, pady=10)
-        tk.Button(btn_frame, text="Cancel", command=self.dialog.destroy).pack(side="right")
+        tk.Button(btn_frame, text="Cancel", command=self.destroy).pack(side="right")
         #confirm button
         self.select_btn = tk.Button(btn_frame, text="Select", command=self.confirm_selection, state="disabled")
         self.select_btn.pack(side="right", padx=5)
@@ -57,7 +57,9 @@ class Contract_Picker_Dialog(tk.Toplevel):
                 continue
 
             if filter_text.lower() in desc.lower():
-                self.tree.insert("", "end", iid=eid, text=desc, values=("exchange", eid), open=False)
+                #Add dummy child so the item can be expanded
+                self.tree.insert("", "end", iid=eid, text=desc, values=("exchange", eid))
+                self.tree.insert(eid, "end")  # dummy child
 
     def on_search(self):
         # TODO: implement search logic (if needed)
@@ -86,7 +88,7 @@ class Contract_Picker_Dialog(tk.Toplevel):
 
     #once hte user confirms the selection, it'll remove the dialog
     def confirm_selection(self):
-        self.dialog.destroy()
+        self.destroy()
         if self.contract_picker.on_contract_selected:
             self.contract_picker.on_contract_selected(self.selected_contract_meta)
 
@@ -95,10 +97,11 @@ class Contract_Picker_Dialog(tk.Toplevel):
         item_id = self.tree.focus()
         values = self.tree.item(item_id, "values")
         if values and values[0] == "exchange":
-            exchange_id = values[1]
-            if not self.tree.get_children(item_id):
-                asyncio.create_task(self.expand_contracts(item_id, exchange_id))
-
+            if self.tree.get_children(item_id):
+                for child in self.tree.get_children(item_id):
+                    self.tree.delete(child)
+                    exchange_id = values[1]
+                    asyncio.create_task(self.expand_contracts(item_id, exchange_id))
 
     #loads all of the contracts for a particular exchange
     async def expand_contracts(self, parent_id, exchange_id):
