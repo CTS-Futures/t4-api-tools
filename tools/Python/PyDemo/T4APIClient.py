@@ -9,7 +9,7 @@ from proto.t4.v1.market import market_pb2
 from proto.t4.v1.common.enums_pb2 import DepthBuffer, DepthLevels
 import uuid
 import httpx
-
+import traceback
 class Client:
 
     #initializes core attributes
@@ -64,12 +64,7 @@ class Client:
     async def connect(self):
     
         try:
-            # async with websockets.connect(self.wsUrl) as self.ws:
-            #     await asyncio.gather(
-            #         self.authenticate(),
-            #         self.send_heartbeat(),
-            #         self.listen()
-            # )
+            #establishes websocket connection
             self.ws = await websockets.connect(self.wsUrl)
             self.running = True
 
@@ -281,12 +276,15 @@ class Client:
         elif message_type == "account_subscribe_response":
             self.handle_subscribe_response(msg.account_subscribe_response)
         elif message_type == "market_details":
-            self.handle_market_detail(msg.market_details)    
+            self.handle_market_detail(msg.market_details)   
+            print(msg.market_details)
         elif message_type == "market_snapshot":
             self.handle_market_snapshot(msg.market_snapshot)
+            
        
         elif message_type == "market_depth":
             self.handle_market_depth(msg.market_depth)
+            print(msg.market_depth)
         
         
         else:
@@ -381,44 +379,110 @@ class Client:
                 
                 #get the marketid.
                 data = response.json()
-                self.current_market_id = data.get("marketID")
+      #         self.current_market_id = data.get("marketID")
                
-                return data
+                return data.get("marketID")
 
         except Exception as e:
             print("error outside:", e)
     
+    # async def subscribe_market(self, exchange_id, contract_id, market_id):
+        
+        
+    #     key = f'{exchange_id}_{contract_id}_{market_id}'
+    #     print(key)
+
+    #     if getattr(self, "_latest_requested_key", None) == key:
+    #         print("[subscribe_market] Duplicate request, skipping")
+    #         return
+
+    #     #  Save new requested key early
+    #     self._latest_requested_key = key
+    #    # if currently subscribed, let's unsubscribe and subscribe to the other
+    #     if self.current_subscription:
+
+    #             # Save the previous subscription IDs
+    #         prev_exchange_id = self.md_exchange_id
+    #         prev_contract_id = self.md_contract_id
+    #         prev_market_id = self.current_market_id
+
+
+    #         self.md_exchange_id = exchange_id
+    #         self.md_contract_id = contract_id
+    #         self.current_market_id = market_id
+    #         self.current_subscription = {exchange_id, contract_id, market_id}
+    #         #TODO: add unsubscribe functionality for when subscribing tod differnt markets.
+    #         depth_unsub = market_pb2.MarketDepthSubscribe(
+    #             exchange_id= prev_exchange_id,
+    #             contract_id= prev_contract_id,
+    #             market_id = prev_market_id,
+    #             buffer = DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
+    #             depth_levels= DepthLevels.DEPTH_LEVELS_UNDEFINED
+    #         )
+    #         await self.send_message({"market_depth_subscribe": depth_unsub})
+    #         print("unsubscribed from market")
+            
+           
+        
+        
+
+    #     # creates subscripton message
+    #     depth_sub = market_pb2.MarketDepthSubscribe(
+    #         exchange_id= exchange_id,
+    #         contract_id= contract_id,
+    #         market_id = market_id,
+    #         buffer = DepthBuffer.DEPTH_BUFFER_SMART,
+    #         depth_levels= DepthLevels.DEPTH_LEVELS_BEST_ONLY
+    #     )
+        
+    #     # sends the message out
+    #     await self.send_message({"market_depth_subscribe": depth_sub})
+
     async def subscribe_market(self, exchange_id, contract_id, market_id):
         key = f'{exchange_id}_{contract_id}_{market_id}'
-      
-       # if currently subscribed, let's unsubscribe and subscribe to the other
+        print(key)
+
+        # Skip if it's the same contract
+        if getattr(self, "_latest_requested_key", None) == key:
+            print("[subscribe_market] Duplicate request, skipping")
+            return
+
+        # Mark as the latest request
+        self._latest_requested_key = key
+
+        # If already subscribed to something else, unsubscribe first
         if self.current_subscription:
-            #TODO: add unsubscribe functionality for when subscribing tod differnt markets.
+            prev_exchange_id = self.md_exchange_id
+            prev_contract_id = self.md_contract_id
+            prev_market_id = self.current_market_id
+
+            # Unsubscribe from previous contract
             depth_unsub = market_pb2.MarketDepthSubscribe(
-                exchange_id= exchange_id,
-                contract_id= contract_id,
-                market_id = market_id,
-                buffer = DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
-                depth_levels= DepthLevels.DEPTH_LEVELS_UNDEFINED
+                exchange_id=prev_exchange_id,
+                contract_id=prev_contract_id,
+                market_id=prev_market_id,
+                buffer=DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
+                depth_levels=DepthLevels.DEPTH_LEVELS_UNDEFINED
             )
             await self.send_message({"market_depth_subscribe": depth_unsub})
-            print("unsubscribed from market")
-            self.current_subscription = None
-        
-        self.current_subscription = {exchange_id, contract_id, market_id}
+            print("Unsubscribed from previous market")
+
+        # Only after successful unsubscribe, update current state
+        self.md_exchange_id = exchange_id
+        self.md_contract_id = contract_id
         self.current_market_id = market_id
+        self.current_subscription = {exchange_id, contract_id, market_id}
 
-        # creates subscripton message
+        # Now subscribe to the new contract
         depth_sub = market_pb2.MarketDepthSubscribe(
-            exchange_id= exchange_id,
-            contract_id= contract_id,
-            market_id = market_id,
-            buffer = DepthBuffer.DEPTH_BUFFER_SMART,
-            depth_levels= DepthLevels.DEPTH_LEVELS_BEST_ONLY
+            exchange_id=exchange_id,
+            contract_id=contract_id,
+            market_id=market_id,
+            buffer=DepthBuffer.DEPTH_BUFFER_SMART,
+            depth_levels=DepthLevels.DEPTH_LEVELS_BEST_ONLY  # or whatever default
         )
-
-        # sends the message out
         await self.send_message({"market_depth_subscribe": depth_sub})
+        print("Subscribed to new market")
 
 
     def update_market_header(self, contract_id, expiry_date):

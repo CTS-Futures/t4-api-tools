@@ -14,6 +14,7 @@ class T4_GUI(tk.Tk):
 
         self.client.on_market_update = self.update_market_ui
         self.client.market_header_update = self.update_market_header_ui
+        self.client._subscribed_once = False
         self.contract_picker = Contract_Picker(self.client)
         self.create_widgets()
 
@@ -171,7 +172,10 @@ class T4_GUI(tk.Tk):
             self.status_label.config(text="Status: Failed to connect", foreground="red")
             return
         
-        await self.get_and_subscribe()
+        # subscribe only on the first run
+        if not self.client._subscribed_once:
+            self.client._subscribed_once = True
+            await self.get_and_subscribe()
 
     async def disconnect(self):
         #turns status to red
@@ -215,8 +219,8 @@ class T4_GUI(tk.Tk):
     async def get_and_subscribe(self):
         await asyncio.sleep(2)
 
-        await self.client.get_market_id(self.client.md_exchange_id, self.client.md_contract_id)
-        await self.client.subscribe_market(self.client.md_exchange_id, self.client.md_contract_id, self.client.current_market_id)
+        market_id = await self.client.get_market_id(self.client.md_exchange_id, self.client.md_contract_id)
+        await self.client.subscribe_market(self.client.md_exchange_id, self.client.md_contract_id, market_id)
         #will be adding subscribe next
 
     def open_contract_picker(self):
