@@ -13,7 +13,10 @@ import t4proto.v1.auth.Auth.AuthenticationToken;
 import t4proto.v1.common.PriceOuterClass; // For PriceFormat
 import t4proto.v1.common.Enums.PriceFormat;
 import t4proto.v1.service.Service; // For ClientMessage
+import t4proto.v1.service.Service.ServerMessage;
 import t4proto.v1.account.Account;//import static t4proto.v1.service.Service.ServerMessage.PayloadCase.*;
+import t4proto.v1.market.Market.MarketSnapshot;
+import t4proto.v1.market.Market.MarketSnapshotMessage;
 
 // WebSocket imports
 import javax.websocket.*;
@@ -24,6 +27,8 @@ import com.google.protobuf.Descriptors.FieldDescriptor;
 // Helper class you’ve written
 import com.t4.helpers.ClientMessageHelper;
 import com.t4.T4Config;
+import com.t4.MarketDataPane;
+
 
 import java.io.IOException;
 // Java stdlib
@@ -125,9 +130,7 @@ import java.util.concurrent.TimeUnit;
             .setPriceFormat(PriceFormat.PRICE_FORMAT_DECIMAL)
             .build();
 
-
             Service.ClientMessage clientMessage = ClientMessageHelper.wrapLoginRequest(loginRequest);
-
             sessionO.getAsyncRemote().sendBinary(ByteBuffer.wrap(clientMessage.toByteArray()));
             //might need hearbeat monitor soon
             startClientHeartbeat(sessionO);
@@ -141,7 +144,7 @@ import java.util.concurrent.TimeUnit;
 //On Message 
         @OnMessage
 
-        public void onMessage(ByteBuffer bytes) {
+      public void onMessage(ByteBuffer bytes) {
       System.out.println("Received binary message:");
       try {
          Service.ServerMessage serverMessage = Service.ServerMessage.parseFrom(bytes.array());
@@ -163,15 +166,19 @@ import java.util.concurrent.TimeUnit;
                   System.out.println("Token from the response: " + tokenHandler(token));
                   isLoggedIn = true;
                   break;
+               
+               case MARKET_SNAPSHOT:
+                  handleMarketSnapshot(serverMessage.getMarketSnapshot());
+                  break;
 
-               case AUTHENTICATION_TOKEN:
+               /* case AUTHENTICATION_TOKEN:
                   System.out.println("Made it to the token! ");
                   jwtToken = true;
                   Auth.AuthenticationToken tokenA = serverMessage.getAuthenticationToken();
                   Map<FieldDescriptor, Object> decodedJWT = tokenA.getAllFields();
                   System.out.println(tokenA.getExpireTime().getSeconds()/60);
                   System.out.println("Recieved Token: " + decodedJWT);
-                  break;
+                  break; */
                
                default:
                    System.out.println("Received unknown payload: " + payloadCase);
@@ -215,6 +222,45 @@ import java.util.concurrent.TimeUnit;
 
          return "Token had been handeled";
         }
+
+      private MarketDataPane marketDataPane;
+
+      public void setMarketDataPane(MarketDataPane pane) {
+         this.marketDataPane = pane;
+      }
+
+      public void handleMarketSnapshot (MarketSnapshot snapshot){
+
+         String symbol = snapshot.getMarketId();
+         String bid = "--";
+         String ask = "--";
+         String last = "--";
+
+         for (MarketSnapshotMessage message : snapshot.getMessagesList()) {
+            if (message.hasMarketDepth()) {
+               var depth = message.getMarketDepth();
+               if (!depth.getBidsList().isEmpty()) {
+                   bid = String.valueOf(depth.getBids(0).getPrice().getValue());
+               }
+               if (!depth.getOffersList().isEmpty()) {
+                   ask = String.valueOf(depth.getOffers(0).getPrice().getValue());
+               }
+         }
+            if (message.hasMarketDepthTrade()) {
+               var trade = message.getMarketDepthTrade();
+               last = String.valueOf(trade.getLastTradePrice().getValue());
+         }
+      }
+
+         System.out.printf("Market Snapshot [%s] | Bid: %s | Ask: %s | Last: %s%n", symbol, bid, ask, last);
+
+         if (marketDataPane != null) {
+            MarketDataPane.updateSymbol(symbol);
+            MarketDataPane.updateBid(bid);
+            MarketDataPane.updateAsk(ask);
+            MarketDataPane.updateLast(last);
+         }
+      }
 //reconnect, not looking like it is needed...
         private void reconnect() {
          //this will be needed for when we start wokring on UI
