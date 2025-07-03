@@ -16,6 +16,7 @@ class T4_GUI(tk.Tk):
         self.client.market_header_update = self.update_market_header_ui
         self.client.on_market_switch = self.reset_market_ui
         self.client._subscribed_once = False
+        self.client.on_account_update = self.handle_account_update
         self.contract_picker = Contract_Picker(self.client)
         self.create_widgets()
 
@@ -43,6 +44,8 @@ class T4_GUI(tk.Tk):
         # Account Dropdown
         tk.Label(self.connect_frame, text="Account:", font=("Arial", 12), bg="white").grid(row=3, column=0, pady=10, sticky="w")
         self.account_dropdown = ttk.Combobox(self.connect_frame, values=["Select Account..."])
+        self.account_dropdown.bind("<<ComboboxSelected>>", lambda e: asyncio.create_task(self.on_account_selected()))
+
         self.account_dropdown.set("Select Account...")
         self.account_dropdown.grid(row=3, column=1, padx=10, sticky="w")
 
@@ -141,8 +144,8 @@ class T4_GUI(tk.Tk):
         self.stop_loss_entry.grid(row=7, column=1, sticky="ew")
 
         # Submit Button
-        submit_button = tk.Button(submit_container, text="Submit Order", bg="#3b82f6", fg="white", font=("Arial", 12, "bold"))
-        submit_button.grid(row=8, column=0, columnspan=2, pady=20, sticky="ew")
+        self.submit_button = tk.Button(submit_container, text="Submit Order", bg="#3b82f6", fg="white", font=("Arial", 12, "bold"), command=lambda:asyncio.create_task(self.on_submit_order()), state="disabled")
+        self.submit_button.grid(row=8, column=0, columnspan=2, pady=20, sticky="ew")
 
         #positions frame
         self.positions_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
@@ -192,7 +195,16 @@ class T4_GUI(tk.Tk):
     def end_connection(self):
         self.status_label.config(text="Status: Disconnecting...", foreground="red")
         asyncio.create_task(self.disconnect())
-
+    def handle_account_update(self, update):
+        update_type = update.get("type")
+        if update_type == "accounts":
+            self.populate_accounts()
+        elif update_type == "positions":
+            # TODO: add this when i implement positions table
+            pass
+        elif update_type == "orders":
+            # TODO: add this when i implement orders table
+            pass
     #creates this task to actually connect to the client
     async def connect_and_listen(self):
         await self.client.connect()
@@ -200,6 +212,7 @@ class T4_GUI(tk.Tk):
         if self.client.running:
             self.status_label.config(text="Status: Connected", foreground="green")
             self.status_icon.itemconfig(1, fill="green")
+            self.update_submit_button_state()
             self.populate_accounts()
         else:
             self.status_label.config(text="Status: Failed to connect", foreground="red")
@@ -218,6 +231,7 @@ class T4_GUI(tk.Tk):
         #remove accounts 
         self.account_dropdown.set("Select Account...")
         await self.client.disconnect()
+        self.update_submit_button_state()
 
     def update_market_ui(self, data):
         #print("Market update received in GUI:", data)
@@ -246,8 +260,22 @@ class T4_GUI(tk.Tk):
         self.account_dropdown['values'] = account_names
         if account_names:
             self.account_dropdown.set(account_names[0])
+            asyncio.create_task(self.on_account_selected())
         #print("here")
        # print(account_names)
+    async def on_account_selected(self):
+        selected_name = self.account_dropdown.get()
+
+        # Look up the corresponding account ID by name
+        for acc_id, acc in self.client.accounts.items():
+            full_name = f"{acc.account_name}"
+            if full_name == selected_name:
+                self.client.selected_account = acc_id
+                await self.client.subscribe_account(acc_id)
+                print(f"Subscribed to account: {acc_id}")
+                break
+
+        self.update_submit_button_state()
 
     async def get_and_subscribe(self):
         await asyncio.sleep(2)
@@ -259,8 +287,44 @@ class T4_GUI(tk.Tk):
     def open_contract_picker(self):
         Contract_Picker_Dialog(master=self.root, client=self.client)
 
-    def submit_order_button(self):
-        order_type = self.type_combo.get()
+    async def on_submit_order(self):
+        print("Market ID:", self.client.current_market_id)
+        print("Selected Account:", self.client.selected_account)
+        print("Market Details:", self.client.market_details.get(self.client.current_market_id))
+
+        print("submit button hit)")
+        #gets data from front end
+        # Retrieve basic inputs
+        order_type = self.type_combo.get()               # "Limit" or "Market"
+        side = self.side_combo.get()                     # "Buy" or "Sell"
+        volume = int(self.volume_spinbox.get())          # e.g., 1
+        price = float(self.price_spinbox.get())          # e.g., 100.0
+
+        # Handle optional fields (take profit / stop loss)
+        tp_raw = self.take_profit_entry.get().strip()
+        sl_raw = self.stop_loss_entry.get().strip()
+
+        take_profit = float(tp_raw) if tp_raw and tp_raw.lower() != "optional" else None
+        stop_loss = float(sl_raw) if sl_raw and sl_raw.lower() != "optional" else None
+
+        # Print out all inputs for now
+        print(f"[Order Input]")
+        print(f"  Type: {order_type}")
+        print(f"  Side: {side}")
+        print(f"  Volume: {volume}")
+        print(f"  Price: {price}")
+        print(f"  Take Profit: {take_profit}")
+        print(f"  Stop Loss: {stop_loss}")
+
+        #connect to the back end
+        await self.client.submit_order(side, volume, price, order_type, take_profit, stop_loss)
+
+    #ensures that the submit button cannot be pressed when no accounts are active
+    def update_submit_button_state(self):
+        if self.client.running and self.client.selected_account:
+            self.submit_button.config(state="normal")
+        else:
+            self.submit_button.config(state="disabled")
         
     def reset_market_ui(self):
        

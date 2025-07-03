@@ -7,12 +7,12 @@ from proto.t4.v1.auth import auth_pb2
 from proto.t4.v1 import service_pb2
 from proto.t4.v1.market import market_pb2
 from proto.t4.v1.common.enums_pb2 import DepthBuffer, DepthLevels, PriceType, BuySell, OrderLink, TimeType, ActivationType
-from proto.t4.v1.orderrouting.orderrouting_pb2 import Price, Order
+
+from proto.t4.v1.common.price_pb2 import Price
 from proto.t4.v1.orderrouting import orderrouting_pb2
 
 import uuid
 import httpx
-import traceback
 class Client:
 
     #initializes core attributes
@@ -38,6 +38,7 @@ class Client:
         #accounts
         self.accounts = {}
         self.selected_account = None
+        self.on_account_update = None
         #connection
         self.login_response = None
 
@@ -105,7 +106,7 @@ class Client:
 
         #gathers the tasks together to cancel
         await asyncio.gather(self.listen_task, self.heartbeat_task)
-        print("check 2")
+        
 
     #envelopes, encrypts, and sends message to the server
     async def send_message(self, message):
@@ -132,7 +133,7 @@ class Client:
     def handle_login(self, message):
         
         #successful connection
-        print(message)
+        
         if message.result == 0:
             self.login_response = message
             
@@ -144,7 +145,10 @@ class Client:
                     self.jw_expiration = int(message.authentication_token.expire_time.seconds) * 1000
                     print(self.jw_expiration)
             #store accounts
+
+            print(message.accounts)
             if message.accounts:
+                
                 for acc in message.accounts:
                     self.accounts[acc.account_id] = acc
 
@@ -152,11 +156,11 @@ class Client:
             print(self.accounts)
             
         
-            # if self.on_account_update:
-            #     self.on_account_update({
-            #         'type': 'accounts',
-            #         'accounts': list(self.accounts.values())
-            #     })
+            if self.on_account_update:
+                self.on_account_update({
+                    'type': 'accounts',
+                    'accounts': list(self.accounts.values())
+                })
         else:
             print("login failed")
     
@@ -332,14 +336,16 @@ class Client:
             self.handle_subscribe_response(msg.account_subscribe_response)
         elif message_type == "market_details":
             self.handle_market_detail(msg.market_details)   
-            print(msg.market_details)
         elif message_type == "market_snapshot":
-            self.handle_market_snapshot(msg.market_snapshot)
-            
-       
+            self.handle_market_snapshot(msg.market_snapshot) 
         elif message_type == "market_depth":
             self.handle_market_depth(msg.market_depth)
-            print(msg.market_depth)
+            
+        elif message_type == "order_update_multi":
+            self.handle_order_update_multi(msg.order_update_multi)
+        elif message_type == "order_update":
+            self.handle_order_update(msg.order_update)
+
         
         
         else:
@@ -441,7 +447,31 @@ class Client:
         except Exception as e:
             print("error outside:", e)
     
+    async def subscribe_account(self, account_id):
+        if self.selected_account == account_id:
+            return  # Already subscribed
 
+        # Unsubscribe from previous account
+        if self.selected_account:
+            unsub_msg = service_pb2.AccountSubscribe(
+                subscribe=0,
+                subscribe_all_accounts=False,
+                account_id=[self.selected_account]
+            )
+            await self.send_message({"account_subscribe": unsub_msg})
+
+        # Update selected
+        self.selected_account = account_id
+
+        # Subscribe to new account
+        sub_msg = service_pb2.AccountSubscribe(
+            subscribe=2,  # ALL_UPDATES
+            subscribe_all_accounts=False,
+            account_id=[account_id]
+        )
+        await self.send_message({"account_subscribe": sub_msg})
+
+        print(f"Subscribed to account: {account_id}")
     async def subscribe_market(self, exchange_id, contract_id, market_id):
         if self.on_market_switch:
             self.on_market_switch()
@@ -492,6 +522,15 @@ class Client:
         print("Subscribed to new market")
 
     async def submit_order(self, side, volume, price, price_type = 'limit', take_profit_dollars = None, stop_loss_dollars = None):
+       
+        if not self.current_market_id:
+            print("❌ No market selected")
+            return
+
+        market_details = self.market_details.get(self.current_market_id)
+        if not market_details:
+            print("❌ Market details not found")
+            return
         if not self.current_market_id:
             print("error, no market selected")
         
@@ -519,8 +558,10 @@ class Client:
             OrderLink.ORDER_LINK_AUTO_OCO if has_bracket_orders
             else OrderLink.ORDER_LINK_NONE
         )
+
+        orders = []
         #create orders array with main order first
-        orders = Order(
+        main_order = orderrouting_pb2.OrderSubmit.Order(
                 buy_sell=buy_sell_value,
                 price_type=price_type_val,
                 time_type=TimeType.TIME_TYPE_NORMAL,
@@ -529,9 +570,9 @@ class Client:
 
             # Set limit price only if it's a LIMIT order
         if price_type_val == PriceType.PRICE_TYPE_LIMIT:
-            orders.limit_price.CopyFrom(Price(value=str(price)))
+            main_order.limit_price.CopyFrom(Price(value=str(price)))
 
-
+        orders.append(main_order)
         #for bracket orders, we need to use the opposite side
         protection_side = (
             BuySell.BUY_SELL_SELL if buy_sell_value == BuySell.BUY_SELL_BUY
@@ -542,7 +583,7 @@ class Client:
             take_profit_points = take_profit_dollars / market_details.point_value.value
             take_profit_price = take_profit_points * market_details.min_price_increment.value
 
-            take_profit_order = Order(
+            take_profit_order = orderrouting_pb2.OrderSubmit.Order(
                 buy_sell=protection_side,
                 price_type=PriceType.PRICE_TYPE_LIMIT,
                 time_type=TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
@@ -557,7 +598,7 @@ class Client:
             stop_loss_points = stop_loss_dollars / market_details.point_value.value
             stop_loss_price = stop_loss_points * market_details.min_price_increment.value
 
-            stop_loss_order = Order(
+            stop_loss_order = orderrouting_pb2.OrderSubmit.Order(
                 buy_sell=protection_side,
                 price_type=PriceType.PRICE_TYPE_STOP_MARKET,
                 time_type=TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
@@ -571,7 +612,7 @@ class Client:
             account_id = self.selected_account,
             market_id = self.current_market_id,
             order_link = order_link_value,
-            manual_order_indicate = True,
+            manual_order_indicator = True,
             orders = orders
         )
 
