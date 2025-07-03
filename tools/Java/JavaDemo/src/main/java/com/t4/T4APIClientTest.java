@@ -17,10 +17,13 @@ import t4proto.v1.service.Service.ServerMessage;
 import t4proto.v1.account.Account;//import static t4proto.v1.service.Service.ServerMessage.PayloadCase.*;
 import t4proto.v1.market.Market.MarketSnapshot;
 import t4proto.v1.market.Market.MarketSnapshotMessage;
+import t4proto.v1.market.Market.MarketDepth;
+import t4proto.v1.market.Market.MarketDepthTrade;
+
 
 // WebSocket imports
 import javax.websocket.*;
-
+import com.auth0.jwt.JWT;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.google.protobuf.ProtoSyntax;
 import com.google.protobuf.Descriptors.FieldDescriptor;
@@ -223,45 +226,49 @@ import java.util.concurrent.TimeUnit;
          return "Token had been handeled";
         }
 
-      private MarketDataPane marketDataPane;
+      private MarketDataPane marketDataP;
 
-      public void setMarketDataPane(MarketDataPane pane) {
-         this.marketDataPane = pane;
+      public void setMarketDataP(MarketDataPane pane) {
+         this.marketDataP = pane;
       }
 
-      public void handleMarketSnapshot (MarketSnapshot snapshot){
+      public void handleMarketSnapshot(MarketSnapshot snapshot) {
+       String symbol = snapshot.getMarketId();
+       String bid = "--";
+       String ask = "--";
+       String last = "--";
 
-         String symbol = snapshot.getMarketId();
-         String bid = "--";
-         String ask = "--";
-         String last = "--";
+       for (MarketSnapshotMessage message : snapshot.getMessagesList()) {
+        if (message.hasMarketDepth()) {
+            MarketDepth depth = message.getMarketDepth();
+            if (!depth.getBidsList().isEmpty()) {
+                bid = String.valueOf(depth.getBids(0).getPrice().getValue());
+            }
+            if (!depth.getOffersList().isEmpty()) {
+                ask = String.valueOf(depth.getOffers(0).getPrice().getValue());
+            }
+         }
+        if (message.hasMarketDepthTrade()) {
+            MarketDepthTrade trade = message.getMarketDepthTrade();
+            last = String.valueOf(trade.getLastTradePrice().getValue());
+        }
+       }
 
-         for (MarketSnapshotMessage message : snapshot.getMessagesList()) {
-            if (message.hasMarketDepth()) {
-               var depth = message.getMarketDepth();
-               if (!depth.getBidsList().isEmpty()) {
-                   bid = String.valueOf(depth.getBids(0).getPrice().getValue());
-               }
-               if (!depth.getOffersList().isEmpty()) {
-                   ask = String.valueOf(depth.getOffers(0).getPrice().getValue());
-               }
-         }
-            if (message.hasMarketDepthTrade()) {
-               var trade = message.getMarketDepthTrade();
-               last = String.valueOf(trade.getLastTradePrice().getValue());
-         }
+       System.out.printf("Market Snapshot [%s] | Bid: %s | Ask: %s | Last: %s%n", symbol, bid, ask, last);
+
+       if (marketDataP != null) {
+         marketDataP.updateSymbol(symbol);
+         marketDataP.updateBid(bid);
+         marketDataP.updateAsk(ask);
+         marketDataP.updateLast(last);
       }
+   }
 
-         System.out.printf("Market Snapshot [%s] | Bid: %s | Ask: %s | Last: %s%n", symbol, bid, ask, last);
 
-         if (marketDataPane != null) {
-            MarketDataPane.updateSymbol(symbol);
-            MarketDataPane.updateBid(bid);
-            MarketDataPane.updateAsk(ask);
-            MarketDataPane.updateLast(last);
-         }
-      }
-//reconnect, not looking like it is needed...
+
+
+
+        //reconnect will be used when I make the 
         private void reconnect() {
          //this will be needed for when we start wokring on UI
          try {
@@ -347,11 +354,14 @@ import java.util.concurrent.TimeUnit;
          System.out.println("\nNo active heartbeat to stop.");
       }  
    }
-//get Instance 
+      //get Instance 
       public static T4APIClientTest getInstance()
       {
          return instance;
       }
+
+
+
 
         public static void main(String[] args){
          try{
