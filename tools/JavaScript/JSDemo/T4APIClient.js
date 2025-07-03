@@ -184,7 +184,7 @@ class T4APIClient {
         }
 
         const marketDetails = this.getMarketDetails(this.currentMarketId);
-
+        
         // Convert string price type to enum value
         const priceTypeValue = priceType.toLowerCase() === 'market'
             ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET  // 0

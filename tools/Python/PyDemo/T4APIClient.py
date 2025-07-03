@@ -6,7 +6,10 @@ from tools.ProtoUtils import encode_message, decode_message
 from proto.t4.v1.auth import auth_pb2
 from proto.t4.v1 import service_pb2
 from proto.t4.v1.market import market_pb2
-from proto.t4.v1.common.enums_pb2 import DepthBuffer, DepthLevels
+from proto.t4.v1.common.enums_pb2 import DepthBuffer, DepthLevels, PriceType, BuySell, OrderLink, TimeType, ActivationType
+from proto.t4.v1.orderrouting.orderrouting_pb2 import Price, Order
+from proto.t4.v1.orderrouting import orderrouting_pb2
+
 import uuid
 import httpx
 import traceback
@@ -236,7 +239,64 @@ class Client:
     def handle_subscribe_response(self, message):
         print(message)
     
+    def handle_order_update_multi(self, update_multi):
+        updates_processed = 0
+        if update_multi.updates:
+            for update in update_multi.updates:
+                if update.HasField("order_update"):
+                    updates_processed += 1
+                    self.handle_order_update(update.order_update)
+                elif update.HasField("order_update_status"):
+                    updates_processed += 1
+                    self.handle_order_update_status(update.order_update_status)
+                elif update.HasField("order_update_trade"):
+                    updates_processed += 1
+                    self.handle_order_update_trade(update.order_update_trade)
+                elif update.HasField("order_update_trade_leg"):
+                    updates_processed += 1
+                    self.handle_order_update_trade_leg(update.order_update_trade_leg)
+                elif update.HasField("order_update_failed"):
+                    updates_processed += 1
+                    self.handle_order_update_failed(update.order_update_failed)
+                else:
+                    print(f"Unknown update type in message")
+        if updates_processed != len(update_multi.updates):
+            print(f"Order update multi mismatch: expected {len(update_multi.updates)}, processed {updates_processed}")
+        else:
+            print(f"Order update multi processed: {updates_processed}")
 
+
+    def handle_order_update(self, order_update):
+        self.orders[order_update.unique_id] = order_update
+        print(f"Order update received: {order_update.unique_id}, market: {order_update.market_id}")
+        self.trigger_orders_update()
+    def handle_order_update_status(self, status_update):
+        print(f"Order status update: {status_update.unique_id}, status: {status_update.status}")
+        existing = self.orders.get(status_update.unique_id, {
+            "unique_id": status_update.unique_id,
+            "account_id": getattr(status_update, "account_id", self.selected_account),
+            "market_id": status_update.market_id
+        })
+        updated = {**existing, **status_update.__dict__}
+        self.orders[status_update.unique_id] = updated
+        self.trigger_orders_update()
+
+    def handle_order_update_trade(self, trade_update):
+        print(f"Trade update: {trade_update.unique_id}, trade: {trade_update.exchange_trade_id}")
+
+    def handle_order_update_trade_leg(self, leg_update):
+        print(f"Trade leg update: {leg_update.unique_id}, leg index: {leg_update.leg_index}")
+
+    def handle_order_update_failed(self, failed_update):
+        print(f"Order failed: {failed_update.unique_id}, status: {failed_update.status}")
+
+    
+    def trigger_orders_update(self):
+        if self.on_account_update:
+            self.on_account_update({
+                "type": "orders",
+                "orders": [o for o in self.orders.values() if o.get("account_id") == self.selected_account]
+            })
     #TODO update the market header
     async def listen(self): #listens for any websocket messages
         
@@ -261,13 +321,7 @@ class Client:
     #sends each message to a handling funciton. Which will just parse the data that is needed
     def process_server_message(self, msg):
         msg = decode_message(msg)
-      #  print(msg)
-        # if msg.login_response:
-        #     self.handle_login(msg.login_response)
-        # elif msg.authentication_token:
-        #     self.handle_authentication(msg.authentication_token)
-        # elif msg.subscribe_response:
-        #     self.handle_subscribe_response(msg.subscribe_response)
+      
         message_type = msg.WhichOneof("payload")
      
         if message_type == "login_response":
@@ -387,57 +441,6 @@ class Client:
         except Exception as e:
             print("error outside:", e)
     
-    # async def subscribe_market(self, exchange_id, contract_id, market_id):
-        
-        
-    #     key = f'{exchange_id}_{contract_id}_{market_id}'
-    #     print(key)
-
-    #     if getattr(self, "_latest_requested_key", None) == key:
-    #         print("[subscribe_market] Duplicate request, skipping")
-    #         return
-
-    #     #  Save new requested key early
-    #     self._latest_requested_key = key
-    #    # if currently subscribed, let's unsubscribe and subscribe to the other
-    #     if self.current_subscription:
-
-    #             # Save the previous subscription IDs
-    #         prev_exchange_id = self.md_exchange_id
-    #         prev_contract_id = self.md_contract_id
-    #         prev_market_id = self.current_market_id
-
-
-    #         self.md_exchange_id = exchange_id
-    #         self.md_contract_id = contract_id
-    #         self.current_market_id = market_id
-    #         self.current_subscription = {exchange_id, contract_id, market_id}
-    #         #TODO: add unsubscribe functionality for when subscribing tod differnt markets.
-    #         depth_unsub = market_pb2.MarketDepthSubscribe(
-    #             exchange_id= prev_exchange_id,
-    #             contract_id= prev_contract_id,
-    #             market_id = prev_market_id,
-    #             buffer = DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
-    #             depth_levels= DepthLevels.DEPTH_LEVELS_UNDEFINED
-    #         )
-    #         await self.send_message({"market_depth_subscribe": depth_unsub})
-    #         print("unsubscribed from market")
-            
-           
-        
-        
-
-    #     # creates subscripton message
-    #     depth_sub = market_pb2.MarketDepthSubscribe(
-    #         exchange_id= exchange_id,
-    #         contract_id= contract_id,
-    #         market_id = market_id,
-    #         buffer = DepthBuffer.DEPTH_BUFFER_SMART,
-    #         depth_levels= DepthLevels.DEPTH_LEVELS_BEST_ONLY
-    #     )
-        
-    #     # sends the message out
-    #     await self.send_message({"market_depth_subscribe": depth_sub})
 
     async def subscribe_market(self, exchange_id, contract_id, market_id):
         if self.on_market_switch:
@@ -488,6 +491,152 @@ class Client:
         await self.send_message({"market_depth_subscribe": depth_sub})
         print("Subscribed to new market")
 
+    async def submit_order(self, side, volume, price, price_type = 'limit', take_profit_dollars = None, stop_loss_dollars = None):
+        if not self.current_market_id:
+            print("error, no market selected")
+        
+        market_details = self.market_details.get(self.current_market_id)
+
+        #conver string price to enum
+        price_type_val = (
+            PriceType.PRICE_TYPE_MARKET if price_type.lower() == "market"
+            else PriceType.PRICE_TYPE_LIMIT
+        )
+
+        #convert buy/sell 
+        if isinstance(side, str):
+            buy_sell_value = (
+                BuySell.BUY_SELL_BUY if side.lower() == "buy"
+                else BuySell.BUY_SELL_SELL
+            )
+        else:
+            buy_sell_value = side
+
+        #determining if we need oco order linking
+        has_bracket_orders = take_profit_dollars is not None or stop_loss_dollars is not None
+
+        order_link_value = (
+            OrderLink.ORDER_LINK_AUTO_OCO if has_bracket_orders
+            else OrderLink.ORDER_LINK_NONE
+        )
+        #create orders array with main order first
+        orders = Order(
+                buy_sell=buy_sell_value,
+                price_type=price_type_val,
+                time_type=TimeType.TIME_TYPE_NORMAL,
+                volume=volume
+            )
+
+            # Set limit price only if it's a LIMIT order
+        if price_type_val == PriceType.PRICE_TYPE_LIMIT:
+            orders.limit_price.CopyFrom(Price(value=str(price)))
+
+
+        #for bracket orders, we need to use the opposite side
+        protection_side = (
+            BuySell.BUY_SELL_SELL if buy_sell_value == BuySell.BUY_SELL_BUY
+            else BuySell.BUY_SELL_BUY
+        )
+        #add take profit order 
+        if take_profit_dollars is not None:
+            take_profit_points = take_profit_dollars / market_details.point_value.value
+            take_profit_price = take_profit_points * market_details.min_price_increment.value
+
+            take_profit_order = Order(
+                buy_sell=protection_side,
+                price_type=PriceType.PRICE_TYPE_LIMIT,
+                time_type=TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                volume=0,
+                activation_type=ActivationType.ACTIVATION_TYPE_HOLD,
+            )
+            take_profit_order.limit_price.CopyFrom(Price(value=str(take_profit_price)))
+            orders.append(take_profit_order)
+
+        # --- Stop Loss ---
+        if stop_loss_dollars is not None:
+            stop_loss_points = stop_loss_dollars / market_details.point_value.value
+            stop_loss_price = stop_loss_points * market_details.min_price_increment.value
+
+            stop_loss_order = Order(
+                buy_sell=protection_side,
+                price_type=PriceType.PRICE_TYPE_STOP_MARKET,
+                time_type=TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                volume=0,
+                activation_type=ActivationType.ACTIVATION_TYPE_HOLD,
+            )
+            stop_loss_order.stop_price.CopyFrom(Price(value=str(stop_loss_price)))
+            orders.append(stop_loss_order)
+
+        order_submit = orderrouting_pb2.OrderSubmit(
+            account_id = self.selected_account,
+            market_id = self.current_market_id,
+            order_link = order_link_value,
+            manual_order_indicate = True,
+            orders = orders
+        )
+
+        await self.send_message({"order_submit": order_submit})
+
+
+        #print console statements
+        side_text = "Buy" if buy_sell_value == BuySell.BUY_SELL_BUY else "Sell"
+        price_text = "Market" if price_type_val == PriceType.PRICE_TYPE_MARKET else price
+
+        print(f"Order submitted: {side_text} {volume} @ {price_text} (Type: {price_type})")
+
+        if take_profit_dollars is not None:
+            tp_side = "Buy" if protection_side == BuySell.BUY_SELL_BUY else "Sell"
+            print(f"Take profit: ${take_profit_dollars} ({tp_side})")
+
+        if stop_loss_dollars is not None:
+            sl_side = "Buy" if protection_side == BuySell.BUY_SELL_BUY else "Sell"
+            print(f"Stop loss: ${stop_loss_dollars} ({sl_side})")
+
+        if has_bracket_orders:
+            print("OCO (One Cancels Other) bracket order applied")
+
+
+    async def pull_order(self, order_id):
+        if not self.selected_account:
+            print("error, no account selected. (pull order)")
+            return
+        pull = orderrouting_pb2.OrderPull.Pull(
+            unique_id=order_id
+        )
+        order_pull = orderrouting_pb2.OrderPull(
+            account_id = self.selected_account,
+            market_id = self.current_market_id,
+            manual_order_indicator = True,
+            pulls = pull
+        )
+
+
+        await self.send_message({"order_pull", order_pull})
+
+        print(f'order_cancelled {order_id}')
+    
+    async def revise_order(self, order_id, volume, price, price_type = 'limit'):
+        if not self.selected_account:
+            print("no selected account, (revise order)")
+            return
+        # Create the Price object if this is a limit order
+        limit_price = Price(value=str(price)) if price_type.lower() == "limit" else None
+
+        revise = orderrouting_pb2.OrderRevise.Revise(
+            unique_id=order_id,
+            volume=volume,
+            limit_price=limit_price if limit_price else None
+        )
+        order_revise = orderrouting_pb2.OrderRevise(
+            account_id = self.selected_account,
+            market_id = self.current_market_id,
+            manual_order_indicator = True,
+            revisions = revise
+        )
+
+        await self.send_message({"order_revise", order_revise})
+
+        print(f"order revised {order_id} - new vol: {volume} - new price ")
 
     def update_market_header(self, contract_id, expiry_date):
 
