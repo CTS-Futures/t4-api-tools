@@ -19,6 +19,7 @@ import t4proto.v1.market.Market.MarketSnapshot;
 import t4proto.v1.market.Market.MarketSnapshotMessage;
 import t4proto.v1.market.Market.MarketDepth;
 import t4proto.v1.market.Market.MarketDepthTrade;
+import t4proto.v1.market.Market.MarketSubscriptionRequest;
 
 
 // WebSocket imports
@@ -263,6 +264,10 @@ import java.util.concurrent.TimeUnit;
          marketDataP.updateLast(last);
       }
    }
+
+      private void subscribeToMarket(){
+
+      }
 
 
 
