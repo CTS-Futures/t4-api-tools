@@ -741,8 +741,72 @@ class T4APIClient {
 
     handleOrderUpdateTrade(tradeUpdate) {
         this.log(`Order trade update: ${tradeUpdate.uniqueId}, exchange trade: ${tradeUpdate.exchangeTradeId}`, 'info');
-        //this.orders.set(tradeUpdate.uniqueId, tradeUpdate);
-        //this.triggerOrdersUpdate();
+
+        // Get existing order or create a minimal one
+        let existingOrder = this.orders.get(tradeUpdate.uniqueId);
+
+        if (!existingOrder) {
+            // Create minimal order if it doesn't exist
+            existingOrder = {
+                uniqueId: tradeUpdate.uniqueId,
+                accountId: tradeUpdate.accountId || this.selectedAccount,
+                marketId: tradeUpdate.marketId
+            };
+        }
+
+        // Update the existing order with all status fields (following C# UpdateStatusInformation)
+        const updatedOrder = {
+            ...existingOrder,
+            change: tradeUpdate.change,
+            exchangeTime: tradeUpdate.exchangeTime,
+            status: tradeUpdate.status,
+            responsePending: tradeUpdate.responsePending,
+            statusDetail: tradeUpdate.statusDetail,
+            time: tradeUpdate.time,
+            currentVolume: tradeUpdate.currentVolume,
+            currentLimitPrice: tradeUpdate.currentLimitPrice,
+            currentStopPrice: tradeUpdate.currentStopPrice,
+            priceType: tradeUpdate.priceType,
+            timeType: tradeUpdate.timeType,
+            exchangeOrderId: tradeUpdate.exchangeOrderId,
+            workingVolume: tradeUpdate.workingVolume,
+            executingLoginId: tradeUpdate.executingLoginId,
+            userId: tradeUpdate.userId,
+            userName: tradeUpdate.userName,
+            routingUserId: tradeUpdate.routingUserId,
+            routingUserName: tradeUpdate.routingUserName,
+            userAddress: tradeUpdate.userAddress,
+            sessionId: tradeUpdate.sessionId,
+            appId: tradeUpdate.appId,
+            appName: tradeUpdate.appName,
+            activationType: tradeUpdate.activationType,
+            activationDetails: tradeUpdate.activationDetails,
+            trailPrice: tradeUpdate.trailPrice,
+            currentMaxShow: tradeUpdate.currentMaxShow,
+            newVolume: tradeUpdate.newVolume,
+            newLimitPrice: tradeUpdate.newLimitPrice,
+            newStopPrice: tradeUpdate.newStopPrice,
+            newMaxShow: tradeUpdate.newMaxShow,
+            tag: tradeUpdate.tag,
+            tagClOrdId: tradeUpdate.tagClOrdId,
+            tagOrigClOrdId: tradeUpdate.tagOrigClOrdId,
+            smpId: tradeUpdate.smpId,
+            exchangeLoginId: tradeUpdate.exchangeLoginId,
+            exchangeLocation: tradeUpdate.exchangeLocation,
+            atsRegulatoryId: tradeUpdate.atsRegulatoryId,
+            maxVolume: tradeUpdate.maxVolume,
+            sequenceOrder: tradeUpdate.sequenceOrder,
+            authorizedTraderId: tradeUpdate.authorizedTraderId,
+            appType: tradeUpdate.appType,
+            // Merge instruction extra if it exists
+            instructionExtra: {
+                ...(existingOrder.instructionExtra || {}),
+                ...(tradeUpdate.instructionExtra || {})
+            }
+        };
+
+        this.orders.set(tradeUpdate.uniqueId, updatedOrder);
+        this.triggerOrdersUpdate();
     }
 
     handleOrderUpdateTradeLeg(tradeLegUpdate) {
