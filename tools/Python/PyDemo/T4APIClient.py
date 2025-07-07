@@ -7,10 +7,10 @@ from proto.t4.v1.auth import auth_pb2
 from proto.t4.v1 import service_pb2
 from proto.t4.v1.market import market_pb2
 from proto.t4.v1.common.enums_pb2 import DepthBuffer, DepthLevels, PriceType, BuySell, OrderLink, TimeType, ActivationType
-
 from proto.t4.v1.common.price_pb2 import Price
+from proto.t4.v1.account import account_pb2
 from proto.t4.v1.orderrouting import orderrouting_pb2
-
+from google.protobuf.json_format import MessageToDict
 import uuid
 import httpx
 class Client:
@@ -56,11 +56,14 @@ class Client:
         self.market_header_update = None
         self.on_market_switch = None  # Callback from GUI
 
+        self.orders = {}
         #market data
         self.current_market_id = None
         self.current_subscription = None
         self.market_details = {}
         self.market_snapshots = {}
+
+        self.positions = {}
 
         
 
@@ -200,7 +203,33 @@ class Client:
         if market_details and market_details.contract_id and market_details.expiry_date:
             self.update_market_header(market_details.contract_id, market_details.expiry_date)
 
+    def handle_account_position(self, message):
+        key = f'{message.account_id}_{message.market_id}'
+        self.positions[key] = message
+    
 
+        if self.on_account_update:
+            self.on_account_update({'type': 'positions', 
+                                    'positions': [p for p in self.positions.values() if p.account_id == self.selected_account]})
+    def handle_account_snapshot(self, message):
+        if message.messages:
+            for msg in message.messages:
+                if msg.account_details:
+                    self.handle_account_details(msg.account_details)
+                elif msg.account_update:
+                    self.handle_account_update(msg.account_update)
+                elif msg.account_position:
+                    self.handle_account_position(msg.account_position)
+                elif msg.order_update_multi:
+                    self.handle_order_update_multi(msg.order_update_multi)
+                else:
+                    print(f"unknown message {msg}")
+        
+        print("handled snapshot")
+    def handle_account_details(self, message):
+        print(f"account details received ${message.account_id}")
+    def handle_account_update(self, message):
+        pass
     def handle_market_depth(self, message):
         # Store the latest market snapshot
         self.market_snapshots[message.market_id] = message
@@ -275,14 +304,27 @@ class Client:
         print(f"Order update received: {order_update.unique_id}, market: {order_update.market_id}")
         self.trigger_orders_update()
     def handle_order_update_status(self, status_update):
-        print(f"Order status update: {status_update.unique_id}, status: {status_update.status}")
-        existing = self.orders.get(status_update.unique_id, {
-            "unique_id": status_update.unique_id,
-            "account_id": getattr(status_update, "account_id", self.selected_account),
-            "market_id": status_update.market_id
-        })
-        updated = {**existing, **status_update.__dict__}
-        self.orders[status_update.unique_id] = updated
+
+
+        print(f"order status update {status_update.unique_id}")
+        
+    
+        
+        existing_order = self.orders[status_update.unique_id]
+
+        existing_order.status = status_update.status
+        existing_order.time - status_update.time
+      
+        existing_order.price_type = status_update.price_type
+        existing_order.current_volume = status_update.current_volume
+    
+        existing_order.working_volume = status_update.working_volume
+        # existing_order.instruction_extra = status_update.instruction_extra
+        existing_order.exchange_order_id = status_update.exchange_order_id
+        existing_order.status_detail = status_update.status_detail
+
+        self.orders[status_update.unique_id] = existing_order
+
         self.trigger_orders_update()
 
     def handle_order_update_trade(self, trade_update):
@@ -299,7 +341,7 @@ class Client:
         if self.on_account_update:
             self.on_account_update({
                 "type": "orders",
-                "orders": [o for o in self.orders.values() if o.get("account_id") == self.selected_account]
+                "orders": [o for o in self.orders.values() if o.account_id == self.selected_account]
             })
     #TODO update the market header
     async def listen(self): #listens for any websocket messages
@@ -308,6 +350,7 @@ class Client:
             while self.running:
                 try:
                     msg = await asyncio.wait_for(self.ws.recv(), timeout=2)
+                  
                     self.process_server_message(msg)
                 except asyncio.TimeoutError:
                     continue  # keep looping to check `self.running`
@@ -324,33 +367,51 @@ class Client:
     #this will be inside of the listen function.
     #sends each message to a handling funciton. Which will just parse the data that is needed
     def process_server_message(self, msg):
+        
         msg = decode_message(msg)
-      
         message_type = msg.WhichOneof("payload")
-     
+    
+        
+
+
+        if not hasattr(msg, 'WhichOneof'):
+            print("[process_server_message] msg has no WhichOneof: ", msg)
+            return
+        message_type = msg.WhichOneof("payload")
+    
         if message_type == "login_response":
             self.handle_login(msg.login_response)
         elif message_type == "authentication_token":
             self.handle_authentication(msg.authentication_token)
         elif message_type == "account_subscribe_response":
             self.handle_subscribe_response(msg.account_subscribe_response)
+        elif message_type == "account_update": #TODO
+            self.handle_account_update(msg.account_update)
+        elif message_type == "account_snapshot":
+            self.handle_account_snapshot(msg.account_snapshot)
+        elif message_type == "account_position":
+            self.handle_account_position(msg.account_position)
         elif message_type == "market_details":
             self.handle_market_detail(msg.market_details)   
         elif message_type == "market_snapshot":
             self.handle_market_snapshot(msg.market_snapshot) 
         elif message_type == "market_depth":
             self.handle_market_depth(msg.market_depth)
-            
+        elif message_type == "messages":
+            print("message")
         elif message_type == "order_update_multi":
             self.handle_order_update_multi(msg.order_update_multi)
         elif message_type == "order_update":
+
             self.handle_order_update(msg.order_update)
 
         
         
         else:
             print(msg)
-        
+
+           
+            
 
     async def send_heartbeat(self):
         
@@ -453,7 +514,7 @@ class Client:
 
         # Unsubscribe from previous account
         if self.selected_account:
-            unsub_msg = service_pb2.AccountSubscribe(
+            unsub_msg = account_pb2.AccountSubscribe(
                 subscribe=0,
                 subscribe_all_accounts=False,
                 account_id=[self.selected_account]
@@ -464,7 +525,7 @@ class Client:
         self.selected_account = account_id
 
         # Subscribe to new account
-        sub_msg = service_pb2.AccountSubscribe(
+        sub_msg = account_pb2.AccountSubscribe(
             subscribe=2,  # ALL_UPDATES
             subscribe_all_accounts=False,
             account_id=[account_id]
@@ -524,13 +585,14 @@ class Client:
     async def submit_order(self, side, volume, price, price_type = 'limit', take_profit_dollars = None, stop_loss_dollars = None):
        
         if not self.current_market_id:
-            print("❌ No market selected")
+            print("No market selected")
             return
 
         market_details = self.market_details.get(self.current_market_id)
         if not market_details:
-            print("❌ Market details not found")
+            print("Market details not found")
             return
+    
         if not self.current_market_id:
             print("error, no market selected")
         

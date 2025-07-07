@@ -201,7 +201,7 @@ class T4_GUI(tk.Tk):
             self.populate_accounts()
         elif update_type == "positions":
             # TODO: add this when i implement positions table
-            pass
+            self.update_positions_table(update)
         elif update_type == "orders":
             # TODO: add this when i implement orders table
             pass
@@ -270,8 +270,10 @@ class T4_GUI(tk.Tk):
         for acc_id, acc in self.client.accounts.items():
             full_name = f"{acc.account_name}"
             if full_name == selected_name:
-                self.client.selected_account = acc_id
+                
                 await self.client.subscribe_account(acc_id)
+                self.client.selected_account = acc_id
+                
                 print(f"Subscribed to account: {acc_id}")
                 break
 
@@ -320,6 +322,13 @@ class T4_GUI(tk.Tk):
         await self.client.submit_order(side, volume, price, order_type, take_profit, stop_loss)
 
     #ensures that the submit button cannot be pressed when no accounts are active
+
+
+    def update_positions_table(self, data):
+        
+        #loop through the data and display it:
+        for key, val in data.items():
+            pass
     def update_submit_button_state(self):
         if self.client.running and self.client.selected_account:
             self.submit_button.config(state="normal")

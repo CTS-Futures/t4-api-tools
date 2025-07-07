@@ -14,6 +14,8 @@ def decode_message(data: bytes) -> service_pb2.ServerMessage: # translates bytes
     """
     Parse a ServerMessage from a binary string received from WebSocket.
     """
+
+    
     server_message = service_pb2.ServerMessage()
     server_message.ParseFromString(data)
     return server_message
