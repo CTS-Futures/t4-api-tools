@@ -10,7 +10,7 @@ class T4_GUI(tk.Tk):
         self.root = root
         self.client = client
         self.root.title("T4 API Demo")
-        self.root.geometry("1250x1080")
+        self.root.geometry("1350x1180")
 
         self.client.on_market_update = self.update_market_ui
         self.client.market_header_update = self.update_market_header_ui
@@ -92,7 +92,6 @@ class T4_GUI(tk.Tk):
 
 
         #Submit frame
-            # Submit frame
         self.submit_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
         self.submit_frame.place(relx=0.51, rely=0.25, relwidth=0.44, relheight=0.3)
 
@@ -165,6 +164,23 @@ class T4_GUI(tk.Tk):
 
         self.positions_inner = tk.Frame(positions_container, bg="#f9f9f9")
         self.positions_inner.grid(row=2, column=0, sticky="nsew")
+        columns = ("Market", "Net", "P&L", "Working")
+        self.positions_tree = ttk.Treeview(self.positions_inner, columns=columns, show="headings", height=5)
+
+        for col in columns:
+            self.positions_tree.heading(col, text=col)
+            self.positions_tree.column(col, width=100, anchor="center")
+        # Create a vertical scrollbar
+        scrollbar_pos = ttk.Scrollbar(self.positions_inner, orient="vertical", command=self.positions_tree.yview)
+        self.positions_tree.configure(yscrollcommand=scrollbar_pos.set)
+
+        # Layout the tree and scrollbar side by side
+        self.positions_tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar_pos.grid(row=0, column=1, sticky="ns")
+
+        # Allow the Treeview to expand within its container
+        self.positions_inner.grid_rowconfigure(0, weight=1)
+        self.positions_inner.grid_columnconfigure(0, weight=1)
 
 
         # orders frame
@@ -185,7 +201,21 @@ class T4_GUI(tk.Tk):
 
         self.orders_inner = tk.Frame(orders_container, bg="#f9f9f9")
         self.orders_inner.grid(row=2, column=0, sticky="nsew")
+        columns = ("Time", "Market", "Side", "Volume", "Price", "Status", "Action")
+        self.orders_tree = ttk.Treeview(self.orders_inner, columns=columns, show="headings", height=8)
 
+        for col in columns:
+            self.orders_tree.heading(col, text=col)
+            self.orders_tree.column(col, anchor="center", width=80)
+
+        scrollbar = ttk.Scrollbar(self.orders_inner, orient="vertical", command=self.orders_tree.yview)
+        self.orders_tree.configure(yscroll=scrollbar.set)
+
+        self.orders_tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        self.orders_inner.grid_rowconfigure(0, weight=1)
+        self.orders_inner.grid_columnconfigure(0, weight=1)
 
     #command for when the button is pressed
     def start_connection(self):
