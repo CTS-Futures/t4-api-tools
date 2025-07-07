@@ -2,7 +2,7 @@ import asyncio
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 from T4APIClient import Client
-import datetime
+from datetime import datetime
 from contract_picker_dialog import Contract_Picker_Dialog
 from contract_picker import Contract_Picker
 class T4_GUI(tk.Tk):
@@ -363,7 +363,7 @@ class T4_GUI(tk.Tk):
         #clears the current tree
         for row in self.positions_tree.get_children():
             self.positions_tree.delete(row)
-        print(data)
+
         #loop through the data and display it:
         for pos in data['positions']:
             try:
@@ -382,46 +382,34 @@ class T4_GUI(tk.Tk):
         
         for row in self.orders_tree.get_children():
             self.orders_tree.delete(row)
-
-        for order in orders_list:
-            print(order)
+        for order in orders_list['orders']:
             try:
-                market = order.exchange_id
-                volume = getattr(order, "current_volume", getattr(order, "new_volume", 0))
+                submit_ts = order.submit_time.seconds
+                submit_time = datetime.utcfromtimestamp(submit_ts).strftime("%H:%M:%S")
 
-                # Get limit price: prefer current, fall back to new
-                if order.HasField("current_limit_price"):
-                    price = float(order.current_limit_price.value)
-                elif order.HasField("new_limit_price"):
-                    price = float(order.new_limit_price.value)
-                else:
-                    price = 0.0
+                # Market
+                market = order.market_id
 
-                # Use submit_time instead of time
-                if order.HasField("submit_time"):
-                    ts = order.submit_time.seconds
-                    timestamp_str = datetime.utcfromtimestamp(ts).strftime("%H:%M:%S")
-                else:
-                    timestamp_str = "—"
+                # Side (buy/sell)
 
-                # Order Side
-                side = order.buy_sell.name.replace("BUY_SELL_", "").capitalize() if order.HasField("buy_sell") else "—"
+                side = "Buy" if order.buy_sell == 1 else "Sell"
 
-                # Status or Change
-                if order.HasField("status"):
-                    status = order.status.name.replace("ORDER_STATUS_", "").capitalize()
-                elif order.HasField("change"):
-                    status = order.change.name.replace("ORDER_CHANGE_", "").capitalize()
-                else:
-                    status = "—"
+                # Volume
+                volume = order.new_volume if order.new_volume else order.current_volume
 
+                # Price (handle .value safely)
+                price = order.new_limit_price.value if order.HasField("new_limit_price") else "—"
+
+                # Status
+                status = order.status
+
+                # Action (you can later add Cancel/Edit buttons here)
                 action = "—"
 
-                self.orders_tree.insert(
-                    "", "end",
-                    values=(timestamp_str, market, side, volume, f"{price:.2f}", status, action)
-                )
-
+                # Insert into table
+                self.orders_tree.insert("", "end", values=(
+                    submit_time, market, side, volume, price, status, action
+                ))
             except Exception as e:
                 print(f"[ERROR] Failed to render order: {e}")
     def update_submit_button_state(self):
