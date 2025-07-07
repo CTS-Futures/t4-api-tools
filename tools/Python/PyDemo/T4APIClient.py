@@ -213,20 +213,33 @@ class Client:
                                     'positions': [p for p in self.positions.values() if p.account_id == self.selected_account]})
     def handle_account_snapshot(self, message):
         if message.messages:
+            
             for msg in message.messages:
-                if msg.account_details:
+                message_type = msg.WhichOneof("payload")
+                if message_type == "account_details":
                     self.handle_account_details(msg.account_details)
-                elif msg.account_update:
+                elif message_type =="update":
+                    print("ignore")    
+                elif message_type == "account_update":
                     self.handle_account_update(msg.account_update)
-                elif msg.account_position:
+                   
+                elif message_type == "account_position":
                     self.handle_account_position(msg.account_position)
-                elif msg.order_update_multi:
+                    print(msg)
+                elif message_type == "order_update_multi":
                     self.handle_order_update_multi(msg.order_update_multi)
+                elif message_type == "order_update":
+                    self.handle_order_update(msg.order_update)
                 else:
                     print(f"unknown message {msg}")
         
         print("handled snapshot")
     def handle_account_details(self, message):
+        if not message.account_id:
+            return
+        
+        if not message.account_id in self.accounts:
+            return
         print(f"account details received ${message.account_id}")
     def handle_account_update(self, message):
         pass

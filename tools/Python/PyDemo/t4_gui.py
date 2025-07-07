@@ -2,6 +2,7 @@ import asyncio
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 from T4APIClient import Client
+import datetime
 from contract_picker_dialog import Contract_Picker_Dialog
 from contract_picker import Contract_Picker
 class T4_GUI(tk.Tk):
@@ -225,16 +226,20 @@ class T4_GUI(tk.Tk):
     def end_connection(self):
         self.status_label.config(text="Status: Disconnecting...", foreground="red")
         asyncio.create_task(self.disconnect())
+
     def handle_account_update(self, update):
         update_type = update.get("type")
+        print(update)
         if update_type == "accounts":
             self.populate_accounts()
         elif update_type == "positions":
             # TODO: add this when i implement positions table
             self.update_positions_table(update)
+           
         elif update_type == "orders":
             # TODO: add this when i implement orders table
-            pass
+          
+            self.update_orders_table(update)
     #creates this task to actually connect to the client
     async def connect_and_listen(self):
         await self.client.connect()
@@ -285,14 +290,12 @@ class T4_GUI(tk.Tk):
 
     def populate_accounts(self):
         account_names = [v.account_name for v in self.client.accounts.values()]
-     #   print([type(v) for v in self.client.accounts.values()])
 
         self.account_dropdown['values'] = account_names
         if account_names:
             self.account_dropdown.set(account_names[0])
             asyncio.create_task(self.on_account_selected())
-        #print("here")
-       # print(account_names)
+        
     async def on_account_selected(self):
         selected_name = self.account_dropdown.get()
 
@@ -300,11 +303,14 @@ class T4_GUI(tk.Tk):
         for acc_id, acc in self.client.accounts.items():
             full_name = f"{acc.account_name}"
             if full_name == selected_name:
-                
+                if self.client.selected_account == acc_id:
+                    print("Already subscribed to this account, skipping.")
+                    return  # prevent redundant subscription
                 await self.client.subscribe_account(acc_id)
                 self.client.selected_account = acc_id
                 
                 print(f"Subscribed to account: {acc_id}")
+                
                 break
 
         self.update_submit_button_state()
@@ -324,7 +330,7 @@ class T4_GUI(tk.Tk):
         print("Selected Account:", self.client.selected_account)
         print("Market Details:", self.client.market_details.get(self.client.current_market_id))
 
-        print("submit button hit)")
+        print("submit button hit")
         #gets data from front end
         # Retrieve basic inputs
         order_type = self.type_combo.get()               # "Limit" or "Market"
@@ -351,14 +357,73 @@ class T4_GUI(tk.Tk):
         #connect to the back end
         await self.client.submit_order(side, volume, price, order_type, take_profit, stop_loss)
 
-    #ensures that the submit button cannot be pressed when no accounts are active
 
 
     def update_positions_table(self, data):
-        
+        #clears the current tree
+        for row in self.positions_tree.get_children():
+            self.positions_tree.delete(row)
+        print(data)
         #loop through the data and display it:
-        for key, val in data.items():
-            pass
+        for pos in data['positions']:
+            try:
+                market = pos.market_id
+                net = getattr(pos, "net_position", 0)  # Default to 0 if not present
+                pnl = getattr(pos, "pnl", 0.0)  # You may compute this if not in proto
+                working_buys = getattr(pos, "working_buys", 0)
+                working_sells = getattr(pos, "working_sells", 0) if hasattr(pos, "working_sells") else 0
+                working = f"{working_buys}/{working_sells}"
+
+                self.positions_tree.insert("", "end", values=(market, net, f"{pnl:.2f}", working))
+            except Exception as e:
+                print(f"[ERROR] Failed to render position row: {e}")
+    def update_orders_table(self, orders_list):
+        #clear tree
+        
+        for row in self.orders_tree.get_children():
+            self.orders_tree.delete(row)
+
+        for order in orders_list:
+            print(order)
+            try:
+                market = order.exchange_id
+                volume = getattr(order, "current_volume", getattr(order, "new_volume", 0))
+
+                # Get limit price: prefer current, fall back to new
+                if order.HasField("current_limit_price"):
+                    price = float(order.current_limit_price.value)
+                elif order.HasField("new_limit_price"):
+                    price = float(order.new_limit_price.value)
+                else:
+                    price = 0.0
+
+                # Use submit_time instead of time
+                if order.HasField("submit_time"):
+                    ts = order.submit_time.seconds
+                    timestamp_str = datetime.utcfromtimestamp(ts).strftime("%H:%M:%S")
+                else:
+                    timestamp_str = "—"
+
+                # Order Side
+                side = order.buy_sell.name.replace("BUY_SELL_", "").capitalize() if order.HasField("buy_sell") else "—"
+
+                # Status or Change
+                if order.HasField("status"):
+                    status = order.status.name.replace("ORDER_STATUS_", "").capitalize()
+                elif order.HasField("change"):
+                    status = order.change.name.replace("ORDER_CHANGE_", "").capitalize()
+                else:
+                    status = "—"
+
+                action = "—"
+
+                self.orders_tree.insert(
+                    "", "end",
+                    values=(timestamp_str, market, side, volume, f"{price:.2f}", status, action)
+                )
+
+            except Exception as e:
+                print(f"[ERROR] Failed to render order: {e}")
     def update_submit_button_state(self):
         if self.client.running and self.client.selected_account:
             self.submit_button.config(state="normal")
