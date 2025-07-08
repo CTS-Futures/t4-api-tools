@@ -57,7 +57,6 @@ class Contract_Picker:
                 
                 self.exchanges.sort(key=lambda x: x["description"].lower())
                
-                #call a function to render the exchanges
                 return self.exchanges
 
         except Exception as e:
@@ -86,7 +85,7 @@ class Contract_Picker:
                 response = await rest.get(f'{self.api_url}/markets/contracts?exchangeid={exchange_id}'
                                         , headers=headers)
                 #check if the response is valid
-                print(f'{self.api_url}/markets/contracts?exchangeid={exchange_id}')
+                
                 
                 if not response.status_code == 200:
                      print('error inside')

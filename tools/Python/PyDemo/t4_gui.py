@@ -4,6 +4,7 @@ from tkinter import ttk, scrolledtext
 from T4APIClient import Client
 from datetime import datetime
 from contract_picker_dialog import Contract_Picker_Dialog
+from expiry_picker_dialog import Expiry_Picker_Dialog
 from contract_picker import Contract_Picker
 class T4_GUI(tk.Tk):
 
@@ -79,6 +80,13 @@ class T4_GUI(tk.Tk):
             text="Pick a Contract",
             command=self.open_contract_picker
         ).grid(row=5, column=0, pady=10)
+
+        #expiry button
+        tk.Button(
+            self.market_frame,
+            text="Expiry",
+            command = self.open_expiry_picker
+        ).grid(row = 6, column = 0, pady= 5)
         # market header 
         self.market_header_label = tk.Label(market_container, text="...", font=("Arial", 14), bg="white", fg="#3b82f6")
         self.market_header_label.grid(row=0, column=1, sticky="e", padx=(10, 0), pady=(0, 10))
@@ -325,6 +333,8 @@ class T4_GUI(tk.Tk):
     def open_contract_picker(self):
         Contract_Picker_Dialog(master=self.root, client=self.client)
 
+    def open_expiry_picker(self):
+        Expiry_Picker_Dialog(master=self.root, client=self.client)
     async def on_submit_order(self):
         print("Market ID:", self.client.current_market_id)
         print("Selected Account:", self.client.selected_account)
@@ -417,6 +427,14 @@ class T4_GUI(tk.Tk):
             self.submit_button.config(state="normal")
         else:
             self.submit_button.config(state="disabled")
+
+    def expiry_button_state(self):
+        if self.client.running and self.client.selected_account:
+            pass
+            #state will be normal
+        else:
+            #state will be disabled
+            pass
         
     def reset_market_ui(self):
        
