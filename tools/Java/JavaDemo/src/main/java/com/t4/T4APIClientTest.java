@@ -19,7 +19,7 @@ import t4proto.v1.market.Market.MarketSnapshot;
 import t4proto.v1.market.Market.MarketSnapshotMessage;
 import t4proto.v1.market.Market.MarketDepth;
 import t4proto.v1.market.Market.MarketDepthTrade;
-import t4proto.v1.market.Market.MarketSubscriptionRequest;
+//import t4proto.v1.market.Market.MarketSubscriptionRequest;
 
 
 // WebSocket imports
@@ -116,7 +116,7 @@ import java.util.concurrent.TimeUnit;
         private static Session session;
 
 
-//ON OPEN 
+      //ON OPEN 
       //made some functions for the UI! I am going to work on the UI and token handling tomorrow! 
         @OnOpen
 
@@ -227,6 +227,8 @@ import java.util.concurrent.TimeUnit;
          return "Token had been handeled";
         }
 
+      /*This is for handling the market,  */
+
       private MarketDataPane marketDataP;
 
       public void setMarketDataP(MarketDataPane pane) {
@@ -271,7 +273,10 @@ import java.util.concurrent.TimeUnit;
 
 
 
-
+      /*connect, recconet and disconnnect are under here. 
+      * reconnect is not us use right now as this will be used in certian 
+      * errors when you can come back from them.
+       */
 
         //reconnect will be used when I make the 
         private void reconnect() {
@@ -314,8 +319,12 @@ import java.util.concurrent.TimeUnit;
 
 
 
-        private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-        private ScheduledFuture<?> heartbeatTask;
+
+   /*This is for the heartbeat funstionallity and get Instance, methods
+   (stat and stop heartbeat, get instance and main) are under here.*/
+
+   private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+   private ScheduledFuture<?> heartbeatTask;
 
       //start heartbeats 
    private void startClientHeartbeat(Session session) {
@@ -347,7 +356,7 @@ import java.util.concurrent.TimeUnit;
       }, 0, 20, TimeUnit.SECONDS);
    }
 
-//stop hearbeats 
+   //stop hearbeats 
    private void stopClientHeartbeat() {
       if (heartbeatTask != null && !heartbeatTask.isCancelled()) {
          heartbeatTask.cancel(true); // true = interrupt if running
@@ -360,15 +369,13 @@ import java.util.concurrent.TimeUnit;
       }  
    }
       //get Instance 
-      public static T4APIClientTest getInstance()
-      {
+   public static T4APIClientTest getInstance()
+      {  
          return instance;
       }
 
 
-
-
-        public static void main(String[] args){
+   public static void main(String[] args){
          try{
             //T4APIClientTest client = T4APIClientTest.getInstance();
             //ConnectionUI pane = new ConnectionUI(client);
@@ -383,7 +390,7 @@ import java.util.concurrent.TimeUnit;
       }
 
 
-      }
+}
 
      
 
