@@ -514,7 +514,7 @@ class Client:
                 
                 #get the marketid.
                 data = response.json()
-      #         self.current_market_id = data.get("marketID")
+                #self.current_market_id = data.get("marketID")
                
                 return data.get("marketID")
 
@@ -592,6 +592,8 @@ class Client:
             buffer=DepthBuffer.DEPTH_BUFFER_SMART,
             depth_levels=DepthLevels.DEPTH_LEVELS_BEST_ONLY  # or whatever default
         )
+
+        print(f'{depth_sub}')
         await self.send_message({"market_depth_subscribe": depth_sub})
         print("Subscribed to new market")
 
@@ -643,9 +645,11 @@ class Client:
                 volume=volume
             )
 
+        # Convert price to ticks
+        tick_price = float(price)
             # Set limit price only if it's a LIMIT order
         if price_type_val == PriceType.PRICE_TYPE_LIMIT:
-            main_order.limit_price.CopyFrom(Price(value=str(price)))
+            main_order.limit_price.CopyFrom(Price(value=str(tick_price)))
 
         orders.append(main_order)
         #for bracket orders, we need to use the opposite side
@@ -723,11 +727,11 @@ class Client:
             account_id = self.selected_account,
             market_id = self.current_market_id,
             manual_order_indicator = True,
-            pulls = pull
+            pulls = [pull]
         )
 
 
-        await self.send_message({"order_pull", order_pull})
+        await self.send_message({"order_pull": order_pull})
 
         print(f'order_cancelled {order_id}')
     
@@ -747,10 +751,10 @@ class Client:
             account_id = self.selected_account,
             market_id = self.current_market_id,
             manual_order_indicator = True,
-            revisions = revise
+            revisions = [revise]
         )
 
-        await self.send_message({"order_revise", order_revise})
+        await self.send_message({"order_revise": order_revise})
 
         print(f"order revised {order_id} - new vol: {volume} - new price ")
 

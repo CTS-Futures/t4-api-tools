@@ -221,10 +221,94 @@ class T4_GUI(tk.Tk):
         self.orders_tree.configure(yscroll=scrollbar.set)
 
         self.orders_tree.grid(row=0, column=0, sticky="nsew")
+        self.orders_tree.bind("<ButtonRelease-1>", self.on_order_action_click)
         scrollbar.grid(row=0, column=1, sticky="ns")
 
         self.orders_inner.grid_rowconfigure(0, weight=1)
         self.orders_inner.grid_columnconfigure(0, weight=1)
+    def show_edit_dialog(self, unique_id, order_values):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Modify Order")
+        dialog.geometry("300x250")
+        dialog.configure(bg="white")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Header
+        header = tk.Label(dialog, text="Modify Order", font=("Arial", 16, "bold"), bg="white")
+        header.pack(pady=(15, 10))
+
+        # Volume
+        volume_frame = tk.Frame(dialog, bg="white")
+        volume_frame.pack(padx=20, anchor="w")
+        tk.Label(volume_frame, text="Volume:", font=("Arial", 12, "bold"), bg="white").pack(anchor="w")
+        vol_entry = ttk.Spinbox(volume_frame, from_=1, to=9999, width=25)
+        vol_entry.insert(0, order_values[3])
+        vol_entry.pack(pady=(0, 10))
+
+        # Price
+        price_frame = tk.Frame(dialog, bg="white")
+        price_frame.pack(padx=20, anchor="w")
+        tk.Label(price_frame, text="Price:", font=("Arial", 12, "bold"), bg="white").pack(anchor="w")
+        price_entry = ttk.Entry(price_frame, width=28)
+        price_entry.insert(0, order_values[4])
+        price_entry.pack(pady=(0, 10))
+
+        # Button Row
+        button_frame = tk.Frame(dialog, bg="white")
+        button_frame.pack(pady=10)
+
+        # Pull Button
+        pull_btn = tk.Button(
+            button_frame,
+            text="Pull",
+            bg="#dc2626", fg="white", width=8,
+            command=lambda: asyncio.create_task(self.confirm_pull(unique_id, dialog))
+        )
+        pull_btn.pack(side="left", padx=5)
+
+        # Revise Button
+        revise_btn = tk.Button(
+            button_frame,
+            text="Revise",
+            bg="#2563eb", fg="white", width=8,
+            command=lambda: asyncio.create_task(self.confirm_revise(unique_id, vol_entry.get(), price_entry.get(), dialog))
+        )
+        revise_btn.pack(side="left", padx=5)
+
+        # Cancel Button
+        cancel_btn = tk.Button(
+            button_frame,
+            text="Cancel",
+            bg="#e5e7eb", fg="black", width=8,
+            command=dialog.destroy
+        )
+        cancel_btn.pack(side="left", padx=5)
+    def on_order_action_click(self, event):
+        item_id = self.orders_tree.identify_row(event.y)
+        column = self.orders_tree.identify_column(event.x)
+
+        if not item_id or not column:
+            return
+
+        col_index = int(column.replace('#', '')) - 1
+        values = self.orders_tree.item(item_id, 'values')
+        unique_id = item_id
+        print(unique_id)
+        if col_index == 6:
+            action_value = values[col_index]
+            if "✏️ Edit" in action_value:
+                self.show_edit_dialog(unique_id, values)
+            
+    async def confirm_revise(self, unique_id, volume, price_entry, dialog):
+        dialog.destroy()
+        await self.client.revise_order(unique_id, int(volume), int(price_entry), 'limit')
+
+    async def confirm_pull(self, unique_id, dialog):
+        dialog.destroy()
+        await self.client.pull_order(unique_id)
+        
 
     #command for when the button is pressed
     def start_connection(self):
@@ -394,6 +478,12 @@ class T4_GUI(tk.Tk):
             self.orders_tree.delete(row)
         for order in orders_list['orders']:
             try:
+                print("here")
+
+                print(orders_list)
+                print('here')
+                iid=order.unique_id
+                print(iid)
                 submit_ts = order.submit_time.seconds
                 submit_time = datetime.utcfromtimestamp(submit_ts).strftime("%H:%M:%S")
 
@@ -414,7 +504,7 @@ class T4_GUI(tk.Tk):
                 status = order.status
 
                 # Action (you can later add Cancel/Edit buttons here)
-                action = "—"
+                action = "✏️ Edit" if status == 1 else "--"
 
                 # Insert into table
                 self.orders_tree.insert("", "end", values=(
@@ -422,30 +512,23 @@ class T4_GUI(tk.Tk):
                 ))
             except Exception as e:
                 print(f"[ERROR] Failed to render order: {e}")
+
     def update_submit_button_state(self):
         if self.client.running and self.client.selected_account:
             self.submit_button.config(state="normal")
         else:
             self.submit_button.config(state="disabled")
 
-    def expiry_button_state(self):
-        if self.client.running and self.client.selected_account:
-            pass
-            #state will be normal
-        else:
-            #state will be disabled
-            pass
-        
     def reset_market_ui(self):
        
         for widget in self.market_inner.winfo_children():
             widget.destroy()
 
         for label_text in [
-        "Best Bid: -",
-        "Best Offer: -",
-        "Last Trade: -"
-    ]:
+            "Best Bid: -",
+            "Best Offer: -",
+            "Last Trade: -"
+            ]:
             box_frame = tk.Frame(self.market_inner, bg="#f9f9f9", bd=1, relief="solid", padx=6, pady=4)
             box_frame.pack(anchor="w", pady=2, padx=2, fill="x")
             tk.Label(box_frame, text=label_text, font=("Arial", 12), bg="#f9f9f9").pack(anchor="w")
