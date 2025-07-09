@@ -21,6 +21,9 @@ import t4proto.v1.market.Market.MarketDepth;
 import t4proto.v1.market.Market.MarketDepthTrade;
 //import t4proto.v1.market.Market.MarketSubscriptionRequest;
 
+//market sybscriber
+import com.t4.helpers.MarketSubscriber;
+import com.t4.helpers.Callback;
 
 // WebSocket imports
 import javax.websocket.*;
@@ -84,6 +87,7 @@ import java.util.concurrent.TimeUnit;
         private Object pendingTokenRequest = null;
 
         // Market data
+        private MarketSubscriber marketSubscriber = new MarketSubscriber();
         private Map<String, Object> marketSnapshots = new HashMap<>();
         private Object currentSubscription = null;
         private Map<String, Object> marketDetails = new HashMap<>();
@@ -139,6 +143,14 @@ import java.util.concurrent.TimeUnit;
             //might need hearbeat monitor soon
             startClientHeartbeat(sessionO);
             session = sessionO;
+            marketSubscriber.setMessageSender((msg, cb) -> {
+            try {
+               sessionO.getAsyncRemote().sendBinary(ByteBuffer.wrap(msg.toByteArray()));
+               cb.onComplete();
+            } catch (Exception e) {
+               cb.onError(e);
+            }
+         });
             System.out.println("Login message sent.");
          }
          catch(Exception e){
@@ -169,10 +181,16 @@ import java.util.concurrent.TimeUnit;
                   AuthenticationToken token = serverMessage.getLoginResponse().getAuthenticationToken();
                   System.out.println("Token from the response: " + tokenHandler(token));
                   isLoggedIn = true;
+
+                  subscribeToMarket("CME", "ES", "ESZ24");
                   break;
                
                case MARKET_SNAPSHOT:
                   handleMarketSnapshot(serverMessage.getMarketSnapshot());
+                  break;
+
+               case MARKET_DEPTH_SUBSCRIBE_REJECT:
+                  System.out.println("❌ Market depth subscribe rejected: " + serverMessage.getMarketDepthSubscribeReject());
                   break;
 
                /* case AUTHENTICATION_TOKEN:
@@ -267,7 +285,18 @@ import java.util.concurrent.TimeUnit;
       }
    }
 
-      private void subscribeToMarket(){
+      private void subscribeToMarket(String exchangeId, String contractId, String marketId){
+          marketSubscriber.subscribeMarket(exchangeId, contractId, marketId, new Callback() {
+            @Override
+        public void onComplete() {
+            System.out.println("✅ Subscribed to market: " + marketId);
+        }
+
+        @Override
+        public void onError(Exception e) {
+            System.err.println("❌ Subscription failed for " + marketId + ": " + e.getMessage());
+        }
+    });
 
       }
 
