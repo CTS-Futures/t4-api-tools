@@ -1,12 +1,12 @@
 package com.t4.helpers;
 
+import java.util.function.BiConsumer;
 import java.util.logging.Logger;
 
 import t4proto.v1.common.Enums.DepthBuffer;
 import t4proto.v1.common.Enums.DepthLevels;
 import t4proto.v1.market.Market.MarketDepthSubscribe;
-
-import com.t4.helpers.Callback;
+import t4proto.v1.service.Service; // For ClientMessage
 
 public class MarketSubscriber {
 
@@ -15,12 +15,19 @@ public class MarketSubscriber {
     private Subscription currentSubscription;
     private String currentMarketId;
 
-    // Subscribe to a market, unsubscribing if necessary
+    private BiConsumer<Service.ClientMessage, Callback> messageSender;
+
+    // Public setter for message sending strategy
+    public void setMessageSender(BiConsumer<Service.ClientMessage, Callback> sender) {
+        this.messageSender = sender;
+    }
+
+    // Main subscribe method
     public void subscribeMarket(String exchangeId, String contractId, String marketId, Callback callback) {
         String key = exchangeId + "_" + contractId + "_" + marketId;
 
         if (currentSubscription != null) {
-            // Unsubscribe from the existing market
+            // Unsubscribe from previous
             MarketDepthSubscribe unsubscribeMsg = MarketDepthSubscribe.newBuilder()
                 .setExchangeId(currentSubscription.getExchangeId())
                 .setContractId(currentSubscription.getContractId())
@@ -29,7 +36,11 @@ public class MarketSubscriber {
                 .setDepthLevels(DepthLevels.DEPTH_LEVELS_UNDEFINED)
                 .build();
 
-            sendMessage(unsubscribeMsg, new Callback() {
+            Service.ClientMessage wrappedUnsub = Service.ClientMessage.newBuilder()
+                .setMarketDepthSubscribe(unsubscribeMsg)
+                .build();
+
+            messageSender.accept(wrappedUnsub, new Callback() {
                 @Override
                 public void onComplete() {
                     logger.info("Unsubscribed from market: " + currentSubscription.getMarketId());
@@ -43,14 +54,11 @@ public class MarketSubscriber {
                     callback.onError(e);
                 }
             });
-
         } else {
-            // No active subscription, proceed directly
             proceedWithSubscription(exchangeId, contractId, marketId, callback);
         }
     }
 
-    // Continue with subscription
     private void proceedWithSubscription(String exchangeId, String contractId, String marketId, Callback callback) {
         currentSubscription = new Subscription(exchangeId, contractId, marketId);
         currentMarketId = marketId;
@@ -63,7 +71,11 @@ public class MarketSubscriber {
             .setDepthLevels(DepthLevels.DEPTH_LEVELS_BEST_ONLY)
             .build();
 
-        sendMessage(subscribeMsg, new Callback() {
+        Service.ClientMessage wrappedSub = Service.ClientMessage.newBuilder()
+            .setMarketDepthSubscribe(subscribeMsg)
+            .build();
+
+        messageSender.accept(wrappedSub, new Callback() {
             @Override
             public void onComplete() {
                 logger.info("Subscribed to market: " + marketId);
@@ -78,26 +90,7 @@ public class MarketSubscriber {
         });
     }
 
-    // Simulate sending a message (replace with gRPC or socket logic)
-    private void sendMessage(Object message, Callback callback) {
-        try {
-            // Placeholder for actual send logic
-            logger.info("Sending message: " + message.toString());
-
-            // Simulate a successful send
-            callback.onComplete();
-        } catch (Exception e) {
-            callback.onError(e);
-        }
-    }
-
-    // Basic callback interface
-    public interface Callback {
-        void onComplete();
-        void onError(Exception e);
-    }
-
-    // Minimal subscription class
+    // Simple subscription wrapper
     public static class Subscription {
         private final String exchangeId;
         private final String contractId;
