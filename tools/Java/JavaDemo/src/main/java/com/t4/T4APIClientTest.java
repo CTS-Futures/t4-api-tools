@@ -220,9 +220,7 @@ import java.util.concurrent.TimeUnit;
                      handleMarketDepth(serverMessage.getMarketDepth());
                      break;
 
-                  case MARKET_DEPTH_TRADE:
-                     handleMarketDepthTrade(serverMessage.getMarketDepthTrade());
-                     break;
+               
 
                
                default:
@@ -293,18 +291,11 @@ import java.util.concurrent.TimeUnit;
             if(depth.hasTradeData()){
                TradeData trade = depth.getTradeData();
                last = trade.getLastTradeVolume() + "@" + trade.getLastTradePrice().getValue();
-               //System.out.println(trade);
-               //last = String.valueOf(trade.getLastTradeVolume());
+               
             }
-            //last = String.valueOf(depth.getTradeData(0).getLastTradePrice().getValue());
-            System.out.println("This is the market depth \n" + depth);
+         
          }
-        if (message.hasMarketDepthTrade()) {
-            //MarketDepthTrade trade = message.getMarketDepthTrade();
-            //last = String.valueOf(trade.getLastTradePrice().getValue());
-            //trade.getLastTradePrice().getValue()
-
-        }
+        
        }
 
        System.out.printf("Market Snapshot [%s] | Bid: %s | Ask: %s | Last: %s%n", symbol, bid, ask, last);
@@ -334,27 +325,13 @@ import java.util.concurrent.TimeUnit;
       }
 
 
-      public void handleMarketDepthTrade(MarketDepthTrade trade) {
-         String symbol = trade.getMarketId();
-         String last= "";
-
-         if (trade.hasLastTradePrice()) {
-            last = String.valueOf(trade.getLastTradePrice().getValue());
-         }
-
-         System.out.printf("Trade Update [%s] | Last: %s%n", symbol, last);
-
-         if (marketDataP != null) {
-            marketDataP.updateSymbol(symbol);
-            marketDataP.updateLast(last);
-         }
-      }
-
 
       public void handleMarketDepth(MarketDepth depth) {
          String symbol = depth.getMarketId();
          String bid = "";
+         String bidP = "";
          String ask = "";
+         String last = "";
 
          //System.out.println(depth.getLastTradePrice());
 
@@ -364,6 +341,10 @@ import java.util.concurrent.TimeUnit;
          if (!depth.getOffersList().isEmpty()) {
             ask = String.valueOf(depth.getOffers(0).getVolume() +"@"+depth.getOffers(0).getPrice().getValue());
          }
+         if(depth.hasTradeData()){
+               TradeData trade = depth.getTradeData();
+               last = trade.getLastTradeVolume() + "@" + trade.getLastTradePrice().getValue();    
+         }
          
 
          System.out.printf(" Market Depth [%s] | Bid: %s | Ask: %s%n", symbol, bid, ask);
@@ -372,6 +353,7 @@ import java.util.concurrent.TimeUnit;
             marketDataP.updateSymbol(symbol);
             marketDataP.updateBid(bid);
             marketDataP.updateAsk(ask);
+            marketDataP.updateLast(last);
          }
       }
 
