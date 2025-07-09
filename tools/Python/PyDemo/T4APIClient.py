@@ -222,18 +222,20 @@ class Client:
         if message.messages:
             for msg in message.messages:
                 message_type = msg.WhichOneof("payload")
-                if message_type == "account_details":
-                    self.handle_account_details(msg.account_details)   
-                elif message_type == "account_update":
-                    self.handle_account_update(msg.account_update)
-                elif message_type == "account_position":
-                    self.handle_account_position(msg.account_position)
-                elif message_type == "order_update_multi":
-                    self.handle_order_update_multi(msg.order_update_multi)
-                elif message_type == "order_update":
-                    self.handle_order_update(msg.order_update)
-                else:
-                    print(f"unknown message {msg}")
+                match message_type:
+                    case "account_details":
+                        self.handle_account_details(msg.account_details)
+                    case "account_update":
+                        self.handle_account_update(msg.account_update)
+                    case "account_position":
+                        self.handle_account_position(msg.account_position)
+                    case "order_update_multi":
+                        self.handle_order_update_multi(msg.order_update_multi)
+                    case "order_update":
+                        self.handle_order_update(msg.order_update)
+                    case _:
+                        print(f"unknown message {msg}")
+
         print("handled snapshot")
 
     def handle_account_details(self, message):
@@ -390,38 +392,38 @@ class Client:
     def process_server_message(self, msg):
         
         msg = decode_message(msg)
-        message_type = msg.WhichOneof("payload")
-    
+       
         if not hasattr(msg, 'WhichOneof'):
             print("[process_server_message] msg has no WhichOneof: ", msg)
             return
         
         message_type = msg.WhichOneof("payload")
     
-        if message_type == "login_response":
-            self.handle_login(msg.login_response)
-        elif message_type == "authentication_token":
-            self.handle_authentication(msg.authentication_token)
-        elif message_type == "account_subscribe_response":
-            self.handle_subscribe_response(msg.account_subscribe_response)
-        elif message_type == "account_update": 
-            self.handle_account_update(msg.account_update)
-        elif message_type == "account_snapshot":
-            self.handle_account_snapshot(msg.account_snapshot)
-        elif message_type == "account_position":
-            self.handle_account_position(msg.account_position)
-        elif message_type == "market_details":
-            self.handle_market_detail(msg.market_details)   
-        elif message_type == "market_snapshot":
-            self.handle_market_snapshot(msg.market_snapshot) 
-        elif message_type == "market_depth":
-            self.handle_market_depth(msg.market_depth)
-        elif message_type == "order_update_multi":
-            self.handle_order_update_multi(msg.order_update_multi)
-        elif message_type == "order_update":
-            self.handle_order_update(msg.order_update)
-        else:
-            print("unknown message type")
+        match message_type:
+            case "login_response":
+                self.handle_login(msg.login_response)
+            case "authentication_token":
+                self.handle_authentication(msg.authentication_token)
+            case "account_subscribe_response":
+                self.handle_subscribe_response(msg.account_subscribe_response)
+            case "account_update":
+                self.handle_account_update(msg.account_update)
+            case "account_snapshot":
+                self.handle_account_snapshot(msg.account_snapshot)
+            case "account_position":
+                self.handle_account_position(msg.account_position)
+            case "market_details":
+                self.handle_market_detail(msg.market_details)
+            case "market_snapshot":
+                self.handle_market_snapshot(msg.market_snapshot)
+            case "market_depth":
+                self.handle_market_depth(msg.market_depth)
+            case "order_update_multi":
+                self.handle_order_update_multi(msg.order_update_multi)
+            case "order_update":
+                self.handle_order_update(msg.order_update)
+            case _:
+                print("unknown message type")
 
     #will continuously send heartbeats until connection breaks
     async def send_heartbeat(self):
