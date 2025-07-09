@@ -96,16 +96,18 @@
         <version>0.6.1</version>
         <configuration>
           <protoSourceRoot>C:/Users/Janiya.Garner/Work/t4-api-tools/proto</protoSourceRoot>
+          <outputDirectory>C:/Users/Janiya.Garner/Work/t4-api-tools/tools/Java/JavaDemo/target/generated-sources/protobuf/java</outputDirectory>
           <protocArtifact>com.google.protobuf:protoc:3.24.4:exe:${os.detected.classifier}</protocArtifact>
         </configuration>
         <executions>
-          <execution>
-            <goals>
-              <goal>compile</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
+        <execution>
+      <id>generate-protobuf</id>
+      <goals>
+        <goal>compile</goal>
+      </goals>
+    </execution>
+  </executions>
+</plugin>
 
       <!-- Add generated protobuf sources -->
       <plugin>

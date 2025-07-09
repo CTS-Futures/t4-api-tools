@@ -70,6 +70,7 @@ public class MarketSubscriber {
             .setBuffer(DepthBuffer.DEPTH_BUFFER_SMART)
             .setDepthLevels(DepthLevels.DEPTH_LEVELS_BEST_ONLY)
             .build();
+            System.out.println(subscribeMsg);
 
         Service.ClientMessage wrappedSub = Service.ClientMessage.newBuilder()
             .setMarketDepthSubscribe(subscribeMsg)
