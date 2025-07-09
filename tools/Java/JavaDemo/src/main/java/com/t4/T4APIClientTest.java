@@ -19,6 +19,7 @@ import t4proto.v1.market.Market.MarketSnapshot;
 import t4proto.v1.market.Market.MarketSnapshotMessage;
 import t4proto.v1.market.Market.MarketDepth;
 import t4proto.v1.market.Market.MarketDepthTrade;
+import t4proto.v1.market.Market.MarketDetails;
 //import t4proto.v1.market.Market.MarketSubscriptionRequest;
 
 //market sybscriber
@@ -90,7 +91,7 @@ import java.util.concurrent.TimeUnit;
         private MarketSubscriber marketSubscriber = new MarketSubscriber();
         private Map<String, Object> marketSnapshots = new HashMap<>();
         private Object currentSubscription = null;
-        private Map<String, Object> marketDetails = new HashMap<>();
+        private Map<String, MarketDetails> marketDetailsMap = new HashMap<>();
         private String currentMarketId = null;
 
         // Order/Position tracking
@@ -190,7 +191,26 @@ import java.util.concurrent.TimeUnit;
                   break;
 
                case MARKET_DEPTH_SUBSCRIBE_REJECT:
-                  System.out.println("❌ Market depth subscribe rejected: " + serverMessage.getMarketDepthSubscribeReject());
+                  System.out.println(" Market depth subscribe rejected: " + serverMessage.getMarketDepthSubscribeReject());
+                  break;
+
+               case MARKET_DETAILS:
+                  MarketDetails marketDetails = serverMessage.getMarketDetails();
+
+                  boolean isActive = !marketDetails.getDisabled()
+                  && marketDetails.getActivationDate().getSeconds() * 1000 < System.currentTimeMillis()
+                  && marketDetails.getLastTradingDate().getSeconds() * 1000 > System.currentTimeMillis();
+
+                  if (isActive) {
+                  System.out.println(" ACTIVE Market: " + marketDetails.getMarketId()
+                  + " | Contract: " + marketDetails.getContractId()
+                  + " | Exchange: " + marketDetails.getExchangeId());
+        
+                  // You can store it for later use if you want:
+                  marketDetailsMap.put(marketDetails.getMarketId(), marketDetails);
+                  } else {
+                  System.out.println(" Inactive/Unavailable Market: " + marketDetails.getMarketId());
+                  }
                   break;
 
                /* case AUTHENTICATION_TOKEN:
@@ -289,12 +309,12 @@ import java.util.concurrent.TimeUnit;
           marketSubscriber.subscribeMarket(exchangeId, contractId, marketId, new Callback() {
             @Override
         public void onComplete() {
-            System.out.println("✅ Subscribed to market: " + marketId);
+            System.out.println("Subscribed to market: " + marketId);
         }
 
         @Override
         public void onError(Exception e) {
-            System.err.println("❌ Subscription failed for " + marketId + ": " + e.getMessage());
+            System.err.println("Subscription failed for " + marketId + ": " + e.getMessage());
         }
     });
 
