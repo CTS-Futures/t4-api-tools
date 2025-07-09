@@ -21,8 +21,8 @@ This Python project is a GUI-based trading client for the T4 API. It allows user
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/t4-api-gui.git
-cd t4-api-gui
+git clone this repository
+cd t4-api-tools/tools/Python/PyDemo
 ```
 
 ### 2. Install Dependencies
@@ -53,6 +53,8 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 ---
+## Protbuf
+This API uses Google protocol buffers in order to send and interpret messages to and from the Websocket and Rest API endpoint. For ease of use, the compiled Python protobuf files are available within the proto folder. This means that you DON'T have to recompile the protobuf files to run this version of the T4 app. The compiled files in the PyDemo/Proto folder should be reusable if you plan to use them in another Python version of this app.
 
 ## ⚙️ Configuration
 
@@ -77,7 +79,7 @@ websocket:
   app_name: YOUR_APP
   app_license: LICENSE_KEY
   priceFormat: 2
-  md_exchange_id: CME
+  md_exchange_id: CME_Eq
   md_contract_id: ES
 ```
 
