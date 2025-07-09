@@ -20,6 +20,8 @@ import t4proto.v1.market.Market.MarketSnapshotMessage;
 import t4proto.v1.market.Market.MarketDepth;
 import t4proto.v1.market.Market.MarketDepthTrade;
 import t4proto.v1.market.Market.MarketDetails;
+import t4proto.v1.market.Market.MarketDepth.TradeData;
+
 //import t4proto.v1.market.Market.MarketSubscriptionRequest;
 
 //market sybscriber
@@ -288,13 +290,18 @@ import java.util.concurrent.TimeUnit;
             if (!depth.getOffersList().isEmpty()) {
                 ask = String.valueOf(depth.getOffers(0).getPrice().getValue());
             }
-            if(!depth.getLas){
-
+            if(depth.hasTradeData()){
+               TradeData trade = depth.getTradeData();
+               last = trade.getLastTradeVolume() + "@" + trade.getLastTradePrice().getValue();
+               //System.out.println(trade);
+               //last = String.valueOf(trade.getLastTradeVolume());
             }
+            //last = String.valueOf(depth.getTradeData(0).getLastTradePrice().getValue());
+            System.out.println("This is the market depth \n" + depth);
          }
         if (message.hasMarketDepthTrade()) {
-            MarketDepthTrade trade = message.getMarketDepthTrade();
-            last = String.valueOf(trade.getLastTradePrice().getValue());
+            //MarketDepthTrade trade = message.getMarketDepthTrade();
+            //last = String.valueOf(trade.getLastTradePrice().getValue());
             //trade.getLastTradePrice().getValue()
 
         }
