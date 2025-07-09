@@ -105,19 +105,11 @@ This starts a `tkinter`-based GUI where you can:
 ## 📌 Notes
 
 - Make sure you have access credentials to the T4 API.
-- Some features (e.g., bracket orders) rely on specific data from the T4 backend like `point_value` and `min_price_increment`.
 - The application uses both REST and WebSocket protocols for full data access.
-
----
-
-## 🛠️ Development Tips
-
 - Python 3.10+ is recommended.
 - GUI rendering uses `tkinter` and should work cross-platform.
 - Asynchronous logic (`asyncio`) is used heavily, especially for REST/WebSocket I/O and GUI updates.
 
 ---
 
-## 🧾 License
 
-This project is proprietary and requires credentials to access the T4 API services. Contact your trading administrator for integration access.
