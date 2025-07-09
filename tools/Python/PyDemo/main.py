@@ -6,8 +6,9 @@ from T4APIClient import Client
 from t4_gui import T4_GUI
 import tkinter as tk
 
-
-def load_config(path="config\config.yaml"):
+#loads all necessary information from config file
+#ensure that this file name exists in the config folder based off the config.template.yaml
+def load_config(path="config\\config.yaml"):
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
     # Build the full path to config/config.yaml

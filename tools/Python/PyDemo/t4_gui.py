@@ -12,7 +12,7 @@ class T4_GUI(tk.Tk):
         self.root = root
         self.client = client
         self.root.title("T4 API Demo")
-        self.root.geometry("1350x1180")
+        self.root.geometry("1750x1380")
 
         self.client.on_market_update = self.update_market_ui
         self.client.market_header_update = self.update_market_header_ui
@@ -90,7 +90,6 @@ class T4_GUI(tk.Tk):
         # market header 
         self.market_header_label = tk.Label(market_container, text="...", font=("Arial", 14), bg="white", fg="#3b82f6")
         self.market_header_label.grid(row=0, column=1, sticky="e", padx=(10, 0), pady=(0, 10))
-
 
         separator = tk.Frame(market_container, height=2, bg="#3b82f6", bd=0)
         separator.grid(row=1, column=0, sticky="ew", pady=(0, 10))
@@ -226,6 +225,8 @@ class T4_GUI(tk.Tk):
 
         self.orders_inner.grid_rowconfigure(0, weight=1)
         self.orders_inner.grid_columnconfigure(0, weight=1)
+    
+    #dialog for edit orders (revise and pull)
     def show_edit_dialog(self, unique_id, order_values):
         dialog = tk.Toplevel(self.root)
         dialog.title("Modify Order")
@@ -285,6 +286,8 @@ class T4_GUI(tk.Tk):
             command=dialog.destroy
         )
         cancel_btn.pack(side="left", padx=5)
+    
+    #edit order button
     def on_order_action_click(self, event):
         item_id = self.orders_tree.identify_row(event.y)
         column = self.orders_tree.identify_column(event.x)
@@ -295,16 +298,18 @@ class T4_GUI(tk.Tk):
         col_index = int(column.replace('#', '')) - 1
         values = self.orders_tree.item(item_id, 'values')
         unique_id = item_id
-        print(unique_id)
+       
         if col_index == 6:
             action_value = values[col_index]
             if "✏️ Edit" in action_value:
                 self.show_edit_dialog(unique_id, values)
-            
+
+    #calls from client to revise the order
     async def confirm_revise(self, unique_id, volume, price_entry, dialog):
         dialog.destroy()
         await self.client.revise_order(unique_id, int(volume), int(price_entry), 'limit')
 
+    #calls client to pull the order
     async def confirm_pull(self, unique_id, dialog):
         dialog.destroy()
         await self.client.pull_order(unique_id)
@@ -315,27 +320,25 @@ class T4_GUI(tk.Tk):
         self.status_label.config(text="Status: Connecting...")
         asyncio.create_task(self.connect_and_listen())
     
+    #disconnects from websocket and updates ui
     def end_connection(self):
         self.status_label.config(text="Status: Disconnecting...", foreground="red")
         asyncio.create_task(self.disconnect())
 
     def handle_account_update(self, update):
         update_type = update.get("type")
-        print(update)
+
         if update_type == "accounts":
             self.populate_accounts()
         elif update_type == "positions":
-            # TODO: add this when i implement positions table
             self.update_positions_table(update)
-           
         elif update_type == "orders":
-            # TODO: add this when i implement orders table
-          
             self.update_orders_table(update)
+
     #creates this task to actually connect to the client
     async def connect_and_listen(self):
         await self.client.connect()
-        print(self.client.running)
+        
         if self.client.running:
             self.status_label.config(text="Status: Connected", foreground="green")
             self.status_icon.itemconfig(1, fill="green")
@@ -361,22 +364,41 @@ class T4_GUI(tk.Tk):
         self.update_submit_button_state()
 
     def update_market_ui(self, data):
-        #print("Market update received in GUI:", data)
-
-        # Example: dynamically create labels or update existing ones in self.market_inner
+         # Clear previous widgets
         for widget in self.market_inner.winfo_children():
-            widget.destroy()  # clear old labels
+            widget.destroy()
 
+        # Extract values
+        bid_qty, bid_price = data["best_bid"].split("@") if "@" in data["best_bid"] else ("-", "-")
+        ask_qty, ask_price = data["best_offer"].split("@") if "@" in data["best_offer"] else ("-", "-")
+        last_qty, last_price = data["last_trade"].split("@") if "@" in data["last_trade"] else ("-", "-")
 
-        for label_text in [
-        f"Best Bid: {data['best_bid']}",
-        f"Best Offer: {data['best_offer']}",
-        f"Last Trade: {data['last_trade']}"
-    ]:
-            box_frame = tk.Frame(self.market_inner, bg="#f9f9f9", bd=1, relief="solid", padx=6, pady=4)
-            box_frame.pack(anchor="w", pady=2, padx=2, fill="x")
+        # Container for alignment
+        box_container = tk.Frame(self.market_inner, bg="white")
+        box_container.pack(expand=True, fill="x", pady=10)
+
+        # Set up a 3-column grid layout
+        box_container.columnconfigure(0, weight=1)
+        box_container.columnconfigure(1, weight=1)
+        box_container.columnconfigure(2, weight=1)
+
+        def create_box(parent, col, title, qty, price, color):
+            box = tk.Frame(parent, bg="white", bd=1, relief="solid", padx=20, pady=15)
+            box.grid(row=0, column=col, padx=20, sticky="nsew")
+
+            tk.Label(box, text=title, font=("Arial", 12, "bold"), bg="white").pack()
+            tk.Label(
+                box,
+                text=f"{qty}@{price}",
+                font=("Arial", 18, "bold"),
+                fg=color,
+                bg="white"
+            ).pack()
+
+        create_box(box_container, 0, "Best Bid", bid_qty, bid_price, "#2563eb")   # Blue
+        create_box(box_container, 1, "Best Offer", ask_qty, ask_price, "#dc2626") # Red
+        create_box(box_container, 2, "Last Trade", last_qty, last_price, "#16a34a") # Green
     
-            tk.Label(box_frame, text=label_text, font=("Arial", 12), bg="#f9f9f9").pack(anchor="w")
     def update_market_header_ui(self, title):
         self.market_header_label.config(text=title)
 
@@ -412,13 +434,15 @@ class T4_GUI(tk.Tk):
 
         market_id = await self.client.get_market_id(self.client.md_exchange_id, self.client.md_contract_id)
         await self.client.subscribe_market(self.client.md_exchange_id, self.client.md_contract_id, market_id)
-        #will be adding subscribe next
 
+    #opens the contract dialog
     def open_contract_picker(self):
         Contract_Picker_Dialog(master=self.root, client=self.client)
 
+    #opens the expirty dialog
     def open_expiry_picker(self):
         Expiry_Picker_Dialog(master=self.root, client=self.client)
+
     async def on_submit_order(self):
         print("Market ID:", self.client.current_market_id)
         print("Selected Account:", self.client.selected_account)
@@ -451,8 +475,7 @@ class T4_GUI(tk.Tk):
         #connect to the back end
         await self.client.submit_order(side, volume, price, order_type, take_profit, stop_loss)
 
-
-
+    #updates positions ui
     def update_positions_table(self, data):
         #clears the current tree
         for row in self.positions_tree.get_children():
@@ -471,6 +494,8 @@ class T4_GUI(tk.Tk):
                 self.positions_tree.insert("", "end", values=(market, net, f"{pnl:.2f}", working))
             except Exception as e:
                 print(f"[ERROR] Failed to render position row: {e}")
+
+    #updates orders ui
     def update_orders_table(self, orders_list):
         #clear tree
         
@@ -478,12 +503,8 @@ class T4_GUI(tk.Tk):
             self.orders_tree.delete(row)
         for order in orders_list['orders']:
             try:
-                print("here")
 
-                print(orders_list)
-                print('here')
                 iid=order.unique_id
-                print(iid)
                 submit_ts = order.submit_time.seconds
                 submit_time = datetime.utcfromtimestamp(submit_ts).strftime("%H:%M:%S")
 

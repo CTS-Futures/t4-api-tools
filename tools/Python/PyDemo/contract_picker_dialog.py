@@ -106,11 +106,13 @@ class Contract_Picker_Dialog(tk.Toplevel):
 
         except Exception as e:
             print("render search problem, ", e)
+    
     def on_search(self):
         # TODO: implement search logic (if needed)
         filter_text = self.search_var.get().strip().lower()
         self.render_exchanges(filter_text)
         asyncio.create_task(self.search_and_render_results(filter_text))
+
     def on_select(self, event):
         selected = self.tree.selection()
         if not selected:
@@ -134,7 +136,6 @@ class Contract_Picker_Dialog(tk.Toplevel):
     #once hte user confirms the selection, it'll remove the dialog
     def confirm_selection(self):
         self.destroy()
-        print(self.selected_contract_meta)
         
         asyncio.create_task(
             self.contract_picker.on_contract_selected(

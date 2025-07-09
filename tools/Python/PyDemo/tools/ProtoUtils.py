@@ -2,7 +2,7 @@ import sys
 import os
 
 #adjusts system path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'proto')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'proto'))) #line subject to change. due to this file not being in the same folder as "proto"
 from t4.v1 import service_pb2
 
 

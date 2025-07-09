@@ -55,6 +55,8 @@ class Expiry_Picker_Dialog(tk.Toplevel):
             btn_frame, text="Select", command=self.confirm_selection, state="disabled"
         )
         self.select_btn.pack(side="right", padx=5)
+
+    #calls function to load groups and inputs them into the ui
     async def load_and_render_groups(self):
         groups = await self.expiry_picker.load_groups()
         if not groups:
@@ -69,6 +71,8 @@ class Expiry_Picker_Dialog(tk.Toplevel):
             node_id = f"{strategy}_{expiry or 'none'}"
             parent_id = self.tree.insert("", "end", iid=node_id, text=label, values=("group", strategy, expiry))
             self.tree.insert(parent_id, "end")  # Dummy child for expansion
+
+    #when the user press the expand button, this creates the ui
     def on_expand(self, event):
         item_id = self.tree.focus()
         values = self.tree.item(item_id, "values")
@@ -104,12 +108,12 @@ class Expiry_Picker_Dialog(tk.Toplevel):
                 "exchangeId": self.exchange_id,
                 "contractId": self.contract_id
             }
-            print(self.selected_expiry)
             self.select_btn.config(state="normal")
         else:
             self.selected_expiry = None
             self.select_btn.config(state="disabled")
 
+    #sends selected information to the expiry picker
     def confirm_selection(self):
         self.destroy()
         market_id = self.selected_expiry["marketId"]

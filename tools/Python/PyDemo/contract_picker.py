@@ -12,21 +12,19 @@ class Contract_Picker:
         self.expanded_exchanges = set()
         self.selected_contract = None
         self.is_search_mode = False
-        
-
        
         #api authorization
         self.client = client
         self.api_key = getattr(client, "apiKey", None)
         self.api_url = getattr(client, "apiUrl", None)
-         
-
+        
         #loading and menus
         self.dialog = None
         self.search_input = None
         self.exchanges_list = None
         self.loading_indicator = None
     
+    #api calls for loading exchanges
     async def load_exchanges(self):
         self.show_loading(True)
         try:
@@ -64,6 +62,7 @@ class Contract_Picker:
         finally:
             self.show_loading(False)
 
+    #api calls for exchanges
     async def load_contracts_for_exchanges(self, exchange_id):
         #edge case: if we already have the info, then skip
         if exchange_id in self.contract_caches:
@@ -150,7 +149,6 @@ class Contract_Picker:
     async def on_contract_selected(self, exchange_id, contract_id):
         
         market_id = await self.client.get_market_id(exchange_id, contract_id)
-       
         await self.client.subscribe_market(exchange_id, contract_id, market_id)
        
 

@@ -20,13 +20,15 @@ class Client:
         #config file settings
         self.wsUrl = config['websocket']['url']
         self.apiUrl = config['websocket']['api']
-        self.apiKey = None
+        self.apiKey = None 
         self.firm= config['websocket']['firm']
         self.username=config['websocket']['username']
         self.password=config['websocket']['password']
         self.app_name= config['websocket']['app_name']
         self.app_license= config['websocket']['app_license']
         self.priceFormat= config['websocket']['priceFormat']
+
+        #current market and exchange
         self.md_exchange_id = config['websocket']['md_exchange_id']
         self.md_contract_id = config['websocket']['md_contract_id']
 
@@ -35,6 +37,7 @@ class Client:
         self.running = False
         self.heartbeat_time = 20 
         self.login_event = asyncio.Event()
+
         #accounts
         self.accounts = {}
         self.selected_account = None
@@ -42,33 +45,33 @@ class Client:
         #connection
         self.login_response = None
 
-        
         #main tasks
         self.listen_task = None
         self.heartbeat_task = None
+
         #tokens
         self.jw_token = None
         self.jw_expiration = None
         self.pending_token_request = None
         self.token_resolvers = {} #maps a requestID to a resolve/reject callback
 
-        self.market_update = None
-        self.market_header_update = None
-        self.on_market_switch = None  # Callback from GUI
-
-        self.orders = {}
         #market data
         self.current_market_id = None
         self.current_subscription = None
         self.market_details = {}
         self.market_snapshots = {}
+        self.market_update = None
+        self.market_header_update = None
+        self.on_market_switch = None  # Callback from GUI
 
+        #orders and positions ui
+        self.orders = {}
         self.positions = {}
 
         
 
     
-    #connects to api
+    #connects to websocket api
     async def connect(self):
     
         try:
@@ -76,7 +79,7 @@ class Client:
             self.ws = await websockets.connect(self.wsUrl)
             self.running = True
 
-            # Start background tasks
+            #start background tasks
             asyncio.create_task(self.authenticate())
             self.heartbeat_task = asyncio.create_task(self.send_heartbeat())
             self.listen_task = asyncio.create_task(self.listen()) 
@@ -92,7 +95,7 @@ class Client:
         except Exception as e:
             print("Failure", e)
 
-
+    #disconnects from websocket safely
     async def disconnect(self):
         self.running = False #turns off all the loops going
         if self.ws:
@@ -119,6 +122,8 @@ class Client:
 
     #sends login request
     async def authenticate(self):
+
+        #login request info
         login_info = auth_pb2.LoginRequest(
           firm = self.firm,
           username = self.username,
@@ -130,13 +135,13 @@ class Client:
         #envelope and encrypt request
         await self.send_message({"login_request": login_info})
 
+        #let's program know that the websocket is now connected
         self.running = True
        
 
     def handle_login(self, message):
         
-        #successful connection
-        
+        #successful connection = 0    
         if message.result == 0:
             self.login_response = message
             
@@ -147,18 +152,16 @@ class Client:
                 if message.authentication_token.expire_time:
                     self.jw_expiration = int(message.authentication_token.expire_time.seconds) * 1000
                     print(self.jw_expiration)
+            
             #store accounts
-
-            print(message.accounts)
             if message.accounts:
-                
                 for acc in message.accounts:
                     self.accounts[acc.account_id] = acc
 
+            #begins the login event (allows for a buffer time to onset)
             self.login_event.set()
-            print(self.accounts)
             
-        
+            #updates account info
             if self.on_account_update:
                 self.on_account_update({
                     'type': 'accounts',
@@ -167,8 +170,8 @@ class Client:
         else:
             print("login failed")
     
+    #runs when client is given new token
     def handle_authentication_token(self, message):
-        
         #reinitialize the new token
         self.jw_token = message.token
 
@@ -181,28 +184,29 @@ class Client:
             if not future.done():
                 future.set_result(message.token)
 
+    #caches given market details
     def handle_market_detail(self, message): 
         self.market_details[message.market_id] = message
         print('market details stored')
 
     def handle_market_snapshot(self, message):
-        #print(message)
         print("received market snapshot")
 
-        #each message snapshot has a markte detph
+        #each message snapshot has a market detph and other important info
         if message.messages:
             for msg in message.messages:
-                if hasattr(msg, "market_settlement"):
-                    pass
-                elif msg and hasattr(msg, "market_depth"):
-                    print(msg)
+                if msg.market_settlement:
+                    pass # skip the messages that have market settlement
+                elif msg and hasattr(msg, "market_depth"): 
                     self.handle_market_depth(msg.market_depth)
         
         #if we have all the necessary info, we will update the market header
         market_details = self.market_details.get(message.market_id)
+    
         if market_details and market_details.contract_id and market_details.expiry_date:
             self.update_market_header(market_details.contract_id, market_details.expiry_date)
 
+    #client stores all of the active postiions of the user
     def handle_account_position(self, message):
         key = f'{message.account_id}_{message.market_id}'
         self.positions[key] = message
@@ -211,40 +215,42 @@ class Client:
         if self.on_account_update:
             self.on_account_update({'type': 'positions', 
                                     'positions': [p for p in self.positions.values() if p.account_id == self.selected_account]})
+    
+    #snapshot/rundown of account info is sent from server on initial login.
+    #this sends all of that info to its corresponding location
     def handle_account_snapshot(self, message):
         if message.messages:
-            
             for msg in message.messages:
                 message_type = msg.WhichOneof("payload")
                 if message_type == "account_details":
-                    self.handle_account_details(msg.account_details)
-                elif message_type =="update":
-                    print("ignore")    
+                    self.handle_account_details(msg.account_details)   
                 elif message_type == "account_update":
                     self.handle_account_update(msg.account_update)
-                   
                 elif message_type == "account_position":
                     self.handle_account_position(msg.account_position)
-                    print(msg)
                 elif message_type == "order_update_multi":
                     self.handle_order_update_multi(msg.order_update_multi)
                 elif message_type == "order_update":
                     self.handle_order_update(msg.order_update)
                 else:
                     print(f"unknown message {msg}")
-        
         print("handled snapshot")
+
     def handle_account_details(self, message):
         if not message.account_id:
-            return
-        
+            return  
         if not message.account_id in self.accounts:
             return
         print(f"account details received ${message.account_id}")
+    
     def handle_account_update(self, message):
         pass
+        #TODO displays account info (balance, p&l, etc)
+    
+    #handles all the market info (bids, offers, and trades)
+    #stores it for the ui
     def handle_market_depth(self, message):
-        # Store the latest market snapshot
+        #store the latest market snapshot
         self.market_snapshots[message.market_id] = message
 
         # Get market details (could be None)
@@ -281,10 +287,14 @@ class Client:
                 "last_trade": last_trade,
             })
 
-
+    #subscriber response (debug)
     def handle_subscribe_response(self, message):
+        pass
         print(message)
     
+    #similar to account snapshot
+    #order multi has many different messages nested within
+    #this sends each message to its corresponding handler
     def handle_order_update_multi(self, update_multi):
         updates_processed = 0
         if update_multi.updates:
@@ -311,26 +321,23 @@ class Client:
         else:
             print(f"Order update multi processed: {updates_processed}")
 
-
+    #caches the order
     def handle_order_update(self, order_update):
         self.orders[order_update.unique_id] = order_update
         print(f"Order update received: {order_update.unique_id}, market: {order_update.market_id}")
         self.trigger_orders_update()
+    
+    #updates order data
     def handle_order_update_status(self, status_update):
-
 
         print(f"order status update {status_update.unique_id}")
         
-    
-        
-        existing_order = self.orders[status_update.unique_id]
 
+        existing_order = self.orders[status_update.unique_id]
         existing_order.status = status_update.status
         existing_order.time - status_update.time
-      
         existing_order.price_type = status_update.price_type
         existing_order.current_volume = status_update.current_volume
-    
         existing_order.working_volume = status_update.working_volume
         # existing_order.instruction_extra = status_update.instruction_extra
         existing_order.exchange_order_id = status_update.exchange_order_id
@@ -340,6 +347,7 @@ class Client:
 
         self.trigger_orders_update()
 
+    #debug functions
     def handle_order_update_trade(self, trade_update):
         print(f"Trade update: {trade_update.unique_id}, trade: {trade_update.exchange_trade_id}")
 
@@ -356,14 +364,14 @@ class Client:
                 "type": "orders",
                 "orders": [o for o in self.orders.values() if o.account_id == self.selected_account]
             })
-    #TODO update the market header
-    async def listen(self): #listens for any websocket messages
-        
+
+    #key function
+    #listens for any websocket messages
+    async def listen(self): 
         try:
             while self.running:
                 try:
                     msg = await asyncio.wait_for(self.ws.recv(), timeout=2)
-                  
                     self.process_server_message(msg)
                 except asyncio.TimeoutError:
                     continue  # keep looping to check `self.running`
@@ -384,12 +392,10 @@ class Client:
         msg = decode_message(msg)
         message_type = msg.WhichOneof("payload")
     
-        
-
-
         if not hasattr(msg, 'WhichOneof'):
             print("[process_server_message] msg has no WhichOneof: ", msg)
             return
+        
         message_type = msg.WhichOneof("payload")
     
         if message_type == "login_response":
@@ -398,7 +404,7 @@ class Client:
             self.handle_authentication(msg.authentication_token)
         elif message_type == "account_subscribe_response":
             self.handle_subscribe_response(msg.account_subscribe_response)
-        elif message_type == "account_update": #TODO
+        elif message_type == "account_update": 
             self.handle_account_update(msg.account_update)
         elif message_type == "account_snapshot":
             self.handle_account_snapshot(msg.account_snapshot)
@@ -410,26 +416,15 @@ class Client:
             self.handle_market_snapshot(msg.market_snapshot) 
         elif message_type == "market_depth":
             self.handle_market_depth(msg.market_depth)
-        elif message_type == "messages":
-            print("message")
         elif message_type == "order_update_multi":
             self.handle_order_update_multi(msg.order_update_multi)
         elif message_type == "order_update":
-
             self.handle_order_update(msg.order_update)
-
-        
-        
         else:
-            print(msg)
+            print("unknown message type")
 
-           
-            
-
+    #will continuously send heartbeats until connection breaks
     async def send_heartbeat(self):
-        
-        #will continuously send heartbeats until connection breaks
-    
         try:
             while self.running:
                 heartbeat_msg = service_pb2.Heartbeat(timestamp=int(time.time() * 1000))
@@ -442,7 +437,7 @@ class Client:
             print("Exiting heartbeat()")
 
 
-    #the following have to do with token things
+    #function to retrieve a new token
     async def refresh_token(self):   
         ID = str(uuid.uuid4()) #gets uuid from python library (random)
 
@@ -476,10 +471,9 @@ class Client:
         elif self.pending_token_request:
             return await self.pending_token_request
         
-        #let's try to get a new token now
+        #gets a new token now
         self.pending_token_request = asyncio.create_task(self.refresh_token())
         try:
-            
             token = await self.pending_token_request
             print("renewed the token")
             return token
@@ -488,8 +482,6 @@ class Client:
 
 
     async def get_market_id(self, exchange_id, contract_id):
-        
-
         try:
 
             #this section checks which authorization type to use
@@ -502,7 +494,7 @@ class Client:
                 if (token):
                     headers['Authorization'] = f'Bearer {token}'
             
-            #now let's do an async request
+            #calls api to get the market id
             async with httpx.AsyncClient() as rest:
               
                 response = await rest.get(f'{self.apiUrl}/markets/picker/firstmarket?exchangeid={exchange_id}&contractid={contract_id}'
@@ -521,6 +513,7 @@ class Client:
         except Exception as e:
             print("error outside:", e)
     
+    #subsribes to an account
     async def subscribe_account(self, account_id):
         if self.selected_account == account_id:
             return  # Already subscribed
@@ -546,12 +539,13 @@ class Client:
         await self.send_message({"account_subscribe": sub_msg})
 
         print(f"Subscribed to account: {account_id}")
+
+    #subscribes to a new market
     async def subscribe_market(self, exchange_id, contract_id, market_id):
         if self.on_market_switch:
-            self.on_market_switch()
+            self.on_market_switch() #connected to gui. refreshes the ui
         
         key = f'{exchange_id}_{contract_id}_{market_id}'
-        print(key)
 
         # Skip if it's the same contract
         if getattr(self, "_latest_requested_key", None) == key:
@@ -593,7 +587,6 @@ class Client:
             depth_levels=DepthLevels.DEPTH_LEVELS_BEST_ONLY  # or whatever default
         )
 
-        print(f'{depth_sub}')
         await self.send_message({"market_depth_subscribe": depth_sub})
         print("Subscribed to new market")
 
