@@ -1,7 +1,0 @@
-{
-  "java.project.sourcePaths": [
-    "src/main/java",
-    "target/generated-sources/protobuf/java"
-  ],
-  "java.configuration.updateBuildConfiguration": "automatic"
-}

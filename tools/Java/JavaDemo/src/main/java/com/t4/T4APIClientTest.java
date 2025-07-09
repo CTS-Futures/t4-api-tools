@@ -88,6 +88,7 @@ import java.util.concurrent.TimeUnit;
         private Object pendingTokenRequest = null;
 
         // Market data
+        private MarketDataPane marketDataP;
         private MarketSubscriber marketSubscriber = new MarketSubscriber();
         private Map<String, Object> marketSnapshots = new HashMap<>();
         private Object currentSubscription = null;
@@ -183,7 +184,7 @@ import java.util.concurrent.TimeUnit;
                   System.out.println("Token from the response: " + tokenHandler(token));
                   isLoggedIn = true;
 
-                  subscribeToMarket("CME", "ES", "ESZ24");
+                  subscribeToMarket("CME_Eq", "ES", "XCME_Eq ES (U25)");
                   break;
                
                case MARKET_SNAPSHOT:
@@ -207,20 +208,20 @@ import java.util.concurrent.TimeUnit;
                   + " | Exchange: " + marketDetails.getExchangeId());
         
                   // You can store it for later use if you want:
-                  marketDetailsMap.put(marketDetails.getMarketId(), marketDetails);
+                     marketDetailsMap.put(marketDetails.getMarketId(), marketDetails);
                   } else {
-                  System.out.println(" Inactive/Unavailable Market: " + marketDetails.getMarketId());
+                     System.out.println(" Inactive/Unavailable Market: " + marketDetails.getMarketId());
                   }
                   break;
 
-               /* case AUTHENTICATION_TOKEN:
-                  System.out.println("Made it to the token! ");
-                  jwtToken = true;
-                  Auth.AuthenticationToken tokenA = serverMessage.getAuthenticationToken();
-                  Map<FieldDescriptor, Object> decodedJWT = tokenA.getAllFields();
-                  System.out.println(tokenA.getExpireTime().getSeconds()/60);
-                  System.out.println("Recieved Token: " + decodedJWT);
-                  break; */
+                  case MARKET_DEPTH:
+                     handleMarketDepth(serverMessage.getMarketDepth());
+                     break;
+
+                  case MARKET_DEPTH_TRADE:
+                     handleMarketDepthTrade(serverMessage.getMarketDepthTrade());
+                     break;
+
                
                default:
                    System.out.println("Received unknown payload: " + payloadCase);
@@ -267,7 +268,6 @@ import java.util.concurrent.TimeUnit;
 
       /*This is for handling the market,  */
 
-      private MarketDataPane marketDataP;
 
       public void setMarketDataP(MarketDataPane pane) {
          this.marketDataP = pane;
@@ -288,10 +288,15 @@ import java.util.concurrent.TimeUnit;
             if (!depth.getOffersList().isEmpty()) {
                 ask = String.valueOf(depth.getOffers(0).getPrice().getValue());
             }
+            if(!depth.getLas){
+
+            }
          }
         if (message.hasMarketDepthTrade()) {
             MarketDepthTrade trade = message.getMarketDepthTrade();
             last = String.valueOf(trade.getLastTradePrice().getValue());
+            //trade.getLastTradePrice().getValue()
+
         }
        }
 
@@ -307,6 +312,7 @@ import java.util.concurrent.TimeUnit;
 
       private void subscribeToMarket(String exchangeId, String contractId, String marketId){
           marketSubscriber.subscribeMarket(exchangeId, contractId, marketId, new Callback() {
+
             @Override
         public void onComplete() {
             System.out.println("Subscribed to market: " + marketId);
@@ -318,6 +324,48 @@ import java.util.concurrent.TimeUnit;
         }
     });
 
+      }
+
+
+      public void handleMarketDepthTrade(MarketDepthTrade trade) {
+         String symbol = trade.getMarketId();
+         String last= "";
+
+         if (trade.hasLastTradePrice()) {
+            last = String.valueOf(trade.getLastTradePrice().getValue());
+         }
+
+         System.out.printf("Trade Update [%s] | Last: %s%n", symbol, last);
+
+         if (marketDataP != null) {
+            marketDataP.updateSymbol(symbol);
+            marketDataP.updateLast(last);
+         }
+      }
+
+
+      public void handleMarketDepth(MarketDepth depth) {
+         String symbol = depth.getMarketId();
+         String bid = "";
+         String ask = "";
+
+         //System.out.println(depth.getLastTradePrice());
+
+         if (!depth.getBidsList().isEmpty()) {
+            bid = String.valueOf(depth.getBids(0).getVolume() +"@"+ depth.getBids(0).getPrice().getValue());
+         }
+         if (!depth.getOffersList().isEmpty()) {
+            ask = String.valueOf(depth.getOffers(0).getVolume() +"@"+depth.getOffers(0).getPrice().getValue());
+         }
+         
+
+         System.out.printf(" Market Depth [%s] | Bid: %s | Ask: %s%n", symbol, bid, ask);
+
+         if (marketDataP != null) {
+            marketDataP.updateSymbol(symbol);
+            marketDataP.updateBid(bid);
+            marketDataP.updateAsk(ask);
+         }
       }
 
 
