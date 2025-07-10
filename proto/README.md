@@ -107,5 +107,4 @@ The generated files will appear under the specified path
 ## 🧩 Notes
 
 - Keep folder structure consistent with `package` declarations.
-- Re-run the `find`/`Get-ChildItem` command if new `.proto` files are added.
 - Make sure the relevant language runtime libraries are installed (e.g. `protobuf` for Python, `protobuf-java`, `protoc-gen-go`, etc.).
