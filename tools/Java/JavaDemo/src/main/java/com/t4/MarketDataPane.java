@@ -118,6 +118,7 @@ package com.t4;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 <<<<<<< HEAD
+<<<<<<< HEAD
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
@@ -249,18 +250,30 @@ public class MarketDataPane extends VBox {
 import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
+=======
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+>>>>>>> 8d45f4c (Starting the market drop down)
 import javafx.scene.text.Font;
 
-
-public class MarketDataPane extends VBox{
+public class MarketDataPane extends VBox {
     private final Label symbolLabel = new Label("Symbol: --");
     private final Label bidLabel = new Label("Bid: --");
     private final Label askLabel = new Label("Ask: --");
     private final Label lastLabel = new Label("Last: --");
 
-    public MarketDataPane(){
+    private final Button selectMarketButton = new Button("Select Market");
+    private Runnable onSelectMarket = null;
+
+    public MarketDataPane() {
         Label titleLabel = new Label("Market Data");
         titleLabel.setFont(new Font("Arial", 18));
+
+        selectMarketButton.setOnAction(e -> {
+            if (onSelectMarket != null) {
+                onSelectMarket.run();
+            }
+        });
 
         GridPane grid = new GridPane();
         grid.setVgap(10);
@@ -274,7 +287,7 @@ public class MarketDataPane extends VBox{
 
         this.setSpacing(10);
         this.setPadding(new Insets(15));
-        this.getChildren().addAll(titleLabel, grid);
+        this.getChildren().addAll(titleLabel, selectMarketButton, grid);
         this.setStyle("-fx-border-color: lightgray; -fx-border-radius: 5; -fx-background-color: #fdfdfd;");
     }
 
@@ -293,6 +306,14 @@ public class MarketDataPane extends VBox{
     public void updateLast(String last) {
         Platform.runLater(() -> lastLabel.setText("Last: " + last));
     }
+<<<<<<< HEAD
     
 }
 >>>>>>> e7263a4 (Started on Market pane)
+=======
+
+    public void setOnSelectMarket(Runnable onSelect) {
+        this.onSelectMarket = onSelect;
+    }
+}
+>>>>>>> 8d45f4c (Starting the market drop down)
