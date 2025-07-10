@@ -72,7 +72,7 @@ Example `config.yaml`:
 ```yaml
 websocket:
   url: wss://wss-sim.t4login.com/v1
-  api: [https://api.t4.example.com](https://api-sim.t4login.com)
+  api: https://api-sim.t4login.com
   firm: YOUR_FIRM
   username: YOUR_USERNAME
   password: YOUR_PASSWORD
