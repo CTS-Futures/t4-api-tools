@@ -21,6 +21,10 @@ import t4proto.v1.market.Market.MarketDepth;
 import t4proto.v1.market.Market.MarketDepthTrade;
 import t4proto.v1.market.Market.MarketDetails;
 import t4proto.v1.market.Market.MarketDepth.TradeData;
+import t4proto.v1.market.Market.MarketDepth.MarketDefinition;
+import t4proto.v1.market.Market.MarketDepth.MarketListSubscribe;
+import t4proto.v1.market.Market.Market;
+import t4proto.v1.service.Service.ClientMessage;
 
 //import t4proto.v1.market.Market.MarketSubscriptionRequest;
 
@@ -47,6 +51,8 @@ import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Timer;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -92,6 +98,8 @@ import java.util.concurrent.TimeUnit;
         // Market data
         private MarketDataPane marketDataP;
         private MarketSubscriber marketSubscriber = new MarketSubscriber();
+        private final List<MarketDefinition> marketList = new ArrayList<>();
+        private final Map<Integer, MarketDefinition> marketMap = new HashMap<>();
         private Map<String, Object> marketSnapshots = new HashMap<>();
         private Object currentSubscription = null;
         private Map<String, MarketDetails> marketDetailsMap = new HashMap<>();
@@ -181,12 +189,13 @@ import java.util.concurrent.TimeUnit;
                    break;
 
                case LOGIN_RESPONSE:
+                  handleLoginResponse(serverMessage.getLoginResponse());
                   System.out.println("Login Response Recieved: \n" + serverMessage.getLoginResponse());
                   AuthenticationToken token = serverMessage.getLoginResponse().getAuthenticationToken();
                   System.out.println("Token from the response: " + tokenHandler(token));
                   isLoggedIn = true;
 
-                  subscribeToMarket("CME_Eq", "ES", "XCME_Eq ES (U25)");
+                  //subscribeToMarket("CME_Eq", "ES", "XCME_Eq ES (U25)");
                   break;
                
                case MARKET_SNAPSHOT:
@@ -253,8 +262,8 @@ import java.util.concurrent.TimeUnit;
          System.out.println("Disconnected: " + reason);
         }
 
-//Token handler, still working on it! 
-        public  String tokenHandler(AuthenticationToken token) {
+//Token handler, still working on it! Make void when done 
+      public  String tokenHandler(AuthenticationToken token) {
          jwtToken = token.toString();
 
          if(token.hasExpireTime()){
@@ -266,9 +275,16 @@ import java.util.concurrent.TimeUnit;
          return "Token had been handeled";
         }
 
+        public void handleLoginResponse(Auth.LoginResponse response) {
+            if (response.getResult() == Auth.LOGIN_RESPONSE) {
+            System.out.println("Login successful");
+            requestMarketList(); // 🔹 This is the key to fetching market list!
+         } else {
+            System.out.println("Login failed: " + response.getErrorMessage());
+         }
+      }
+
       /*This is for handling the market,  */
-
-
       public void setMarketDataP(MarketDataPane pane) {
          this.marketDataP = pane;
       }
@@ -282,6 +298,7 @@ import java.util.concurrent.TimeUnit;
        for (MarketSnapshotMessage message : snapshot.getMessagesList()) {
         if (message.hasMarketDepth()) {
             MarketDepth depth = message.getMarketDepth();
+            System.out.println("This is the market depth: \n"+ depth);
             if (!depth.getBidsList().isEmpty()) {
                 bid = String.valueOf(depth.getBids(0).getPrice().getValue());
             }
@@ -322,7 +339,7 @@ import java.util.concurrent.TimeUnit;
         }
     });
 
-      }
+   }
 
 
 
@@ -357,6 +374,64 @@ import java.util.concurrent.TimeUnit;
          }
       }
 
+
+      public void handleMarketListUpdate(MarketListUpdate update) {
+         synchronized (marketList) {
+            marketList.clear();
+            marketMap.clear();
+
+            for (MarketDefinition def : update.getMarketDefinitionsList()) {
+               marketList.add(def);
+               marketMap.put(def.getMarketId(), def);
+            }
+         }
+
+         System.out.println("Market list updated: " + marketList.size() + " markets received.");
+
+         // 🔹 Auto-subscribe to default symbol (change as needed)
+         String defaultSymbol = "ESU25";
+         MarketDefinition defaultMarket = marketList.stream()
+            .filter(m -> m.getContractSymbol().equalsIgnoreCase(defaultSymbol))
+            .findFirst()
+            .orElse(null);
+
+         if (defaultMarket != null) {
+         subscribeToMarket(defaultMarket);
+         if (marketDataPane != null) {
+            marketDataPane.updateSymbol(defaultMarket.getContractSymbol());
+         }
+         } else {
+            System.out.println("Default market symbol not found: " + defaultSymbol);
+         }
+      }
+
+      public void requestMarketList() {
+         MarketListSubscribe subscribe = MarketListSubscribe.newBuilder().build();
+         ClientMessage msg = ClientMessage.newBuilder()
+            .setMarketListSubscribe(subscribe)
+            .build();
+            sendMessageToServer(msg);
+         System.out.println("Requested market list");
+      }
+
+      public List<MarketDefinition> getMarketList() {
+         synchronized (marketList) {
+            return new ArrayList<>(marketList);
+         }
+      }
+
+      public MarketDefinition getMarketById(int marketId) {
+         return marketMap.get(marketId);
+      }
+      
+
+      private void sendMessageToServer(ClientMessage msg) {
+         if (session != null && session.isOpen()) {
+            session.getAsyncRemote().sendBinary(ByteBuffer.wrap(msg.toByteArray()));
+         } else {
+            System.err.println("Cannot send message — session is closed.");
+         }
+      }
 
 
       /*connect, recconet and disconnnect are under here. 
