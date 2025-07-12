@@ -1,10 +1,10 @@
 {
   "name": "@t4/protobuf",
   "version": "1.0.0",
-  "main": "dist/index.js",
-  "module": "dist/index.esm.js",
-  "browser": "dist/index.umd.js",
-  "types": "types/index.d.ts",
+  "main": "dist/t4-proto.cjs.js",
+  "module": "dist/t4-proto.esm.js",
+  "browser": "dist/t4-proto.js",
+  "types": "types/t4-proto.d.ts",
   "files": [
     "dist",
     "types"
