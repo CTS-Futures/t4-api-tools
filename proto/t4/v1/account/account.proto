@@ -11,6 +11,7 @@ message AccountSubscribe {
   t4proto.v1.common.AccountSubscribeType subscribe = 1;
   bool subscribe_all_accounts = 2;
   repeated string account_id = 3;
+  optional t4proto.v1.common.PnlCalculation pnl_calculation = 4;
 }
 
 message AccountSubscribeResponse {
@@ -152,4 +153,47 @@ message AccountSnapshot {
  t4proto.v1.common.AccountStatus status = 4;
  bool due_to_connection = 5;
  repeated AccountSnapshotMessage messages = 6;
+}
+
+// AccountProfit message - account-level profit/loss information
+message AccountProfit {
+  string account_id = 1;
+  google.protobuf.Timestamp update_time = 2;
+  optional double upl = 3;                    // Unrealized P&L
+  optional double upl_trade = 4;              // Unrealized P&L Trade
+  optional double day_upl = 5;                // Day Unrealized P&L
+  optional double day_rpl = 6;                // Day Realized P&L
+  optional double day_upl_trade = 7;          // Day Unrealized P&L Trade
+  optional int32 warning_pl = 8;              // Warning P&L threshold
+  optional int32 warning_loss_limit = 9;      // Warning Loss Limit threshold
+  optional int32 warning_margin = 10;         // Warning Margin threshold
+  optional int32 total_working_orders = 11;   // Total Working Orders
+  optional int32 total_working_volume = 12;   // Total Working Volume
+  optional bool is_alerting_live_margin = 13; // Is Alerting Live Margin
+  optional bool is_alerting_full_margin = 14; // Is Alerting Full Margin
+}
+
+// AccountPositionProfit message - position-level profit/loss information
+message AccountPositionProfit {
+  string account_id = 1;
+  string exchange_id = 2;
+  string contract_id = 3;
+  string market_id = 4;
+  bool delayed = 5;
+  google.protobuf.Timestamp update_time = 6;
+  bool is_options = 7;
+  bool has_data = 8;
+  bool is_implied = 9;
+  optional double net = 10;                    // Net position
+  optional double upl = 11;                    // Unrealized P&L
+  optional double upl_trade = 12;              // Unrealized P&L Trade
+  optional double upl_usd = 13;                // Unrealized P&L in USD
+  optional double upl_trade_usd = 14;          // Unrealized P&L Trade in USD
+  optional double day_net = 15;                // Day Net position
+  optional double day_rpl = 16;                // Day Realized P&L
+  optional double day_rpl_usd = 17;            // Day Realized P&L in USD
+  optional double day_upl = 18;                // Day Unrealized P&L
+  optional double day_upl_trade = 19;          // Day Unrealized P&L Trade
+  optional double day_upl_usd = 20;            // Day Unrealized P&L in USD
+  optional double day_upl_trade_usd = 21;      // Day Unrealized P&L Trade in USD
 }

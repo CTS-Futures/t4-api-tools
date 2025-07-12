@@ -60,6 +60,8 @@ message ServerMessage {
         t4proto.v1.account.AccountUpdate account_update = 203;
         t4proto.v1.account.AccountDetails account_details = 204;
         t4proto.v1.account.AccountSnapshot account_snapshot = 205;
+        t4proto.v1.account.AccountProfit account_profit = 206;
+        t4proto.v1.account.AccountPositionProfit account_position_profit = 207;
 
         // Order Routing Messages
         t4proto.v1.orderrouting.OrderUpdate order_update = 300;
@@ -70,7 +72,6 @@ message ServerMessage {
         t4proto.v1.orderrouting.OrderUpdateTradeLeg order_update_trade_leg = 305;
 
         t4proto.v1.orderrouting.CreateUDSResponse create_uds_response = 340;
-
     }
 }
 
