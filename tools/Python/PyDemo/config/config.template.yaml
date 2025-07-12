@@ -1,0 +1,19 @@
+websocket:
+  #connection urls
+  url: 'wss://wss-sim.t4login.com/v1'
+  api: 'https://api-sim.t4login.com'
+
+  #credentials
+  firm: 'your_firm'
+  username: 'your_username'
+  password: 'your_password'
+  app_name: 'Your_app_name'
+  app_license: 'your_app_license'
+
+
+  #which product to load market data for
+  md_exchange_id: 'CME_Eq'
+  md_contract_id: 'ES'
+
+  ##optional
+  priceFormat: 2
