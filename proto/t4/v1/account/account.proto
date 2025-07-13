@@ -161,16 +161,17 @@ message AccountProfit {
   google.protobuf.Timestamp update_time = 2;
   optional double upl = 3;                    // Unrealized P&L
   optional double upl_trade = 4;              // Unrealized P&L Trade
-  optional double day_upl = 5;                // Day Unrealized P&L
-  optional double day_rpl = 6;                // Day Realized P&L
+  optional double rpl = 5;					  // Realized P&L
+  optional double day_upl = 6;                // Day Unrealized P&L
   optional double day_upl_trade = 7;          // Day Unrealized P&L Trade
-  optional int32 warning_pl = 8;              // Warning P&L threshold
-  optional int32 warning_loss_limit = 9;      // Warning Loss Limit threshold
-  optional int32 warning_margin = 10;         // Warning Margin threshold
-  optional int32 total_working_orders = 11;   // Total Working Orders
-  optional int32 total_working_volume = 12;   // Total Working Volume
-  optional bool is_alerting_live_margin = 13; // Is Alerting Live Margin
-  optional bool is_alerting_full_margin = 14; // Is Alerting Full Margin
+  optional double day_rpl = 8;                // Day Realized P&L
+  optional int32 warning_pl = 9;              // Warning P&L threshold
+  optional int32 warning_loss_limit = 10;     // Warning Loss Limit threshold
+  optional int32 warning_margin = 11;         // Warning Margin threshold
+  optional int32 total_working_orders = 12;   // Total Working Orders
+  optional int32 total_working_volume = 13;   // Total Working Volume
+  optional bool is_alerting_live_margin = 14; // Is Alerting Live Margin
+  optional bool is_alerting_full_margin = 15; // Is Alerting Full Margin
 }
 
 // AccountPositionProfit message - position-level profit/loss information
@@ -187,13 +188,15 @@ message AccountPositionProfit {
   optional double net = 10;                    // Net position
   optional double upl = 11;                    // Unrealized P&L
   optional double upl_trade = 12;              // Unrealized P&L Trade
-  optional double upl_usd = 13;                // Unrealized P&L in USD
-  optional double upl_trade_usd = 14;          // Unrealized P&L Trade in USD
-  optional double day_net = 15;                // Day Net position
-  optional double day_rpl = 16;                // Day Realized P&L
-  optional double day_rpl_usd = 17;            // Day Realized P&L in USD
-  optional double day_upl = 18;                // Day Unrealized P&L
-  optional double day_upl_trade = 19;          // Day Unrealized P&L Trade
-  optional double day_upl_usd = 20;            // Day Unrealized P&L in USD
-  optional double day_upl_trade_usd = 21;      // Day Unrealized P&L Trade in USD
+  optional double rpl = 13;                    // Realized P&L
+  optional double upl_usd = 14;                // Unrealized P&L in USD
+  optional double upl_trade_usd = 15;          // Unrealized P&L Trade in USD
+  optional double rpl_usd = 16;                // Realized P&L in USD
+  optional double day_net = 17;                // Day Net position
+  optional double day_rpl = 18;                // Day Realized P&L
+  optional double day_rpl_usd = 19;            // Day Realized P&L in USD
+  optional double day_upl = 20;                // Day Unrealized P&L
+  optional double day_upl_trade = 21;          // Day Unrealized P&L Trade
+  optional double day_upl_usd = 22;            // Day Unrealized P&L in USD
+  optional double day_upl_trade_usd = 23;      // Day Unrealized P&L Trade in USD
 }
