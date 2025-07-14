@@ -19,7 +19,7 @@ public class Main extends Application{
 
         client.setMarketDataP(marketPane);
 
-        marketPane.setOnSelectMarket(() -> {
+        /* marketPane.setOnSelectMarket(() -> {
             ContractSelectorDialog dialog = new ContractSelectorDialog(
                 client.getMarketList(), // you must expose this list from T4APIClientTest
                 selectedDef -> {
@@ -27,9 +27,9 @@ public class Main extends Application{
                     marketPane.updateSymbol(selectedDef.getContractSymbol());
                 }
             );
-            dialog.show();
+            //dialog.show();
         });
-
+ */
         // Set preferred size
         connectionPane.setPrefHeight(100);     // smaller pane
         marketPane.setPrefHeight(300);         // larger pane

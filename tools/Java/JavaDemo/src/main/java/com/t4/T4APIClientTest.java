@@ -10,8 +10,8 @@ package com.t4;
 // Protobuf-generated classes (adjust these based on actual generated package structure)
 import t4proto.v1.auth.Auth; // For LoginRequest, AuthenticationTokenRequest, AuthenticationToken
 import t4proto.v1.auth.Auth.AuthenticationToken;
-import t4proto.v1.common.PriceOuterClass; // For PriceFormat
 import t4proto.v1.common.Enums.PriceFormat;
+import t4proto.v1.common.Enums.LoginResult;
 import t4proto.v1.service.Service; // For ClientMessage
 import t4proto.v1.service.Service.ServerMessage;
 import t4proto.v1.account.Account;//import static t4proto.v1.service.Service.ServerMessage.PayloadCase.*;
@@ -19,14 +19,13 @@ import t4proto.v1.market.Market.MarketSnapshot;
 import t4proto.v1.market.Market.MarketSnapshotMessage;
 import t4proto.v1.market.Market.MarketDepth;
 import t4proto.v1.market.Market.MarketDepthTrade;
-import t4proto.v1.market.Market.MarketDetails;
 import t4proto.v1.market.Market.MarketDepth.TradeData;
-import t4proto.v1.market.Market.MarketDepth.MarketDefinition;
-import t4proto.v1.market.Market.MarketDepth.MarketListSubscribe;
-import t4proto.v1.market.Market.Market;
+import t4proto.v1.market.Market.MarketDetails;
+import t4proto.v1.market.Market.MarketDepthSubscribe;
 import t4proto.v1.service.Service.ClientMessage;
+import t4proto.v1.account.Account.AccountInfo;
+import t4proto.v1.service.Service.AccountSubscribe; //Account 
 
-//import t4proto.v1.market.Market.MarketSubscriptionRequest;
 
 //market sybscriber
 import com.t4.helpers.MarketSubscriber;
@@ -45,6 +44,12 @@ import com.t4.MarketDataPane;
 
 
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.stream.Collectors;
+import org.json.JSONObject;
 // Java stdlib
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -85,22 +90,20 @@ import java.util.concurrent.TimeUnit;
       // Connection state
         private Object ws = null; //placeholder for the WebSocket connection
         private boolean isConnected = false;
-        private Object loginResponse = null;
-        private Map<String, Object> accounts = new HashMap<>();
+        private Auth.LoginResponse loginResponse = null;
+        private Map<String, Account.AccountInfo> accounts = new HashMap<>();
         private Object selectedAccount = null;
         private boolean isLoggedIn = false; //starts heartbeats once loggedin and connncted
 
         // JWT token management
-        private Object jwtToken = null;
-        private Object jwtExpiration = null;
+        private String jwtToken = null;
+        private Long jwtExpiration = null;
         private Object pendingTokenRequest = null;
 
         // Market data
         private MarketDataPane marketDataP;
         private MarketSubscriber marketSubscriber = new MarketSubscriber();
-        private final List<MarketDefinition> marketList = new ArrayList<>();
-        private final Map<Integer, MarketDefinition> marketMap = new HashMap<>();
-        private Map<String, Object> marketSnapshots = new HashMap<>();
+        private Map<String, MarketDepth> marketSnapshots = new HashMap<>();
         private Object currentSubscription = null;
         private Map<String, MarketDetails> marketDetailsMap = new HashMap<>();
         private String currentMarketId = null;
@@ -138,7 +141,7 @@ import java.util.concurrent.TimeUnit;
 
         public void onOpen(Session sessionO){
          System.out.println("Connected to Websocket");
-         isConnected = true;
+         handleConnectionStatusChanged(true);
          try{
             Auth.LoginRequest loginRequest = Auth.LoginRequest.newBuilder()
             .setApiKey(apiKey)
@@ -219,7 +222,7 @@ import java.util.concurrent.TimeUnit;
                   + " | Exchange: " + marketDetails.getExchangeId());
         
                   // You can store it for later use if you want:
-                     marketDetailsMap.put(marketDetails.getMarketId(), marketDetails);
+                     handleMarketDetails(marketDetails);
                   } else {
                      System.out.println(" Inactive/Unavailable Market: " + marketDetails.getMarketId());
                   }
@@ -247,6 +250,7 @@ import java.util.concurrent.TimeUnit;
         @OnError
 
         public void onError(Session session, Throwable error){
+         handleConnectionStatusChanged(false);
          System.out.println("Error occurred: ");
          error.printStackTrace();
          stopClientHeartbeat();
@@ -256,7 +260,7 @@ import java.util.concurrent.TimeUnit;
 //On Close 
         @OnClose
         public void onClose(Session session, CloseReason reason){
-         isConnected = false; 
+         handleConnectionStatusChanged(false); 
          isLoggedIn = false; 
          stopClientHeartbeat();
          System.out.println("Disconnected: " + reason);
@@ -264,25 +268,100 @@ import java.util.concurrent.TimeUnit;
 
 //Token handler, still working on it! Make void when done 
       public  String tokenHandler(AuthenticationToken token) {
-         jwtToken = token.toString();
+         if (token.hasToken()) {
+            jwtToken = token.getToken();  // Make sure it's the raw JWT string
+         } else {
+            jwtToken = null;
+         }
 
-         if(token.hasExpireTime()){
+         if (token.hasExpireTime()) {
             jwtExpiration = token.getExpireTime().getSeconds() * 1000;
          }
-         //if token expires I need to request a new one
-         System.out.println(jwtExpiration);
 
-         return "Token had been handeled";
-        }
+         System.out.println("JWT Token Set: " + jwtToken);
+    
+         try {
+            if(jwtToken != null){
+               String marketId = fetchMarketIdFromApi("CME_Eq", "ES");
+               currentMarketId = marketId;
+            }
+         } catch (IOException e) {
+            System.err.println("Failed to auto-subscribe to market:");
+            e.printStackTrace();
+         }
+
+         return "Token has been handled";
+      }
 
         public void handleLoginResponse(Auth.LoginResponse response) {
-            if (response.getResult() == Auth.LOGIN_RESPONSE) {
+            if (response.getResult() == LoginResult.LOGIN_RESULT_SUCCESS) {
             System.out.println("Login successful");
-            requestMarketList(); // 🔹 This is the key to fetching market list!
+            this.loginResponse = response;
+            this.isLoggedIn = true;
+            this.reconnectAttempts = 0;
+
+        // Process JWT token
+            if (response.hasAuthenticationToken()) {
+               handleAuthenticationToken(response.getAuthenticationToken());
+            }
+
+        /* // Store accounts (pseudo-handling — needs real model mapping)
+        accounts.clear(); */
+            for (Account.AccountInfo account : response.getAccountsList()) {
+               accounts.put(account.getAccountId(), account); // assuming map<String, Object>
+            }
+
+            // Trigger account update if needed
+            if (onAccountUpdate != null) {
+               // Wrap in real update logic or class
+               System.out.println("Accounts updated");
+            }
+
+                  handleConnectionStatusChanged(true);
+                  subscribeDefaultMarket();
+
          } else {
-            System.out.println("Login failed: " + response.getErrorMessage());
+            System.err.println("Login failed: " + response.getErrorMessage());
+            disconnect(); // or close socket
          }
       }
+
+      private void handleConnectionStatusChanged(boolean connected) {
+         this.isConnected = connected;
+         System.out.println("Connection status changed: " + (connected ? "Connected" : "Disconnected"));
+         // optionally notify UI or trigger retry logic here
+      }
+
+      public void handleAuthenticationToken(AuthenticationToken token) {
+    if (token == null || token.getToken().isEmpty()) {
+        System.err.println("Authentication token missing.");
+        return;
+    }
+
+    this.jwtToken = token.getToken();
+
+    if (token.hasExpireTime()) {
+        this.jwtExpiration = token.getExpireTime().getSeconds() * 1000;
+    }
+
+    // Optionally resolve pending requests
+    if (pendingTokenRequest != null) {
+        // This is pseudo-code — implement CompletableFuture-like mechanism if needed
+        // pendingTokenRequest.complete(jwtToken);
+        pendingTokenRequest = null;
+    }
+
+    System.out.println("Authentication token received");
+}
+
+public String getAuthToken() throws Exception {
+    long now = System.currentTimeMillis();
+    if (jwtToken != null && jwtExpiration != null && now < jwtExpiration - 30000) {
+        return jwtToken;
+    }
+    throw new IOException("JWT token is expired or not available.");
+}
+
 
       /*This is for handling the market,  */
       public void setMarketDataP(MarketDataPane pane) {
@@ -309,6 +388,11 @@ import java.util.concurrent.TimeUnit;
                TradeData trade = depth.getTradeData();
                last = trade.getLastTradeVolume() + "@" + trade.getLastTradePrice().getValue();
                
+            }
+
+            MarketDetails details = getMarketDetails(snapshot.getMarketId());
+            if (details != null && details.getContractId() != null && details.getExpiryDate() > 0) {
+               updateMarketHeader(details.getContractId(), details.getExpiryDate());
             }
          
          }
@@ -342,6 +426,11 @@ import java.util.concurrent.TimeUnit;
    }
 
 
+   private void subscribeToMarket(MarketDetails market) {
+      subscribeToMarket(market.getExchangeId(), market.getContractId(), market.getMarketId());
+   }
+
+
 
       public void handleMarketDepth(MarketDepth depth) {
          String symbol = depth.getMarketId();
@@ -366,6 +455,11 @@ import java.util.concurrent.TimeUnit;
 
          System.out.printf(" Market Depth [%s] | Bid: %s | Ask: %s%n", symbol, bid, ask);
 
+         MarketDetails details = getMarketDetails(depth.getMarketId());
+         if (details != null && details.getContractId() != null && details.getExpiryDate() > 0) {
+            updateMarketHeader(details.getContractId(), details.getExpiryDate());
+         }
+
          if (marketDataP != null) {
             marketDataP.updateSymbol(symbol);
             marketDataP.updateBid(bid);
@@ -374,55 +468,115 @@ import java.util.concurrent.TimeUnit;
          }
       }
 
+      public void handleMarketDetails(MarketDetails details) {
+         System.out.println("Received market details: " + details.getMarketId());
 
-      public void handleMarketListUpdate(MarketListUpdate update) {
-         synchronized (marketList) {
-            marketList.clear();
-            marketMap.clear();
+         marketDetailsMap.put(details.getMarketId(), details);
 
-            for (MarketDefinition def : update.getMarketDefinitionsList()) {
-               marketList.add(def);
-               marketMap.put(def.getMarketId(), def);
+         System.out.println("Market details stored for " + details.getMarketId()
+            + ". Total markets: " + marketDetailsMap.size());
+      }
+
+      public MarketDetails getMarketDetails(String marketId) {
+         return marketDetailsMap.get(marketId);
+      }
+
+      public boolean hasMarketDetails(String marketId) {
+         return marketDetailsMap.containsKey(marketId);
+      }  
+
+      public void updateMarketHeader(String contractId, int expiryDate) {
+         String expiryStr = String.valueOf(expiryDate);
+         if (expiryStr.length() < 6) {
+            return;
+         } 
+
+         String year = expiryStr.substring(2, 4);
+         String month = expiryStr.substring(4, 6);
+
+         Map<String, String> monthCodes = new HashMap<>();
+         monthCodes.put("01", "F"); monthCodes.put("02", "G"); monthCodes.put("03", "H");
+         monthCodes.put("04", "J"); monthCodes.put("05", "K"); monthCodes.put("06", "M");
+         monthCodes.put("07", "N"); monthCodes.put("08", "Q"); monthCodes.put("09", "U");
+         monthCodes.put("10", "V"); monthCodes.put("11", "X"); monthCodes.put("12", "Z");
+
+         String monthCode = monthCodes.getOrDefault(month, month);
+         String formatted = contractId + monthCode + year;
+
+         // Assuming a UI method (you can replace this with actual UI label logic)
+         System.out.println("Updated header: " + formatted);
+      }
+
+      public void subscribeDefaultMarket() {
+         try {
+            String marketId = fetchMarketIdFromApi("CME_Eq", "ES");
+            this.currentMarketId = marketId;
+         } catch (IOException e) {
+            System.err.println("Unable to subscribe to default market: ");
+            e.printStackTrace();
+         }
+      }
+
+
+      public String fetchMarketIdFromApi(String exchangeId, String contractId) throws IOException {
+        String endpoint = String.format(
+            "https://api-sim.t4login.com/markets/picker/firstmarket?exchangeid=%s&contractid=%s",
+            exchangeId, contractId
+        );
+
+        HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Content-Type", "application/json");
+
+        // Optionally include API key if available
+        if (T4Config.API_KEY != null && !T4Config.API_KEY.isEmpty()) {
+            conn.setRequestProperty("Authorization", "Bearer " + jwtToken);
+        } else {
+            throw new IOException("JWT token not available. Cannot authorize HTTP request.");
+         }
+
+        int responseCode = conn.getResponseCode();
+        if (responseCode == 200) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+                String json = reader.lines().collect(Collectors.joining());
+                JSONObject obj = new JSONObject(json);
+                String marketId = obj.getString("marketID");
+
+                // Optional: auto-subscribe using this marketId
+                System.out.println("Fetched market ID: " + marketId);
+                subscribeToMarket(exchangeId, contractId, marketId);
+
+                return marketId;
             }
-         }
-
-         System.out.println("Market list updated: " + marketList.size() + " markets received.");
-
-         // 🔹 Auto-subscribe to default symbol (change as needed)
-         String defaultSymbol = "ESU25";
-         MarketDefinition defaultMarket = marketList.stream()
-            .filter(m -> m.getContractSymbol().equalsIgnoreCase(defaultSymbol))
-            .findFirst()
-            .orElse(null);
-
-         if (defaultMarket != null) {
-         subscribeToMarket(defaultMarket);
-         if (marketDataPane != null) {
-            marketDataPane.updateSymbol(defaultMarket.getContractSymbol());
-         }
-         } else {
-            System.out.println("Default market symbol not found: " + defaultSymbol);
-         }
+        } else {
+            throw new IOException("Failed to fetch market ID. HTTP status: " + responseCode);
+        }
       }
 
-      public void requestMarketList() {
-         MarketListSubscribe subscribe = MarketListSubscribe.newBuilder().build();
-         ClientMessage msg = ClientMessage.newBuilder()
-            .setMarketListSubscribe(subscribe)
+
+
+
+      public void subscribeToAccount(String accountId) {
+    // TODO: Unsubscribe from previous account if needed
+         Service.AccountSubscribe.Builder subscribeBuilder = Service.AccountSubscribe.newBuilder()
+            .setSubscribe(Service.AccountSubscribe.SubscribeType.ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES)
+            .setSubscribeAllAccounts(false)
+            .addAccountId(accountId);
+
+         ClientMessage msg = ClientMessage.newBuilder().setAccountSubscribe(subscribeBuilder).build();
+         sendMessageToServer(msg);
+      }
+
+
+      public void requestNewToken(String requestId) {
+         Auth.AuthenticationTokenRequest request = Auth.AuthenticationTokenRequest.newBuilder()
+            .setRequestId(requestId)
             .build();
-            sendMessageToServer(msg);
-         System.out.println("Requested market list");
+
+         ClientMessage msg = ClientMessage.newBuilder().setAuthenticationTokenRequest(request).build();
+         sendMessageToServer(msg);
       }
 
-      public List<MarketDefinition> getMarketList() {
-         synchronized (marketList) {
-            return new ArrayList<>(marketList);
-         }
-      }
-
-      public MarketDefinition getMarketById(int marketId) {
-         return marketMap.get(marketId);
-      }
       
 
       private void sendMessageToServer(ClientMessage msg) {
