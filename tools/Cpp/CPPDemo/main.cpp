@@ -1,10 +1,11 @@
-#include "cppdemo.h"
-#include <QtWidgets/QApplication>
+#include <QApplication>
+#include "mainwindow.h"
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
-    CPPDemo window;
+
+    MainWindow window;
     window.show();
+
     return app.exec();
 }
