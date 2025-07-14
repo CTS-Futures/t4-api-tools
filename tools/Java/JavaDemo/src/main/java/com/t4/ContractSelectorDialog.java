@@ -7,13 +7,13 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
-import t4proto.v1.market.Market.MarketDefinition;
+//import t4proto.v1.market.Market.MarketDefinition;
 
 import java.util.List;
 import java.util.function.Consumer;
 
 public class ContractSelectorDialog {
-    private final Stage dialogStage;
+   /*  private final Stage dialogStage;
     private final ComboBox<MarketDefinition> comboBox;
     private Consumer<MarketDefinition> onMarketSelected;
 
@@ -61,5 +61,5 @@ public class ContractSelectorDialog {
 
     public void show() {
         dialogStage.showAndWait();
-    }
+    } */
 }
