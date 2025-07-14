@@ -495,7 +495,6 @@ class Client:
             case "account_profit":
                 pass
             case "account_position_profit":
-                print(msg)
                 self.handle_account_position_profit(msg.account_position_profit)
             case "market_depth":
                 self.handle_market_depth(msg.market_depth)
