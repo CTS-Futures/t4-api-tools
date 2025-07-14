@@ -11,7 +11,7 @@ message AccountSubscribe {
   t4proto.v1.common.AccountSubscribeType subscribe = 1;
   bool subscribe_all_accounts = 2;
   repeated string account_id = 3;
-  optional t4proto.v1.common.PnlCalculation pnl_calculation = 4;
+  optional t4proto.v1.common.UPLMode upl_mode = 4;
 }
 
 message AccountSubscribeResponse {

@@ -604,9 +604,9 @@ enum AccountSubscribeType {
   ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES = 2;
 }
 
-enum PnlCalculation {
-  PNL_CALCULATION_NONE = 0;
-  PNL_CALCULATION_FIFO = 1;
+enum UPLMode {
+  UPL_MODE_NONE = 0;
+  UPL_MODE_AVERAGE = 1;
 }
 
 enum UDSStatus {
