@@ -116,7 +116,8 @@ class T4APIClient {
                 accountSubscribe: {
                     subscribe: 0, // ACCOUNT_SUBSCRIBE_TYPE_NONE
                     subscribeAllAccounts: false,
-                    accountId: [this.selectedAccount]
+                    accountId: [this.selectedAccount],
+                    uplMode: 0
                 }
             });
         }
@@ -128,7 +129,8 @@ class T4APIClient {
                 accountSubscribe: {
                     subscribe: 2, // ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES
                     subscribeAllAccounts: false,
-                    accountId: [accountId]
+                    accountId: [accountId],
+                    uplMode: 1
                 }
             });
             this.log(`Subscribed to account: ${accountId}`, 'info');
@@ -343,7 +345,10 @@ class T4APIClient {
             const messageType = Object.keys(message)[0];
             var shouldLog = !excludeFromLogging.includes(messageType);
 
+            // TEMP: Disable message logging.
             shouldLog = false;
+
+            // Log message received.
             if (shouldLog) {
                 this.log(`RECEIVED: ${JSON.stringify(message, null, 2)}`, 'received');
             }
@@ -413,6 +418,10 @@ class T4APIClient {
             this.handleAccountDetails(message.accountDetails);
         } else if (message.accountPosition) {
             this.handleAccountPosition(message.accountPosition);
+        } else if (message.accountProfit) {
+            this.handleAccountProfit(message.accountProfit);
+        }else if (message.accountPositionProfit) {
+            this.handleAccountPositionProfit(message.accountPositionProfit);
         } else if (message.accountUpdate) {
             this.handleAccountUpdate(message.accountUpdate);
         } else if (message.marketDepth) {
@@ -536,6 +545,65 @@ class T4APIClient {
     handleAccountPosition(position) {
         const key = `${position.accountId}_${position.marketId}`;
         this.positions.set(key, position);
+
+        if (this.onAccountUpdate) {
+            this.onAccountUpdate({
+                type: 'positions',
+                positions: Array.from(this.positions.values())
+                    .filter(p => p.accountId === this.selectedAccount)
+            });
+        }
+    }
+
+    handleAccountProfit(accountProfit) {
+        // Display the account profit, if wanted.
+    }
+
+    handleAccountPositionProfit(positionProfit) {
+        const key = `${positionProfit.accountId}_${positionProfit.marketId}`;
+
+        // Get existing position or create a new one
+        let position = this.positions.get(key);
+        if (!position) {
+            position = {
+                accountId: positionProfit.accountId,
+                exchangeId: positionProfit.exchangeId,
+                contractId: positionProfit.contractId,
+                marketId: positionProfit.marketId,
+                buys: 0,
+                sells: 0,
+                workingBuys: 0,
+                workingSells: 0
+            };
+        }
+
+        // Update with profit data
+        position.upl = positionProfit.uplTrade;
+        position.rpl = positionProfit.rpl;
+        position.totalPnl = (position.upl || 0) + (position.rpl || 0);
+
+        // Store updated position
+        this.positions.set(key, position);
+
+        // Get market snapshot for this position if available
+        const marketSnapshot = this.marketSnapshots.get(positionProfit.marketId);
+        let marketInfo = '';
+
+        if (marketSnapshot) {
+            const bestBid = marketSnapshot.bids?.[0] ? `${marketSnapshot.bids[0].volume}@${marketSnapshot.bids[0].price.value}` : '-';
+            const bestOffer = marketSnapshot.offers?.[0] ? `${marketSnapshot.offers[0].volume}@${marketSnapshot.offers[0].price.value}` : '-';
+            const lastTrade = marketSnapshot.tradeData?.lastTradePrice ?
+                `${marketSnapshot.tradeData.lastTradeVolume}@${marketSnapshot.tradeData.lastTradePrice.value}` : '-';
+
+            marketInfo = ` (Bid: ${bestBid}, Offer: ${bestOffer}, Last: ${lastTrade})`;
+        }
+
+        // Log P&L values with market ID and market info - fixed property access
+        this.log(`Position P&L update - Market: ${positionProfit.marketId}${marketInfo}, 
+        UPL: ${positionProfit.upl}, 
+        RPL: ${positionProfit.rpl}, 
+        Total P&L: ${positionProfit.upl + positionProfit.rpl}`,
+            'info');
 
         if (this.onAccountUpdate) {
             this.onAccountUpdate({

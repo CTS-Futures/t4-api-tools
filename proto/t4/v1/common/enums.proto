@@ -604,6 +604,11 @@ enum AccountSubscribeType {
   ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES = 2;
 }
 
+enum UPLMode {
+  UPL_MODE_NONE = 0;
+  UPL_MODE_AVERAGE = 1;
+}
+
 enum UDSStatus {
   UDS_STATUS_UNKNOWN = 0;
   UDS_STATUS_Success = 1;

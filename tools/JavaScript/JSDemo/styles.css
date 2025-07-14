@@ -395,3 +395,16 @@ th {
     background: none;
     opacity: 0.6;
 }
+
+/* P&L color coding */
+.positive-pnl {
+    color: green;
+}
+
+.negative-pnl {
+    color: red;
+}
+
+.neutral-pnl {
+    color: black;
+}

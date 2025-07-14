@@ -276,12 +276,26 @@
             positions.forEach(position => {
                 const row = document.createElement('tr');
                 const net = position.buys - position.sells;
+                const pnl = position.totalPnl !== undefined ? position.totalPnl.toFixed(2) :
+                    (position.rpl ? position.rpl.toFixed(2) : '0.00');
+
+                // Determine the color class based on P&L value
+                let pnlColor = '';
+                const pnlValue = parseFloat(pnl);
+                if (pnlValue < 0) {
+                    pnlColor = 'negative-pnl';
+                } else if (pnlValue > 0) {
+                    pnlColor = 'positive-pnl';
+                } else {
+                    pnlColor = 'neutral-pnl';
+                }
+
                 row.innerHTML = `
-                        <td>${position.marketId}</td>
-                        <td>${net}</td>
-                        <td>${position.rpl ? position.rpl.toFixed(2) : '0.00'}</td>
-                        <td>${position.workingBuys}/${position.workingSells}</td>
-                    `;
+                    <td>${position.marketId}</td>
+                    <td>${net}</td>
+                    <td class="${pnlColor}">$${pnl}</td>
+                    <td>${position.workingBuys}/${position.workingSells}</td>
+                `;
                 elements.positionsTable.appendChild(row);
             });
         }
