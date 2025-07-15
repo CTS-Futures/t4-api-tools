@@ -8,43 +8,90 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import com.t4.MarketDataPane;
+import java.util.Map;
+import t4proto.v1.market.Market.MarketDetails;
 
 public class Main extends Application{
     @Override
-    public void start(Stage primaryStage) {
-        T4APIClientTest client = T4APIClientTest.getInstance();
+public void start(Stage primaryStage) {
+    T4APIClientTest client = T4APIClientTest.getInstance();
 
-        ConnectionUI connectionPane = new ConnectionUI(client);
-        MarketDataPane marketPane = new MarketDataPane();
+    ConnectionUI connectionPane = new ConnectionUI(client);
+    MarketDataPane marketPane = new MarketDataPane();
+    client.setMarketDataP(marketPane);
 
-        client.setMarketDataP(marketPane);
+    // When user clicks "Connect"
+    connectionPane.setOnConnect(() -> {
+        try {
+            client.connect(() -> {
+                // After connection succeeds, enable market selection
+                marketPane.enableSelectMarket(true);
+            });
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    });
 
-        /* marketPane.setOnSelectMarket(() -> {
-            ContractSelectorDialog dialog = new ContractSelectorDialog(
-                client.getMarketList(), // you must expose this list from T4APIClientTest
-                selectedDef -> {
-                    client.subscribeToMarket(selectedDef);  // you must implement this in your client
-                    marketPane.updateSymbol(selectedDef.getContractSymbol());
-                }
-            );
-            //dialog.show();
+    // When "Select Market" button is clicked
+    /* marketPane.setOnSelectMarket(() -> {
+        List<MarketDetails> allMarkets = client.getAllMarketDetails();  // new method
+        ContractSelectorDialog dialog = new ContractSelectorDialog(allMarkets, selected -> {
+            client.subscribeToMarket(selected);  // Uses marketId, exchangeId, contractId
+            marketPane.updateSymbol(selected.getContractSymbol());
         });
- */
-        // Set preferred size
-        connectionPane.setPrefHeight(100);     // smaller pane
-        marketPane.setPrefHeight(300);         // larger pane
-
-        VBox root = new VBox(connectionPane, marketPane);
-        VBox.setVgrow(marketPane, Priority.ALWAYS); // Allow market pane to expand
-
-        Scene scene = new Scene(root, 600, 400);
-        primaryStage.setTitle("T4 API Client");
-        primaryStage.setScene(scene);
-        primaryStage.show();
+        dialog.show();
+    }); */
 
 
-        
-    }
+    marketPane.setOnSelectMarket(() -> {
+    ContractSelectorDialog dialog = new ContractSelectorDialog(client, selected -> {
+        if (selected != null) {
+            client.selectMarket(selected.marketId); // subscribe
+            marketPane.updateSymbol(selected.toString()); // update UI
+        }
+    });
+
+    // Background thread to load exchanges and contracts
+    new Thread(() -> {
+        try {
+            var exchanges = dialog.fetchExchangeIds();
+            if (exchanges.isEmpty()) {
+                System.err.println("No exchanges available.");
+                return;
+            }
+
+            String firstExchange = exchanges.get(0); // or let user pick later
+            var contracts = dialog.fetchContracts(firstExchange);
+
+            Map<String, String> labelToMarketId = new HashMap<>();
+            for (var c : contracts) {
+                labelToMarketId.put(c.toString(), c.marketId);
+            }
+
+            // Populate dropdown in UI
+            marketPane.populateMarkets(labelToMarketId, marketId -> {
+                client.selectMarket(marketId);
+                MarketDetails md = client.getMarketDetails(marketId);
+                if (md != null) {
+                    marketPane.updateSymbol(md.getContractId());
+                }
+            });
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+    }).start();
+});
+
+    connectionPane.setPrefHeight(100);
+    marketPane.setPrefHeight(300);
+    VBox root = new VBox(connectionPane, marketPane);
+    VBox.setVgrow(marketPane, Priority.ALWAYS);
+
+    primaryStage.setScene(new Scene(root, 600, 400));
+    primaryStage.setTitle("T4 API Client");
+    primaryStage.show();
+}
 
     public static void main(String[] args) {
         launch(args);  //this must be in a top-level class

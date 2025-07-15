@@ -23,8 +23,8 @@ import t4proto.v1.market.Market.MarketDepth.TradeData;
 import t4proto.v1.market.Market.MarketDetails;
 import t4proto.v1.market.Market.MarketDepthSubscribe;
 import t4proto.v1.service.Service.ClientMessage;
-import t4proto.v1.account.Account.AccountInfo;
-import t4proto.v1.service.Service.AccountSubscribe; //Account 
+import t4proto.v1.account.Account.AccountDetails;
+//import t4proto.v1.auth.Auth.LoginResponse.Account;
 
 
 //market sybscriber
@@ -91,10 +91,15 @@ import java.util.concurrent.TimeUnit;
         private Object ws = null; //placeholder for the WebSocket connection
         private boolean isConnected = false;
         private Auth.LoginResponse loginResponse = null;
-        private Map<String, Account.AccountInfo> accounts = new HashMap<>();
+        private Map<String, Auth.LoginResponse.Account> accounts = new HashMap<>();
         private Object selectedAccount = null;
         private boolean isLoggedIn = false; //starts heartbeats once loggedin and connncted
 
+
+        private Map<String, Auth.LoginResponse.Account> loginAccounts = new HashMap<>();
+        private Map<String, AccountDetails> accountDetails = new HashMap<>();
+
+        
         // JWT token management
         private String jwtToken = null;
         private Long jwtExpiration = null;
@@ -117,12 +122,12 @@ import java.util.concurrent.TimeUnit;
         private long lastMessageReceived = System.currentTimeMillis();
 
         // Event handlers
-        private Object onConnectionStatusChanged = null;
+        //private Object onConnectionStatusChanged = null;
         private Object onAccountUpdate = null;
-        private Object onMarketHeaderUpdate = null;
+        //private Object onMarketHeaderUpdate = null;
         private Object onMarketUpdate = null;
         private Object onMessageSent = null;
-        private Object onMessageReceived = null;
+        //private Object onMessageReceived = null;
         private Object onError = null;
         private Object onLog = null;
 
@@ -155,7 +160,7 @@ import java.util.concurrent.TimeUnit;
 
             Service.ClientMessage clientMessage = ClientMessageHelper.wrapLoginRequest(loginRequest);
             sessionO.getAsyncRemote().sendBinary(ByteBuffer.wrap(clientMessage.toByteArray()));
-            //might need hearbeat monitor soon
+            marketDetailsMap.clear();
             startClientHeartbeat(sessionO);
             session = sessionO;
             marketSubscriber.setMessageSender((msg, cb) -> {
@@ -198,7 +203,6 @@ import java.util.concurrent.TimeUnit;
                   System.out.println("Token from the response: " + tokenHandler(token));
                   isLoggedIn = true;
 
-                  //subscribeToMarket("CME_Eq", "ES", "XCME_Eq ES (U25)");
                   break;
                
                case MARKET_SNAPSHOT:
@@ -232,6 +236,9 @@ import java.util.concurrent.TimeUnit;
                      handleMarketDepth(serverMessage.getMarketDepth());
                      break;
 
+                  case ACCOUNT_DETAILS:
+                     handleAccountDetails(serverMessage.getAccountDetails());
+                     break;
                
 
                
@@ -307,23 +314,32 @@ import java.util.concurrent.TimeUnit;
 
         /* // Store accounts (pseudo-handling — needs real model mapping)
         accounts.clear(); */
-            for (Account.AccountInfo account : response.getAccountsList()) {
-               accounts.put(account.getAccountId(), account); // assuming map<String, Object>
+            for (Auth.LoginResponse.Account account : response.getAccountsList()) {
+               //accounts.put(account.getAccountId(), account); // assuming map<String, Object>
+               loginAccounts.put(account.getAccountId(), account);
             }
-
+            System.out.println(loginAccounts);
             // Trigger account update if needed
             if (onAccountUpdate != null) {
                // Wrap in real update logic or class
                System.out.println("Accounts updated");
             }
-
-                  handleConnectionStatusChanged(true);
-                  subscribeDefaultMarket();
+               handleConnectionStatusChanged(true);
 
          } else {
             System.err.println("Login failed: " + response.getErrorMessage());
             disconnect(); // or close socket
          }
+
+         if (isLoggedIn) {
+            requestMarketList(); // Only request market list after successful login
+         }
+      }
+
+      public void handleAccountDetails(AccountDetails details) {
+         accountDetails.put(details.getAccountId(), details);
+         System.out.println(accountDetails);
+         System.out.println("Updated account: " + details.getAccountId());
       }
 
       private void handleConnectionStatusChanged(boolean connected) {
@@ -426,8 +442,23 @@ public String getAuthToken() throws Exception {
    }
 
 
-   private void subscribeToMarket(MarketDetails market) {
-      subscribeToMarket(market.getExchangeId(), market.getContractId(), market.getMarketId());
+   public void subscribeToMarket(MarketDetails market) {
+      marketSubscriber.subscribeMarket(
+        market.getExchangeId(),
+        market.getContractId(),
+        market.getMarketId(),
+        new Callback() {
+            @Override
+            public void onComplete() {
+                System.out.println("Subscribed to market: " + market.getMarketId());
+            }
+
+            @Override
+            public void onError(Exception e) {
+                System.err.println("Subscription failed for " + market.getMarketId() + ": " + e.getMessage());
+            }
+        }
+      );
    }
 
 
@@ -471,10 +502,14 @@ public String getAuthToken() throws Exception {
       public void handleMarketDetails(MarketDetails details) {
          System.out.println("Received market details: " + details.getMarketId());
 
-         marketDetailsMap.put(details.getMarketId(), details);
+         if (!details.getDisabled()) {
+        marketDetailsMap.put(details.getMarketId(), details);
 
-         System.out.println("Market details stored for " + details.getMarketId()
-            + ". Total markets: " + marketDetailsMap.size());
+        // Optional: auto-subscribe to the first available market
+         if (!marketDetailsMap.containsKey(details.getMarketId())) {
+             marketDetailsMap.put(details.getMarketId(), details);
+         }
+      }
       }
 
       public MarketDetails getMarketDetails(String marketId) {
@@ -507,7 +542,7 @@ public String getAuthToken() throws Exception {
          System.out.println("Updated header: " + formatted);
       }
 
-      public void subscribeDefaultMarket() {
+      /* public void subscribeDefaultMarket() {
          try {
             String marketId = fetchMarketIdFromApi("CME_Eq", "ES");
             this.currentMarketId = marketId;
@@ -515,7 +550,7 @@ public String getAuthToken() throws Exception {
             System.err.println("Unable to subscribe to default market: ");
             e.printStackTrace();
          }
-      }
+      } */
 
 
       public String fetchMarketIdFromApi(String exchangeId, String contractId) throws IOException {
@@ -553,10 +588,44 @@ public String getAuthToken() throws Exception {
         }
       }
 
+      public Map<String, String> getMarketLabelToIdMap() {
+         Map<String, String> labelToId = new HashMap<>();
+         for (MarketDetails md : marketDetailsMap.values()) {
+            String label = md.getExchangeId() + " " + md.getContractId() + " (" + md.getMarketId() + ")";
+            labelToId.put(label, md.getMarketId());
+         }
+         return labelToId;
+      }
+
+      public void requestMarketList() {
+         Service.MarketDetailsRequest request = Service.MarketDetailsRequest.newBuilder()
+            .setSubscribe(true)
+            .build();
+
+         ClientMessage msg = ClientMessage.newBuilder()
+            .setMarketDetailsRequest(request)
+            .build();
+
+            sendMessageToServer(msg);
+      }
+
+
+      public void selectMarket(String marketId) {
+         MarketDetails details = marketDetailsMap.get(marketId);
+         if (details != null) {
+            this.currentMarketId = marketId;
+            subscribeToMarket(details); // reuses your existing method
+         } else {
+            System.err.println("Market ID not found: " + marketId);
+         }
+      }
 
 
 
-      public void subscribeToAccount(String accountId) {
+
+
+
+     /*  public void subscribeToAccount(String accountId) {
     // TODO: Unsubscribe from previous account if needed
          Service.AccountSubscribe.Builder subscribeBuilder = Service.AccountSubscribe.newBuilder()
             .setSubscribe(Service.AccountSubscribe.SubscribeType.ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES)
@@ -565,8 +634,13 @@ public String getAuthToken() throws Exception {
 
          ClientMessage msg = ClientMessage.newBuilder().setAccountSubscribe(subscribeBuilder).build();
          sendMessageToServer(msg);
+      } */
+
+      public List<MarketDetails> getAllMarkets() {
+         return new ArrayList<>(marketDetailsMap.values());
       }
 
+      
 
       public void requestNewToken(String requestId) {
          Auth.AuthenticationTokenRequest request = Auth.AuthenticationTokenRequest.newBuilder()
