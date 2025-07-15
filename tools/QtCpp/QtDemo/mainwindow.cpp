@@ -16,6 +16,7 @@
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent) {
 
+    client = new T4Client(this);
 
     QWidget* central = new QWidget(this);
     QVBoxLayout* mainLayout = new QVBoxLayout(central);

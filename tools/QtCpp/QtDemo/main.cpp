@@ -11,5 +11,6 @@ int main(int argc, char *argv[])
 
     w.show();
 
-    return result;
+    return 0;
 }
+
