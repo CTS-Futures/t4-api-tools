@@ -255,12 +255,14 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 >>>>>>> 8d45f4c (Starting the market drop down)
 import javafx.scene.text.Font;
+import java.util.Map;
 
 public class MarketDataPane extends VBox {
     private final Label symbolLabel = new Label("Symbol: --");
     private final Label bidLabel = new Label("Bid: --");
     private final Label askLabel = new Label("Ask: --");
     private final Label lastLabel = new Label("Last: --");
+    private final ComboBox<String> marketDropdown = new ComboBox<>();
 
     private final Button selectMarketButton = new Button("Select Market");
     private Runnable onSelectMarket = null;
@@ -271,9 +273,11 @@ public class MarketDataPane extends VBox {
 
         selectMarketButton.setOnAction(e -> {
             if (onSelectMarket != null) {
-                onSelectMarket.run();
+                onSelectMarket.run(); // delegate to Main.java
             }
+            marketDropdown.show(); // still useful to show after population
         });
+
 
         GridPane grid = new GridPane();
         grid.setVgap(10);
@@ -287,7 +291,7 @@ public class MarketDataPane extends VBox {
 
         this.setSpacing(10);
         this.setPadding(new Insets(15));
-        this.getChildren().addAll(titleLabel, selectMarketButton, grid);
+        this.getChildren().addAll(titleLabel, selectMarketButton, marketDropdown, grid);
         this.setStyle("-fx-border-color: lightgray; -fx-border-radius: 5; -fx-background-color: #fdfdfd;");
     }
 
@@ -315,5 +319,32 @@ public class MarketDataPane extends VBox {
     public void setOnSelectMarket(Runnable onSelect) {
         this.onSelectMarket = onSelect;
     }
+<<<<<<< HEAD
 }
 >>>>>>> 8d45f4c (Starting the market drop down)
+=======
+
+    // Called by controller/client to populate the market list
+public void populateMarkets(Map<String, String> labelToMarketId, MarketSelectionHandler handler) {
+    Platform.runLater(() -> {
+        marketDropdown.getItems().clear();
+        marketDropdown.getItems().addAll(labelToMarketId.keySet());
+
+        marketDropdown.setOnAction(e -> {
+            String label = marketDropdown.getValue();
+            if (label != null && labelToMarketId.containsKey(label)) {
+                String marketId = labelToMarketId.get(label);
+                handler.onMarketSelected(marketId);
+            }
+        });
+    });
+}
+
+// Allow T4APIClientTest to react to market selection
+public interface MarketSelectionHandler {
+    void onMarketSelected(String marketId);
+}
+
+
+}
+>>>>>>> 04527d8 (Contract selector revisons)

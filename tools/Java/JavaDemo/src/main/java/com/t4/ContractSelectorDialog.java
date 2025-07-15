@@ -1,65 +1,102 @@
 package com.t4;
 
-import javafx.geometry.Insets;
-import javafx.scene.Scene;
-import javafx.scene.control.Button;
-import javafx.scene.control.ComboBox;
-import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
-import javafx.stage.Stage;
-//import t4proto.v1.market.Market.MarketDefinition;
-
-import java.util.List;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.*;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class ContractSelectorDialog {
-   /*  private final Stage dialogStage;
-    private final ComboBox<MarketDefinition> comboBox;
-    private Consumer<MarketDefinition> onMarketSelected;
 
-    public ContractSelectorDialog(List<MarketDefinition> marketList) {
-        dialogStage = new Stage();
-        dialogStage.initModality(Modality.APPLICATION_MODAL);
-        dialogStage.setTitle("Select a Market");
+    private final T4APIClientTest client;
+    private final Consumer<ContractData> onSelect;
+    private final Map<String, List<ContractData>> contractsCache = new HashMap<>();
+    private List<String> exchangeIds = new ArrayList<>();
 
-        comboBox = new ComboBox<>();
-        comboBox.getItems().addAll(marketList);
-        comboBox.setPrefWidth(300);
-        comboBox.setCellFactory(param -> new javafx.scene.control.ListCell<>() {
-            @Override
-            protected void updateItem(MarketDefinition item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setText(null);
-                } else {
-                    setText(item.getContractSymbol());
+    public ContractSelectorDialog(T4APIClientTest client, Consumer<ContractData> onSelect) {
+        this.client = client;
+        this.onSelect = onSelect;
+    }
+
+    public List<String> fetchExchangeIds() throws IOException {
+        String endpoint = "https://api-sim.t4login.com/markets/exchanges";
+        HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Authorization", "Bearer " + client.getAuthToken());
+
+        int responseCode = conn.getResponseCode();
+        if (responseCode == 200) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+                String json = reader.lines().collect(Collectors.joining());
+                JSONArray array = new JSONArray(json);
+                exchangeIds.clear();
+                for (int i = 0; i < array.length(); i++) {
+                    exchangeIds.add(array.getString(i));
                 }
+                return exchangeIds;
             }
-        });
-        comboBox.setButtonCell(comboBox.getCellFactory().call(null));
-
-        Button selectButton = new Button("Select");
-        selectButton.setOnAction(e -> {
-            MarketDefinition selected = comboBox.getSelectionModel().getSelectedItem();
-            if (selected != null && onMarketSelected != null) {
-                onMarketSelected.accept(selected);
-            }
-            dialogStage.close();
-        });
-
-        VBox layout = new VBox(10);
-        layout.setPadding(new Insets(15));
-        layout.getChildren().addAll(comboBox, selectButton);
-
-        Scene scene = new Scene(layout);
-        dialogStage.setScene(scene);
+        } else {
+            throw new IOException("Failed to fetch exchanges. HTTP status: " + responseCode);
+        }
     }
 
-    public void setOnMarketSelected(Consumer<MarketDefinition> callback) {
-        this.onMarketSelected = callback;
+    public List<ContractData> fetchContracts(String exchangeId) throws IOException {
+        if (contractsCache.containsKey(exchangeId)) {
+            return contractsCache.get(exchangeId);
+        }
+
+        String endpoint = String.format("https://api-sim.t4login.com/markets/contracts?exchangeid=%s", exchangeId);
+        HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setRequestProperty("Authorization", "Bearer " + client.getAuthToken());
+
+        int responseCode = conn.getResponseCode();
+        if (responseCode == 200) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+                String json = reader.lines().collect(Collectors.joining());
+                JSONArray array = new JSONArray(json);
+                List<ContractData> contracts = new ArrayList<>();
+                for (int i = 0; i < array.length(); i++) {
+                    JSONObject obj = array.getJSONObject(i);
+                    contracts.add(new ContractData(
+                        obj.getString("exchangeId"),
+                        obj.getString("contractId"),
+                        obj.getString("marketId")
+                    ));
+                }
+                contractsCache.put(exchangeId, contracts);
+                return contracts;
+            }
+        } else {
+            throw new IOException("Failed to fetch contracts. HTTP status: " + responseCode);
+        }
     }
 
-    public void show() {
-        dialogStage.showAndWait();
-    } */
+    public void selectContract(ContractData contract) {
+        onSelect.accept(contract);
+    }
+
+    public static class ContractData {
+        public final String exchangeId;
+        public final String contractId;
+        public final String marketId;
+
+        public ContractData(String exchangeId, String contractId, String marketId) {
+            this.exchangeId = exchangeId;
+            this.contractId = contractId;
+            this.marketId = marketId;
+        }
+
+        @Override
+        public String toString() {
+            return exchangeId + " " + contractId + " (" + marketId + ")";
+        }
+    }
 }
