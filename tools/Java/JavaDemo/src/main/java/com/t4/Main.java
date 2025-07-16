@@ -39,8 +39,8 @@ public class Main extends Application {
         marketPane.setOnSelectMarket(() -> {
             ContractSelectorDialog dialog = new ContractSelectorDialog(client, selected -> {
                 if (selected != null) {
-                    client.selectMarket(selected.marketId); // subscribe
-                    MarketDetails md = client.getMarketDetails(selected.marketId);
+                    client.selectMarket(selected.contractType); // subscribe
+                    MarketDetails md = client.getMarketDetails(selected.contractType);
                     if (md != null) {
                         String formatted = md.getExchangeId() + " " + md.getContractId() + " (" + md.getMarketId() + ")";
                         marketPane.updateSymbol(formatted);
@@ -62,7 +62,7 @@ public class Main extends Application {
 
                     Map<String, String> labelToMarketId = new HashMap<>();
                     for (ContractSelectorDialog.ContractData c : contracts) {
-                        labelToMarketId.put(c.toString(), c.marketId);
+                        labelToMarketId.put(c.toString(), c.contractType);
                     }
 
                     marketPane.populateMarkets(labelToMarketId, marketId -> {

@@ -113,15 +113,15 @@ public class ContractSelectorDialog {
         public final String contractId;
         public final String contractType;
 
-        public ContractData(String exchangeId, String contractId, String contractSymbol) {
+        public ContractData(String exchangeId, String contractId, String contractType) {
             this.exchangeId = exchangeId;
             this.contractId = contractId;
-            this.marketId = contractSymbol;
+            this.contractType = contractType;
         }
 
         @Override
         public String toString() {
-            return exchangeId + " " + contractId + " (" + marketId + ")";
+            return exchangeId + " " + contractId + " (" + contractType + ")";
         }
     }
 }
