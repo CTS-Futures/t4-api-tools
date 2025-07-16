@@ -46,7 +46,9 @@ public class ConnectionUI extends VBox{
             String account = accountComboBox.getValue();
             if (account != null) {
                 new Thread(() -> {
-                    boolean success = client.connect();
+                    boolean success = client.connect(()-> {
+                        System.out.println("Connected.");
+                    });
                     Platform.runLater(() -> setStatus(success));
                 }).start();
             }
@@ -68,5 +70,9 @@ public class ConnectionUI extends VBox{
             accountComboBox.getItems().clear();
             accountComboBox.getItems().addAll(accounts);
         });
+    }
+
+    public void setOnConnect(Runnable handler) {
+        connectButton.setOnAction(e -> handler.run());
     }
 }

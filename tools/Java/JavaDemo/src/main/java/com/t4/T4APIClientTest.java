@@ -331,9 +331,6 @@ import java.util.concurrent.TimeUnit;
             disconnect(); // or close socket
          }
 
-         if (isLoggedIn) {
-            requestMarketList(); // Only request market list after successful login
-         }
       }
 
       public void handleAccountDetails(AccountDetails details) {
@@ -371,6 +368,7 @@ import java.util.concurrent.TimeUnit;
 }
 
 public String getAuthToken() throws Exception {
+    System.out.println("JWT token at getAuthToken(): " + jwtToken);
     long now = System.currentTimeMillis();
     if (jwtToken != null && jwtExpiration != null && now < jwtExpiration - 30000) {
         return jwtToken;
@@ -564,9 +562,9 @@ public String getAuthToken() throws Exception {
         conn.setRequestProperty("Content-Type", "application/json");
 
         // Optionally include API key if available
-        if (T4Config.API_KEY != null && !T4Config.API_KEY.isEmpty()) {
+         if (jwtToken != null && !jwtToken.isEmpty()) {
             conn.setRequestProperty("Authorization", "Bearer " + jwtToken);
-        } else {
+         } else {
             throw new IOException("JWT token not available. Cannot authorize HTTP request.");
          }
 
@@ -597,7 +595,7 @@ public String getAuthToken() throws Exception {
          return labelToId;
       }
 
-      public void requestMarketList() {
+      /* public void requestMarketList() {
          Service.MarketDetailsRequest request = Service.MarketDetailsRequest.newBuilder()
             .setSubscribe(true)
             .build();
@@ -608,7 +606,7 @@ public String getAuthToken() throws Exception {
 
             sendMessageToServer(msg);
       }
-
+ */
 
       public void selectMarket(String marketId) {
          MarketDetails details = marketDetailsMap.get(marketId);
@@ -682,11 +680,24 @@ public String getAuthToken() throws Exception {
       }
       //connect!
          //will be used for the buttons 
-         public boolean connect() {
+         /* public boolean connect() {
          try {
             WebSocketContainer container = ContainerProvider.getWebSocketContainer();
             container.connectToServer(this, URI.create(T4Config.WS_URL));
             return true;
+         } catch (DeploymentException | IOException e) {
+            e.printStackTrace();
+            return false;
+         }
+      } */
+
+
+      public boolean connect(Runnable onConnected) {
+         try {
+            WebSocketContainer container = ContainerProvider.getWebSocketContainer();
+            container.connectToServer(this, URI.create(T4Config.WS_URL));
+            if (onConnected != null) onConnected.run(); // invoke callback after connecting
+               return true;
          } catch (DeploymentException | IOException e) {
             e.printStackTrace();
             return false;
@@ -768,7 +779,7 @@ public String getAuthToken() throws Exception {
          try{
             //T4APIClientTest client = T4APIClientTest.getInstance();
             //ConnectionUI pane = new ConnectionUI(client);
-            T4APIClientTest.getInstance().connect(); 
+            T4APIClientTest.getInstance().connect(() -> {}); 
             Thread.sleep(50000);
             disconnect();
          }

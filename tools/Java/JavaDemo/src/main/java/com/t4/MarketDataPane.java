@@ -340,9 +340,13 @@ public void populateMarkets(Map<String, String> labelToMarketId, MarketSelection
     });
 }
 
+    public void enableSelectMarket(boolean enable) {
+        Platform.runLater(() -> selectMarketButton.setDisable(!enable));
+    }
+
 // Allow T4APIClientTest to react to market selection
-public interface MarketSelectionHandler {
-    void onMarketSelected(String marketId);
+    public interface MarketSelectionHandler {
+        void onMarketSelected(String marketId);
 }
 
 
