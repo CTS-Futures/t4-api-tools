@@ -47,6 +47,7 @@ public class ConnectionUI extends VBox{
             if (account != null) {
                 new Thread(() -> {
                     boolean success = client.connect(()-> {
+                        Platform.runLater(() -> setStatus(true));
                         System.out.println("Connected.");
                     });
                     Platform.runLater(() -> setStatus(success));

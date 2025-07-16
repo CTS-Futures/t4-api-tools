@@ -11,8 +11,8 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.source>1.8</maven.compiler.source>
-    <maven.compiler.target>1.8</maven.compiler.target>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
     <javafx-sdk>C:/javafx-sdk-21</javafx-sdk> <!-- ⚠️ Adjust this path if needed -->
   </properties>
 
@@ -103,7 +103,7 @@
         <configuration>
           <protoSourceRoot>C:/Users/Janiya.Garner/Work/t4-api-tools/proto</protoSourceRoot>
           <outputDirectory>C:/Users/Janiya.Garner/Work/t4-api-tools/tools/Java/JavaDemo/target/generated-sources/protobuf/java</outputDirectory>
-          <protocArtifact>com.google.protobuf:protoc:3.24.4:exe:${os.detected.classifier}</protocArtifact>
+          <protocArtifact>com.google.protobuf:protoc:3.21.12:exe:windows-x86_64</protocArtifact>
         </configuration>
         <executions>
         <execution>
