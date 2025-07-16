@@ -135,6 +135,7 @@ import java.util.concurrent.TimeUnit;
         private int reconnectAttempts = 0;
         private int maxReconnectAttempts = 10;
         private int reconnectDelay = 1000;
+        private Runnable onConnectedCallback;
 
         private boolean isDisposed = false;
         private static Session session;
@@ -147,6 +148,13 @@ import java.util.concurrent.TimeUnit;
         public void onOpen(Session sessionO){
          System.out.println("Connected to Websocket");
          handleConnectionStatusChanged(true);
+         session = sessionO;
+
+          if (onConnectedCallback != null) {
+            onConnectedCallback.run();  // ✅ UI will now update here!
+            onConnectedCallback = null; // clear to avoid reuse
+         }
+
          try{
             Auth.LoginRequest loginRequest = Auth.LoginRequest.newBuilder()
             .setApiKey(apiKey)
@@ -540,16 +548,6 @@ public String getAuthToken() throws Exception {
          System.out.println("Updated header: " + formatted);
       }
 
-      /* public void subscribeDefaultMarket() {
-         try {
-            String marketId = fetchMarketIdFromApi("CME_Eq", "ES");
-            this.currentMarketId = marketId;
-         } catch (IOException e) {
-            System.err.println("Unable to subscribe to default market: ");
-            e.printStackTrace();
-         }
-      } */
-
 
       public String fetchMarketIdFromApi(String exchangeId, String contractId) throws IOException {
         String endpoint = String.format(
@@ -595,18 +593,6 @@ public String getAuthToken() throws Exception {
          return labelToId;
       }
 
-      /* public void requestMarketList() {
-         Service.MarketDetailsRequest request = Service.MarketDetailsRequest.newBuilder()
-            .setSubscribe(true)
-            .build();
-
-         ClientMessage msg = ClientMessage.newBuilder()
-            .setMarketDetailsRequest(request)
-            .build();
-
-            sendMessageToServer(msg);
-      }
- */
 
       public void selectMarket(String marketId) {
          MarketDetails details = marketDetailsMap.get(marketId);
@@ -619,20 +605,6 @@ public String getAuthToken() throws Exception {
       }
 
 
-
-
-
-
-     /*  public void subscribeToAccount(String accountId) {
-    // TODO: Unsubscribe from previous account if needed
-         Service.AccountSubscribe.Builder subscribeBuilder = Service.AccountSubscribe.newBuilder()
-            .setSubscribe(Service.AccountSubscribe.SubscribeType.ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES)
-            .setSubscribeAllAccounts(false)
-            .addAccountId(accountId);
-
-         ClientMessage msg = ClientMessage.newBuilder().setAccountSubscribe(subscribeBuilder).build();
-         sendMessageToServer(msg);
-      } */
 
       public List<MarketDetails> getAllMarkets() {
          return new ArrayList<>(marketDetailsMap.values());
@@ -678,26 +650,13 @@ public String getAuthToken() throws Exception {
            e.printStackTrace();
           }
       }
-      //connect!
-         //will be used for the buttons 
-         /* public boolean connect() {
-         try {
-            WebSocketContainer container = ContainerProvider.getWebSocketContainer();
-            container.connectToServer(this, URI.create(T4Config.WS_URL));
-            return true;
-         } catch (DeploymentException | IOException e) {
-            e.printStackTrace();
-            return false;
-         }
-      } */
-
 
       public boolean connect(Runnable onConnected) {
          try {
+            this.onConnectedCallback = onConnected; // store for later use
             WebSocketContainer container = ContainerProvider.getWebSocketContainer();
             container.connectToServer(this, URI.create(T4Config.WS_URL));
-            if (onConnected != null) onConnected.run(); // invoke callback after connecting
-               return true;
+            return true;
          } catch (DeploymentException | IOException e) {
             e.printStackTrace();
             return false;
@@ -773,6 +732,7 @@ public String getAuthToken() throws Exception {
       {  
          return instance;
       }
+
 
 
    public static void main(String[] args){
