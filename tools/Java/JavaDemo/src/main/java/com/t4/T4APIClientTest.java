@@ -296,7 +296,7 @@ import java.util.concurrent.TimeUnit;
          System.out.println("JWT Token Set: " + jwtToken);
     
          try {
-            if(jwtToken != null){
+            if(jwtToken != null && currentMarketId == null){
                String marketId = fetchMarketIdFromApi("CME_Eq", "ES");
                currentMarketId = marketId;
             }
@@ -376,7 +376,6 @@ import java.util.concurrent.TimeUnit;
 }
 
 public String getAuthToken() throws Exception {
-    System.out.println("JWT token at getAuthToken(): " + jwtToken);
     long now = System.currentTimeMillis();
     if (jwtToken != null && jwtExpiration != null && now < jwtExpiration - 30000) {
         return jwtToken;
@@ -555,6 +554,8 @@ public String getAuthToken() throws Exception {
             exchangeId, contractId
         );
 
+        System.out.println("Fetching marketId for exchange=" + exchangeId + ", contract=" + contractId);
+
         HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
         conn.setRequestMethod("GET");
         conn.setRequestProperty("Content-Type", "application/json");
@@ -732,6 +733,23 @@ public String getAuthToken() throws Exception {
       {  
          return instance;
       }
+
+      public void unsubscribeFromCurrentMarket() {
+         if (currentMarketId != null) {
+            marketSubscriber.unsubscribeCurrent(new Callback() {
+    @Override
+    public void onComplete() {
+        System.out.println("Unsubscribed from previous market.");
+    }
+
+    @Override
+    public void onError(Exception e) {
+        System.err.println("Unsubscribe failed: " + e.getMessage());
+    }
+});
+        currentMarketId = null;
+    }
+}
 
 
 
