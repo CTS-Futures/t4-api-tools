@@ -24,7 +24,11 @@ import t4proto.v1.market.Market.MarketDetails;
 import t4proto.v1.market.Market.MarketDepthSubscribe;
 import t4proto.v1.service.Service.ClientMessage;
 import t4proto.v1.account.Account.AccountDetails;
-//import t4proto.v1.auth.Auth.LoginResponse.Account;
+import t4proto.v1.orderrouting.Orderrouting.OrderUpdate;
+import t4proto.v1.orderrouting.Orderrouting.OrderUpdateMulti;
+import t4proto.v1.orderrouting.Orderrouting.OrderUpdateStatus;
+import t4proto.v1.account.Account.AccountPosition;
+import t4proto.v1.orderrouting.Orderrouting.OrderUpdateMultiMessage;
 
 
 //market sybscriber
@@ -51,6 +55,7 @@ import java.net.URL;
 import java.util.stream.Collectors;
 import org.json.JSONObject;
 // Java stdlib
+import java.util.concurrent.ConcurrentHashMap;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.time.Instant;
@@ -94,8 +99,6 @@ import java.util.concurrent.TimeUnit;
         private Map<String, Auth.LoginResponse.Account> accounts = new HashMap<>();
         private Object selectedAccount = null;
         private boolean isLoggedIn = false; //starts heartbeats once loggedin and connncted
-
-
         private Map<String, Auth.LoginResponse.Account> loginAccounts = new HashMap<>();
         private Map<String, AccountDetails> accountDetails = new HashMap<>();
 
@@ -114,20 +117,18 @@ import java.util.concurrent.TimeUnit;
         private String currentMarketId = null;
 
         // Order/Position tracking
-        private Map<String, Object> positions = new HashMap<>();
-        private Map<String, Object> orders = new HashMap<>();
+        private Map<String, AccountPosition> positions = new ConcurrentHashMap<>();
+        private Map<String, OrderUpdate> orders = new ConcurrentHashMap<>();
 
         // Heartbeat management
         private Object heartbeatTimer = null;
         private long lastMessageReceived = System.currentTimeMillis();
+        private String selectedAccountId;
 
         // Event handlers
-        //private Object onConnectionStatusChanged = null;
         private Object onAccountUpdate = null;
-        //private Object onMarketHeaderUpdate = null;
         private Object onMarketUpdate = null;
         private Object onMessageSent = null;
-        //private Object onMessageReceived = null;
         private Object onError = null;
         private Object onLog = null;
 
@@ -142,7 +143,6 @@ import java.util.concurrent.TimeUnit;
 
 
       //ON OPEN 
-      //made some functions for the UI! I am going to work on the UI and token handling tomorrow! 
         @OnOpen
 
         public void onOpen(Session sessionO){
@@ -151,8 +151,8 @@ import java.util.concurrent.TimeUnit;
          session = sessionO;
 
           if (onConnectedCallback != null) {
-            onConnectedCallback.run();  // ✅ UI will now update here!
-            onConnectedCallback = null; // clear to avoid reuse
+            onConnectedCallback.run();  
+            onConnectedCallback = null;
          }
 
          try{
@@ -248,8 +248,9 @@ import java.util.concurrent.TimeUnit;
                      handleAccountDetails(serverMessage.getAccountDetails());
                      break;
                
-
-               
+                  case ORDER_UPDATE_MULTI:
+                     handleOrderUpdateMulti(serverMessage.getOrderUpdateMulti());
+                     break;
                default:
                    System.out.println("Received unknown payload: " + payloadCase);
          }
@@ -749,6 +750,86 @@ public String getAuthToken() throws Exception {
 });
         currentMarketId = null;
     }
+}
+
+
+   //orders and positions 
+
+   private void handleOrderUpdate(OrderUpdate update) {
+      orders.put(update.getUniqueId(), update);
+      System.out.println("Order update received: " + update.getUniqueId());
+
+      //updateAccountUI("orders", getOrders());
+   }
+
+   private void handleOrderUpdateMulti(OrderUpdateMulti updateMulti) {
+    for (OrderUpdateMultiMessage message : updateMulti.getUpdatesList()) {
+        switch (message.getPayloadCase()) {
+            case ORDER_UPDATE:
+                handleOrderUpdate(message.getOrderUpdate());
+                break;
+            case ORDER_UPDATE_STATUS:
+                handleOrderUpdateStatus(message.getOrderUpdateStatus());
+                break;
+            case ORDER_UPDATE_FAILED:
+                System.out.println("Order update failed: " + message.getOrderUpdateFailed());
+                break;
+            case ORDER_UPDATE_TRADE:
+                System.out.println("Order trade: " + message.getOrderUpdateTrade());
+                break;
+            case ORDER_UPDATE_TRADE_LEG:
+                System.out.println("Order trade leg: " + message.getOrderUpdateTradeLeg());
+                break;
+            case PAYLOAD_NOT_SET:
+            default:
+                System.out.println("Unhandled update type in OrderUpdateMultiMessage: " + message.getPayloadCase());
+        }
+    }
+}
+
+   private void handleOrderUpdateStatus(OrderUpdateStatus status) {
+    OrderUpdate existing = orders.getOrDefault(
+        status.getUniqueId(),
+        OrderUpdate.newBuilder()
+            .setUniqueId(status.getUniqueId())
+            .setAccountId(selectedAccountId)
+            .setMarketId(status.getMarketId())
+            .build()
+    );
+
+    OrderUpdate updated = existing.toBuilder()
+        .setStatus(status.getStatus())
+        .setWorkingVolume(status.getWorkingVolume())
+        .setTime(status.getTime())
+        .setExchangeOrderId(status.getExchangeOrderId())
+        .setPriceType(status.getPriceType())
+        .build();
+
+    orders.put(status.getUniqueId(), updated);
+    //updateAccountUI("orders", getOrders());
+}
+
+
+private void handleAccountPosition(AccountPosition position) {
+    String key = position.getAccountId() + "_" + position.getMarketId();
+    positions.put(key, position);
+
+    if (position.getAccountId().equals(selectedAccountId)) {
+        //updateAccountUI("positions", getPositions());
+    }
+}
+
+
+public List<OrderUpdate> getOrders() {
+    return orders.values().stream()
+        .filter(o -> o.getAccountId().equals(selectedAccountId))
+        .collect(Collectors.toList());
+}
+
+public List<AccountPosition> getPositions() {
+    return positions.values().stream()
+        .filter(p -> p.getAccountId().equals(selectedAccountId))
+        .collect(Collectors.toList());
 }
 
 
