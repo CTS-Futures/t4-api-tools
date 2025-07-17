@@ -91,6 +91,42 @@ public class MarketSubscriber {
         });
     }
 
+    public void unsubscribeCurrent(Callback callback) {
+    if (currentSubscription == null) {
+        logger.info("No current market subscription to unsubscribe.");
+        callback.onComplete();
+        return;
+    }
+
+    MarketDepthSubscribe unsubscribeMsg = MarketDepthSubscribe.newBuilder()
+        .setExchangeId(currentSubscription.getExchangeId())
+        .setContractId(currentSubscription.getContractId())
+        .setMarketId(currentSubscription.getMarketId())
+        .setBuffer(DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION)
+        .setDepthLevels(DepthLevels.DEPTH_LEVELS_UNDEFINED)
+        .build();
+
+    Service.ClientMessage wrappedUnsub = Service.ClientMessage.newBuilder()
+        .setMarketDepthSubscribe(unsubscribeMsg)
+        .build();
+
+    messageSender.accept(wrappedUnsub, new Callback() {
+        @Override
+        public void onComplete() {
+            logger.info("Unsubscribed from market: " + currentSubscription.getMarketId());
+            currentSubscription = null;
+            currentMarketId = null;
+            callback.onComplete();
+        }
+
+        @Override
+        public void onError(Exception e) {
+            logger.severe("Unsubscribe error: " + e.getMessage());
+            callback.onError(e);
+        }
+    });
+}
+
     // Simple subscription wrapper
     public static class Subscription {
         private final String exchangeId;
