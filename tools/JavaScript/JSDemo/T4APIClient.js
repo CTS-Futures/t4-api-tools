@@ -165,7 +165,7 @@ class T4APIClient {
                 exchangeId,
                 contractId,
                 marketId,
-                buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART,
+                buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART_TRADE,
                 depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_BEST_ONLY
             }
         });
@@ -426,6 +426,8 @@ class T4APIClient {
             this.handleAccountUpdate(message.accountUpdate);
         } else if (message.marketDepth) {
             this.handleMarketDepth(message.marketDepth);
+        } else if (message.marketDepthTrade) {
+            this.handleMarketDepthTrade(message.marketDepthTrade);
         } else if (message.orderUpdate) {
             this.handleOrderUpdate(message.orderUpdate);
         } else if (message.accountSnapshot) {
@@ -638,6 +640,11 @@ class T4APIClient {
                     `${depth.tradeData.lastTradeVolume}@${depth.tradeData.lastTradePrice.value}` : '-'
             });
         }
+    }
+
+
+    handleMarketDepthTrade(trade) {
+        this.log(`Market Trade: ${trade.marketId} : ${trade.lastTradeVolume} @ ${trade.lastTradePrice.value}, TTV: ${trade.totalTradedVolume}`, 'info');
     }
 
     updateMarketHeader(contractId, expiryDate) {
