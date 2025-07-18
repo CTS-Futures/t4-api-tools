@@ -1,8 +1,14 @@
 #ifndef CLIENT_H
 #define CLIENT_H
-
+#include "t4/v1/service.pb.h"
+using t4proto::v1::service::ClientMessage;
+#include "t4/v1/auth/auth.pb.h"
+using t4proto::v1::auth::LoginRequest;
 #include <QObject> //signals and slots
 #include <QWebSocket>
+#include <map>
+#include <string>
+#include <iostream>
 
 
 //object called client inheriting from Qobject (required to use signals and slots))
@@ -14,15 +20,18 @@ class Client : public QObject {
         bool loadConfig(const QString& path);
 
 		//functions to connect, disconnect, and send messages
-        void connectToServer(const QUrl& url);
+  
         void disconnectFromServer();
         void sendMessage(const QString& message);
-
+        void handleOpen();
+        void authenticate();
+        ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);
     signals: // can emit signals to notify other parts of the application
         void connected();
         void disconnected();
         void messageReceived(QString message);
-
+    public slots:
+        void connectToServer();
     private slots:
         void onConnected();
         void onTextMessageReceived(const QString& message);

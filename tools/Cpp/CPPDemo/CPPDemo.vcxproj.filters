@@ -46,9 +46,6 @@
     <ClCompile Include="Client.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="addressbook.pb.cc">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="t4\v1\account\account.pb.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -80,9 +77,6 @@
     </QtMoc>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="addressbook.pb.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="t4\v1\account\account.pb.h">
       <Filter>Header Files</Filter>
     </ClInclude>

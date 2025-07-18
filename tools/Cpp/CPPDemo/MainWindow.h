@@ -1,6 +1,18 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
-
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGridLayout>
+#include <QLabel>
+#include <QComboBox>
+#include <QPushButton>
+#include <QLineEdit>
+#include <QSpinBox>
+#include <QDoubleSpinBox>
+#include <QGroupBox>
+#include <QTableWidget>
+#include <QTableWidgetItem>
+#include "Client.h"
 #include <QMainWindow>
 
 class MainWindow : public QMainWindow {
@@ -12,6 +24,8 @@ class MainWindow : public QMainWindow {
 
     private:
         void setupUi();
+		Client* client; // Pointer to the Client object for handling WebSocket communication
+       
 };
 
 #endif // MAINWINDOW_H

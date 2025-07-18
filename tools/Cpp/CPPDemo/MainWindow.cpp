@@ -1,20 +1,11 @@
 #include "mainwindow.h"
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QGridLayout>
-#include <QLabel>
-#include <QComboBox>
-#include <QPushButton>
-#include <QLineEdit>
-#include <QSpinBox>
-#include <QDoubleSpinBox>
-#include <QGroupBox>
-#include <QTableWidget>
-#include <QTableWidgetItem>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent) {
+    client = new Client(this);
     setupUi();
+    qDebug() << "client pointer:" << client;
+ 
 }
 
 MainWindow::~MainWindow() {}
@@ -32,7 +23,10 @@ void MainWindow::setupUi() {
     QComboBox* accountDropdown = new QComboBox(); //the dropwdown for accounts
     accountDropdown->addItem("Select Account..."); //adds a default item
     QPushButton* connectBtn = new QPushButton("Connect"); //the onnect button
-    QPushButton* disconnectBtn = new QPushButton("Disconnect"); // the disconnect button
+    QObject::connect(connectBtn, &QPushButton::clicked, client, &Client::connectToServer);
+    bool success = QObject::connect(connectBtn, &QPushButton::clicked, client, &Client::connectToServer);
+    qDebug() << "Connection success:" << success;
+    QPushButton* disconnectBtn = new QPushButton("Disconnect"); // the disconnec
 
 
     //places the widgets into the connect layout
