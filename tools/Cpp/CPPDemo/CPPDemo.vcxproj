@@ -68,6 +68,15 @@
       <AdditionalIncludeDirectories>(../proto/t4/v1); (../proto/t4/v1/account); (../proto/t4/v1/auth); (../proto/t4/v1/common); (../proto/t4/v1/market); (../proto/t4/orderrouting)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\Qt\6.9.1\msvc2022_64\include; C:\Qt\6.9.1\msvc2022_64\include\QtWebSockets; </AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>C:\Qt\6.9.1\msvc2022_64\lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>$(CoreLibraryDependencies);%(AdditionalDependencies);Qt6Core.lib;Qt6WebSockets.lib;Qt6Network.lib</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
     <ClCompile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -97,8 +106,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="addressbook.pb.cc" />
     <ClCompile Include="Client.cpp" />
     <ClCompile Include="MainWindow.cpp" />
+    <ClCompile Include="t4\v1\account\account.pb.cc" />
+    <ClCompile Include="t4\v1\auth\auth.pb.cc" />
+    <ClCompile Include="t4\v1\common\enums.pb.cc" />
+    <ClCompile Include="t4\v1\common\price.pb.cc" />
+    <ClCompile Include="t4\v1\market\market.pb.cc" />
+    <ClCompile Include="t4\v1\orderrouting\orderrouting.pb.cc" />
+    <ClCompile Include="t4\v1\service.pb.cc" />
     <QtRcc Include="cppdemo.qrc" />
     <QtUic Include="cppdemo.ui" />
     <QtMoc Include="cppdemo.h" />
@@ -108,6 +125,16 @@
   <ItemGroup>
     <QtMoc Include="Client.h" />
     <QtMoc Include="MainWindow.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="addressbook.pb.h" />
+    <ClInclude Include="t4\v1\account\account.pb.h" />
+    <ClInclude Include="t4\v1\auth\auth.pb.h" />
+    <ClInclude Include="t4\v1\common\enums.pb.h" />
+    <ClInclude Include="t4\v1\common\price.pb.h" />
+    <ClInclude Include="t4\v1\market\market.pb.h" />
+    <ClInclude Include="t4\v1\orderrouting\orderrouting.pb.h" />
+    <ClInclude Include="t4\v1\service.pb.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">
