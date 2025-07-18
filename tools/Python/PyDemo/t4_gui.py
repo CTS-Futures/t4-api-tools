@@ -174,7 +174,9 @@ class T4_GUI(tk.Tk):
         self.positions_inner.grid(row=2, column=0, sticky="nsew")
         columns = ("Market", "Net", "P&L", "Working")
         self.positions_tree = ttk.Treeview(self.positions_inner, columns=columns, show="headings", height=5)
-
+        self.positions_tree.tag_configure("pnl_positive", foreground="#16a34a")  # Green
+        self.positions_tree.tag_configure("pnl_negative", foreground="#dc2626")  # Red
+        self.positions_tree.tag_configure("pnl_neutral", foreground="black")     # Default
         for col in columns:
             self.positions_tree.heading(col, text=col)
             self.positions_tree.column(col, width=100, anchor="center")
@@ -484,14 +486,20 @@ class T4_GUI(tk.Tk):
         #loop through the data and display it:
         for pos in data['positions']:
             try:
-                market = pos.market_id
-                net = getattr(pos, "net_position", 0)  # Default to 0 if not present
-                pnl = getattr(pos, "pnl", 0.0)  # You may compute this if not in proto
-                working_buys = getattr(pos, "working_buys", 0)
-                working_sells = getattr(pos, "working_sells", 0) if hasattr(pos, "working_sells") else 0
-                working = f"{working_buys}/{working_sells}"
-
-                self.positions_tree.insert("", "end", values=(market, net, f"{pnl:.2f}", working))
+                market = pos["market_id"]
+                net = pos.get("buys", 0) - pos.get("sells", 0)
+                pnl = pos.get("total_pnl", 0.0)
+                working_buys = pos.get("working_buys", 0)
+                working_sells = pos.get("working_sells", 0)
+                working =f"{working_buys}/{working_sells}"
+                # Determine tag based on P&L
+                if pnl > 0:
+                    tag = "pnl_positive"
+                elif pnl < 0:
+                    tag = "pnl_negative"
+                else:
+                    tag = "pnl_neutral"
+                self.positions_tree.insert("", "end", values=(market, net, f"{pnl:.2f}", working), tags = (tag,))
             except Exception as e:
                 print(f"[ERROR] Failed to render position row: {e}")
 

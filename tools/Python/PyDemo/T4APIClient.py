@@ -210,11 +210,26 @@ class Client:
     def handle_account_position(self, message):
         key = f'{message.account_id}_{message.market_id}'
         self.positions[key] = message
-    
+
+        # Convert proto to dict with default values and add P&L fields
+        self.positions[key] = {
+            "account_id": message.account_id,
+            "exchange_id": message.exchange_id,
+            "contract_id": message.contract_id,
+            "market_id": message.market_id,
+            "buys": message.buys,
+            "sells": message.sells,
+            "working_buys": message.working_buys,
+            "working_sells": message.working_sells,
+            "upl": 0.0,
+            "rpl": 0.0,
+            "total_pnl": 0.0,
+        }
 
         if self.on_account_update:
             self.on_account_update({'type': 'positions', 
-                                    'positions': [p for p in self.positions.values() if p.account_id == self.selected_account]})
+                                    'positions': [ p for p in self.positions.values()
+                                    if p["account_id"] == self.selected_account]})
     
     #snapshot/rundown of account info is sent from server on initial login.
     #this sends all of that info to its corresponding location
@@ -249,7 +264,68 @@ class Client:
         pass
         #TODO displays account info (balance, p&l, etc)
     
-    #handles all the market info (bids, offers, and trades)
+
+    def handle_account_proift(self, account_profit):
+        pass
+        #display the account profit if wante
+
+    def handle_account_position_profit(self, position_profit):
+        key = f"{position_profit.account_id}_{position_profit.market_id}"
+
+    # Get existing position or create a new one
+        position = self.positions.get(key)
+        if not position:
+            position = {
+                "account_id": position_profit.account_id,
+                "exchange_id": position_profit.exchange_id,
+                "contract_id": position_profit.contract_id,
+                "market_id": position_profit.market_id,
+                "buys": 0,
+                "sells": 0,
+                "working_buys": 0,
+                "working_sells": 0,
+                "upl": 0.0,
+                "rpl": 0.0,
+                "total_pnl": 0.0
+            }
+
+        # Update with profit data
+        position["upl"] = getattr(position_profit, "upl_trade", 0.0)
+        position["rpl"] = getattr(position_profit, "rpl", 0.0)
+        position["total_pnl"] = position["upl"] + position["rpl"]
+
+        # Store updated position
+        self.positions[key] = position
+
+        # Get market snapshot for this position if available
+        market_snapshot = self.market_snapshots.get(position_profit.market_id)
+        market_info = ""
+
+        if market_snapshot:
+            bids = getattr(market_snapshot, "bids", [])
+            offers = getattr(market_snapshot, "offers", [])
+            trade_data = getattr(market_snapshot, "trade_data", None)
+
+            best_bid = f"{bids[0].volume}@{bids[0].price.value}" if bids else "-"
+            best_offer = f"{offers[0].volume}@{offers[0].price.value}" if offers else "-"
+            last_trade = (
+                f"{trade_data.last_trade_volume}@{trade_data.last_trade_price.value}"
+                if trade_data and trade_data.last_trade_price
+                else "-"
+            )
+
+            market_info = f" (Bid: {best_bid}, Offer: {best_offer}, Last: {last_trade})"
+
+        # Trigger UI/account update
+        if self.on_account_update:
+            self.on_account_update({
+                "type": "positions",
+                "positions": [
+                    pos for pos in self.positions.values()
+                    if pos["account_id"] == self.selected_account
+                ]
+            })
+        #handles all the market info (bids, offers, and trades)
     #stores it for the ui
     def handle_market_depth(self, message):
         #store the latest market snapshot
@@ -416,6 +492,10 @@ class Client:
                 self.handle_market_detail(msg.market_details)
             case "market_snapshot":
                 self.handle_market_snapshot(msg.market_snapshot)
+            case "account_profit":
+                pass
+            case "account_position_profit":
+                self.handle_account_position_profit(msg.account_position_profit)
             case "market_depth":
                 self.handle_market_depth(msg.market_depth)
             case "order_update_multi":
@@ -536,7 +616,8 @@ class Client:
         sub_msg = account_pb2.AccountSubscribe(
             subscribe=2,  # ALL_UPDATES
             subscribe_all_accounts=False,
-            account_id=[account_id]
+            account_id=[account_id],
+            upl_mode=1
         )
         await self.send_message({"account_subscribe": sub_msg})
 
