@@ -21,8 +21,12 @@ class MainWindow : public QMainWindow {
     public:
         explicit MainWindow(QWidget* parent = nullptr);
         ~MainWindow();
-
+    private slots:
+        void populateAccounts();
+        void onAccountSelected(const QString& text);
     private:
+        
+        QComboBox* accountDropdown;
         void setupUi();
 		Client* client; // Pointer to the Client object for handling WebSocket communication
        

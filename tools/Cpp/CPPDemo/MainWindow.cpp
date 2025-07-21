@@ -3,8 +3,12 @@
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent) {
     client = new Client(this);
+    
     setupUi();
-    qDebug() << "client pointer:" << client;
+
+    //connects signals to slots or functions
+    connect(client, &Client::accountsUpdated, this, &MainWindow::populateAccounts);//signal from clients, called accountsUpdated, will use a in this current object and invoke populateAccounts
+    connect(accountDropdown, &QComboBox::currentTextChanged,this, &MainWindow::onAccountSelected);//signal from the accoutn dropdown, when text is changed, will invoke onAccountSelected
  
 }
 
@@ -20,13 +24,14 @@ void MainWindow::setupUi() {
 
     QLabel* statusLabel = new QLabel("Disconnected"); //the status label
     QLabel* accountLabel = new QLabel("Account:"); //account label
-    QComboBox* accountDropdown = new QComboBox(); //the dropwdown for accounts
+    accountDropdown = new QComboBox(); //the dropwdown for accounts
     accountDropdown->addItem("Select Account..."); //adds a default item
     QPushButton* connectBtn = new QPushButton("Connect"); //the onnect button
 
     bool success = QObject::connect(connectBtn, &QPushButton::clicked, client, &Client::connectToServer);
     qDebug() << "Connection success:" << success;
     QPushButton* disconnectBtn = new QPushButton("Disconnect"); // the disconnec
+	QObject::connect(disconnectBtn, &QPushButton::clicked, client, &Client::disconnectFromServer);
 
 
     //places the widgets into the connect layout
@@ -123,4 +128,35 @@ void MainWindow::setupUi() {
     setCentralWidget(central);
     setWindowTitle("T4 Qt Trader");
     resize(1400, 900);
+}
+
+//populates accounts into the account drop down
+void MainWindow::populateAccounts() {
+    auto accountMap = client->getAccounts(); //gets accounts from the client object
+
+
+    //loops through all the available accounts
+    for (auto it = accountMap.begin(); it != accountMap.end(); ++it) {
+
+        const auto& account = it.value();
+
+        QString accountId = QString::fromStdString(account.account_id());
+        QString accountName = QString::fromStdString(account.account_name());
+        QString accountNumber = QString::fromStdString(account.account_number());
+
+        QString displayText = QString("%1 - %2").arg(accountName, accountId);
+        accountDropdown->removeItem(0); //removes the "select account" place holder
+        accountDropdown->addItem(displayText, accountId); 
+    }
+}
+
+//subscribes to the account that is selected within the account dropedown
+void MainWindow::onAccountSelected(const QString& text) {
+    QString accountId = text.section(" - ", 1, 1).trimmed();
+
+    if (!accountId.isEmpty()) {
+        qDebug() << "Selected Account ID:" << accountId;
+        client->subscribeAccount(accountId);
+    }
+
 }

@@ -56,58 +56,12 @@ Client::Client(QObject* parent)
 
       
     }
-  //  ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict) {
-  //      
-  //      //creates envelope
-  //      ClientMessage client_message;
 
+    //accounts getter
+    QMap<QString, t4proto::v1::auth::LoginResponse_Account> Client::getAccounts() const {
+        return accounts;
+    }
 
-  //      //checks if diciontary is empty
-  //      if (message_dict.empty()) {
-  //          throw std::invalid_argument("Empty message dictionary");
-  //      }
-
-		////gets the first key-value pair from the dictionary
-  //      const std::string& key = message_dict.begin()->first;
-  //      const google::protobuf::Message* value = message_dict.begin()->second;
-
-		////decides which message type to set based on the key
-  //      if (key == "login_request") {
-  //          client_message.mutable_login_request()->CopyFrom(*value);
-  //      }
-  //      else if (key == "authentication_token_request") {
-  //          client_message.mutable_authentication_token_request()->CopyFrom(*value);
-  //      }
-  //      else if (key == "market_depth_subscribe") {
-  //          client_message.mutable_market_depth_subscribe()->CopyFrom(*value);
-  //      }
-  //      else if (key == "market_by_order_subscribe") {
-  //          client_message.mutable_market_by_order_subscribe()->CopyFrom(*value);
-  //      }
-  //      else if (key == "account_subscribe") {
-  //          client_message.mutable_account_subscribe()->CopyFrom(*value);
-  //      }
-  //      else if (key == "order_submit") {
-  //          client_message.mutable_order_submit()->CopyFrom(*value);
-  //      }
-  //      else if (key == "order_revise") {
-  //          client_message.mutable_order_revise()->CopyFrom(*value);
-  //      }
-  //      else if (key == "order_pull") {
-  //          client_message.mutable_order_pull()->CopyFrom(*value);
-  //      }
-  //      else if (key == "create_uds") {
-  //          client_message.mutable_create_uds()->CopyFrom(*value);
-  //      }
-  //      else if (key == "heartbeat") {
-  //          client_message.mutable_heartbeat()->CopyFrom(*value);
-  //      }
-  //      else {
-  //          throw std::invalid_argument("Unsupported message type: " + key);
-  //      }
-
-  //      return client_message;
-  //  }
     void Client::connectToServer() {
         if (socket.state() == QAbstractSocket::ConnectedState) {
             qDebug() << "Already connected. Disconnecting first.";
@@ -225,6 +179,7 @@ Client::Client(QObject* parent)
                 accounts[QString::fromStdString(account.account_id())] = account;
             }
 
+            emit accountsUpdated();
 
             // Notify UI
             /*if (onAccountUpdate) {
