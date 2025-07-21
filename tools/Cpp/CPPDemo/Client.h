@@ -4,11 +4,14 @@
 using t4proto::v1::service::ClientMessage;
 #include "t4/v1/auth/auth.pb.h"
 using t4proto::v1::auth::LoginRequest;
+using t4proto::v1::auth::AuthenticationTokenRequest;
 #include "t4/v1/account/account.pb.h"
 using t4proto::v1::account::AccountSubscribe;
 
 #include "t4/v1/common/enums.pb.h"
 using t4proto::v1::common::AccountSubscribeType_descriptor;
+
+
 #include <QObject> //signals and slots
 #include <QWebSocket>
 #include <map>
@@ -17,7 +20,9 @@ using t4proto::v1::common::AccountSubscribeType_descriptor;
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonValue>
+#include <QUuid>
 #include <QTimer>
+#include <QEventLoop>
 //object called client inheriting from Qobject (required to use signals and slots))
 class Client : public QObject {
     Q_OBJECT
@@ -27,18 +32,20 @@ class Client : public QObject {
         bool loadConfig(const QString& path);
 
 		//functions to connect, disconnect, and send messages
-  
+        QMap<QString, t4proto::v1::auth::LoginResponse_Account> getAccounts() const;
         void disconnectFromServer();
         void sendMessage(const std::string& message);
         void handleOpen();
         void authenticate();
 		void handleLoginResponse(const t4proto::v1::auth::LoginResponse& response);
-    
+        void refreshToken();
+        QString getAuthToken();
         /*ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);*/
     signals: // can emit signals to notify other parts of the application 
         void connected();
         void disconnected();
-        void messageReceived(QString message);
+        void accountsUpdated();
+        void tokenRefreshed();
     public slots:
         void connectToServer();
         void subscribeAccount(const QString& accountId);
@@ -70,7 +77,7 @@ class Client : public QObject {
 
         QString jwtToken;
         QDateTime jwtExpiration;
-        QString pendingTokenRequest;
+        std::string pendingTokenRequest;
         QMap<QString, std::function<void(bool)>> tokenResolvers; // requestID -> callback
 
         // Account and connection state

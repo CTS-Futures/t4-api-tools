@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QWebSocket>
+#include <QUuid>
 
 
 Client::Client(QObject* parent)
@@ -54,7 +55,7 @@ Client::Client(QObject* parent)
         qDebug() << "Config loaded:\n"
             << websocketUrl << apiUrl << username << mdContractId;
 
-      
+        return true;
     }
 
     //accounts getter
@@ -214,8 +215,14 @@ Client::Client(QObject* parent)
                 handleLoginResponse(msg.login_response());
             }
             else if (msg.has_authentication_token()) {
-                qDebug() << "[authentication_token]\n"
-                    << QString::fromStdString(msg.authentication_token().DebugString());
+                const auto& token = msg.authentication_token();
+
+                jwtToken = QString::fromStdString(token.token());
+                jwtExpiration = QDateTime::fromSecsSinceEpoch(token.expire_time().seconds());
+
+                qDebug() << "[auth] JWT updated. Expiration:" << jwtExpiration.toString();
+
+                emit tokenRefreshed();
 
             }
             else if (msg.has_account_subscribe_response()) {
@@ -287,40 +294,78 @@ Client::Client(QObject* parent)
         }
     }  
     
-        void Client::subscribeAccount(const QString& accountId) {
-            //if an account is already selected then we can skip
-            if (selectedAccount == accountId) {
-                return;
-            }
+    void Client::subscribeAccount(const QString& accountId) {
+        //if an account is already selected then we can skip
+        if (selectedAccount == accountId) {
+            return;
+        }
 
-            //unsubscribe from the account
-            if (!selectedAccount.isEmpty()) {
-                AccountSubscribe unsubscribe;
+        //unsubscribe from the account
+        if (!selectedAccount.isEmpty()) {
+            AccountSubscribe unsubscribe;
 				
-                unsubscribe.set_subscribe(t4proto::v1::common::ACCOUNT_SUBSCRIBE_TYPE_NONE);
-                unsubscribe.set_subscribe_all_accounts(false);
-                unsubscribe.add_account_id(selectedAccount.toStdString());
-                unsubscribe.set_upl_mode(t4proto::v1::common::UPL_MODE_NONE);
+            unsubscribe.set_subscribe(t4proto::v1::common::ACCOUNT_SUBSCRIBE_TYPE_NONE);
+            unsubscribe.set_subscribe_all_accounts(false);
+            unsubscribe.add_account_id(selectedAccount.toStdString());
+            unsubscribe.set_upl_mode(t4proto::v1::common::UPL_MODE_NONE);
 
-				ClientMessage unsubscribeMessage;
-                unsubscribeMessage.mutable_account_subscribe()->CopyFrom(unsubscribe);
-                std::string serializedUnsubscribe = unsubscribeMessage.SerializeAsString();
-                sendMessage(serializedUnsubscribe);
-				qDebug() << "Unsubscribed from account:" << selectedAccount;
+			ClientMessage unsubscribeMessage;
+            unsubscribeMessage.mutable_account_subscribe()->CopyFrom(unsubscribe);
+            std::string serializedUnsubscribe = unsubscribeMessage.SerializeAsString();
+            sendMessage(serializedUnsubscribe);
+			qDebug() << "Unsubscribed from account:" << selectedAccount;
 
-            }
+        }
 
-			selectedAccount = accountId; //set the selected account
+		selectedAccount = accountId; //set the selected account
 
-            AccountSubscribe subscribe;
-            subscribe.set_subscribe(t4proto::v1::common::ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES);
-            subscribe.set_subscribe_all_accounts(false);
-            subscribe.add_account_id(accountId.toStdString());
-			subscribe.set_upl_mode(t4proto::v1::common::UPL_MODE_AVERAGE);
-            ClientMessage subscribeMessage;
-            subscribeMessage.mutable_account_subscribe()->CopyFrom(subscribe);
-            std::string serializedSubscribe = subscribeMessage.SerializeAsString();
-			sendMessage(serializedSubscribe);
-			qDebug() << "Subscribing to account:" << accountId;
+        AccountSubscribe subscribe;
+        subscribe.set_subscribe(t4proto::v1::common::ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES);
+        subscribe.set_subscribe_all_accounts(false);
+        subscribe.add_account_id(accountId.toStdString());
+		subscribe.set_upl_mode(t4proto::v1::common::UPL_MODE_AVERAGE);
+        ClientMessage subscribeMessage;
+        subscribeMessage.mutable_account_subscribe()->CopyFrom(subscribe);
+        std::string serializedSubscribe = subscribeMessage.SerializeAsString();
+		sendMessage(serializedSubscribe);
+		qDebug() << "Subscribing to account:" << accountId;
 
+    }
+
+    //sends a request for a new refresh token
+    void Client::refreshToken() {
+        QString uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);  // "{abc-123}" "abc-123"
+        std::string requestID = uuid.toStdString();
+
+        pendingTokenRequest = requestID;
+        
+        AuthenticationTokenRequest req;
+        req.set_request_id(requestID);
+
+
+        ClientMessage messageReq;
+        messageReq.mutable_authentication_token_request()->CopyFrom(req);
+        std::string serializedReq = messageReq.SerializeAsString();
+        sendMessage(serializedReq);
+    }
+
+    QString Client::getAuthToken() {  
+        qint64 currentTime = QDateTime::currentSecsSinceEpoch();  
+
+        if (!jwtToken.isEmpty() && jwtExpiration.toSecsSinceEpoch() > currentTime + 30) {  
+            return jwtToken;  
+        }  
+        refreshToken();  
+        //sets an event loop to wait for token to be sent
+        QEventLoop loop;
+
+        QTimer timeoutTimer;
+        timeoutTimer.setSingleShot(true);
+        timeoutTimer.start(5000);  // Optional: 5 second timeout
+        connect(this, &Client::tokenRefreshed, &loop, &QEventLoop::quit);
+        connect(&timeoutTimer, &QTimer::timeout, &loop, &QEventLoop::quit);
+
+        loop.exec();  // This blocks until one of the above is triggered
+
+        return jwtToken; //once the loop ends, the token should be refreshed
     }
