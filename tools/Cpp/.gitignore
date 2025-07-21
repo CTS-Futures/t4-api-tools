@@ -1,1 +1,8 @@
 CPPDemo/config/config.json
+CPPDemo/x64/Release/*.obj
+CPPDemo/x64/Release/*.iobj
+CPPDemo/x64/Release/*.ipdb
+CPPDemo/x64/Release/*.tlog/
+CPPDemo/x64/Release/*.exe
+CPPDemo/x64/Release/*.pdb
+CPPDemo/x64/Release/*.dll
