@@ -369,3 +369,52 @@ Client::Client(QObject* parent)
 
         return jwtToken; //once the loop ends, the token should be refreshed
     }
+
+    QString Client::getMarketId(const QString& exchangeId, const QString& contractId) {
+
+        QString token = getAuthToken();
+
+        if (token.isEmpty())
+        {
+            qDebug() << "token invalid";
+            return QString();
+        }
+        QUrl url = apiUrl.path() + "/markets/picker/firstmarket";
+
+        QUrlQuery query;
+        query.addQueryItem("exchangeid", exchangeId);
+        query.addQueryItem("contractid", contractId);
+        url.setQuery(query);
+
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        request.setRawHeader("Authorization", "Bearer " + token.toUtf8());
+
+        QNetworkAccessManager manager;
+        QNetworkReply* reply = manager.get(request);
+
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();  // Block until request is finished
+
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[market_id] Network error:" << reply->errorString();
+            reply->deleteLater();
+            return QString();
+        }
+
+        QByteArray response = reply->readAll();
+        reply->deleteLater();
+
+        QJsonDocument json = QJsonDocument::fromJson(response);
+        if (!json.isObject()) {
+            qWarning() << "[market_id] Invalid JSON response";
+            return QString();
+        }
+
+        QJsonObject obj = json.object();
+        QString marketId = obj.value("marketID").toString();
+
+        qDebug() << "[market_id] Resolved market ID:" << marketId;
+        return marketId;
+    }

@@ -23,6 +23,13 @@ using t4proto::v1::common::AccountSubscribeType_descriptor;
 #include <QUuid>
 #include <QTimer>
 #include <QEventLoop>
+
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QUrlQuery>
+#include <QJsonDocument>
+#include <QDebug>
 //object called client inheriting from Qobject (required to use signals and slots))
 class Client : public QObject {
     Q_OBJECT
@@ -40,6 +47,7 @@ class Client : public QObject {
 		void handleLoginResponse(const t4proto::v1::auth::LoginResponse& response);
         void refreshToken();
         QString getAuthToken();
+        QString getMarketId(const QString& exchangeId, const QString& contractId);
         /*ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);*/
     signals: // can emit signals to notify other parts of the application 
         void connected();
