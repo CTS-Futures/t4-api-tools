@@ -29,6 +29,8 @@ import t4proto.v1.orderrouting.Orderrouting.OrderUpdateMulti;
 import t4proto.v1.orderrouting.Orderrouting.OrderUpdateStatus;
 import t4proto.v1.account.Account.AccountPosition;
 import t4proto.v1.orderrouting.Orderrouting.OrderUpdateMultiMessage;
+import t4proto.v1.orderrouting.Orderrouting;
+import t4proto.v1.orderrouting.Orderrouting.OrderUpdate;
 
 
 //market sybscriber
@@ -68,6 +70,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+
+import javafx.application.Platform;
 
 //Having some threading problems
  
@@ -119,6 +123,9 @@ import java.util.concurrent.TimeUnit;
         // Order/Position tracking
         private Map<String, AccountPosition> positions = new ConcurrentHashMap<>();
         private Map<String, OrderUpdate> orders = new ConcurrentHashMap<>();
+        private PositionsAndOrdersUI posOrdersUI;
+        //private PositionsAndOrdersUI positionsAndOrdersUI;
+
 
         // Heartbeat management
         private Object heartbeatTimer = null;
@@ -756,11 +763,27 @@ public String getAuthToken() throws Exception {
    //orders and positions 
 
    private void handleOrderUpdate(OrderUpdate update) {
-      orders.put(update.getUniqueId(), update);
-      System.out.println("Order update received: " + update.getUniqueId());
+    if (posOrdersUI == null) return;
 
-      //updateAccountUI("orders", getOrders());
-   }
+    String market = update.getMarketId();
+    String side = update.getBuySell().name(); // BUY_SELL_BUY or SELL
+    int volume = update.getWorkingVolume();
+    String price = update.getCurrentLimitPrice().getValue();
+    String status = update.getStatus().name();        // <- was `getOrderStatus()`
+    String action = update.getChange().name();        // <- was `getOrderAction()`
+
+    Platform.runLater(() -> {
+        posOrdersUI.addOrder(
+            market,
+            side,
+            volume,
+            price,
+            status,
+            action
+        );
+    });
+}
+
 
    private void handleOrderUpdateMulti(OrderUpdateMulti updateMulti) {
     for (OrderUpdateMultiMessage message : updateMulti.getUpdatesList()) {
@@ -797,6 +820,12 @@ public String getAuthToken() throws Exception {
             .build()
     );
 
+    // Convert protobuf Timestamp to formatted string
+    String formattedTime = status.hasTime()
+        ? Instant.ofEpochSecond(status.getTime().getSeconds()).toString()
+        : "";
+
+    // Rebuild the order with updated status
     OrderUpdate updated = existing.toBuilder()
         .setStatus(status.getStatus())
         .setWorkingVolume(status.getWorkingVolume())
@@ -806,16 +835,41 @@ public String getAuthToken() throws Exception {
         .build();
 
     orders.put(status.getUniqueId(), updated);
-    //updateAccountUI("orders", getOrders());
+
+    // Display in UI
+    if (posOrdersUI != null) {
+        String market = status.getMarketId();
+        String side = existing.getBuySell().name(); // fallback
+        int volume = status.getWorkingVolume();
+        String price = status.getCurrentLimitPrice().getValue();
+        String statusText = status.getStatus().name();
+        String action = status.getChange().name(); // << This replaces getAction()
+
+        Platform.runLater(() -> posOrdersUI.addOrder(
+            market,
+            side,
+            volume,
+            price,
+            statusText,
+            action
+        ));
+    }
 }
 
 
 private void handleAccountPosition(AccountPosition position) {
+    // Track position by account + market
     String key = position.getAccountId() + "_" + position.getMarketId();
     positions.put(key, position);
 
-    if (position.getAccountId().equals(selectedAccountId)) {
-        //updateAccountUI("positions", getPositions());
+    // Update only if it's for the currently selected account
+    if (position.getAccountId().equals(selectedAccountId) && posOrdersUI != null) {
+        String market = position.getMarketId();
+        int net = position.getBuys() - position.getSells();
+        double pnl = position.getRpl(); // or getUnrealizedPnl()
+        int working = position.getWorkingBuys() + position.getWorkingSells();
+
+        Platform.runLater(() -> posOrdersUI.updatePosition(market, net, pnl, working));
     }
 }
 
@@ -831,6 +885,10 @@ public List<AccountPosition> getPositions() {
         .filter(p -> p.getAccountId().equals(selectedAccountId))
         .collect(Collectors.toList());
 }
+
+   public void setPositionsAndOrdersUI(PositionsAndOrdersUI ui) {
+      this.posOrdersUI = ui;
+   }
 
 
 
