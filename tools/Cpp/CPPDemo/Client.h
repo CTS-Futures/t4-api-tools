@@ -44,6 +44,7 @@ class Client : public QObject {
         void subscribeAccount(const QString& accountId);
     private slots:
         void onConnected();
+		void onDisconnected();
         void onBinaryMessageReceived(const QByteArray& message);
         void sendHeartbeat();
 

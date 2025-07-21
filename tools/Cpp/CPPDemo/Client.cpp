@@ -14,7 +14,7 @@ Client::Client(QObject* parent)
     loadConfig("config/config.json"); // tries to load the configuration from a JSON file 
 
     connect(&socket, &QWebSocket::connected, this, &Client::onConnected);
-    connect(&socket, &QWebSocket::disconnected, this, &Client::disconnected);
+    connect(&socket, &QWebSocket::disconnected, this, &Client::onDisconnected);
     connect(&socket, &QWebSocket::binaryMessageReceived, this, &Client::onBinaryMessageReceived);
 }
         //LOAD CONFIGURATION FROM JSON FILE
@@ -119,6 +119,7 @@ Client::Client(QObject* parent)
     }
 
     void Client::disconnectFromServer() {
+		qDebug() << "Disconnecting from server...";
         socket.close();
     }
 
@@ -175,6 +176,22 @@ Client::Client(QObject* parent)
         emit connected();
         
     }
+
+    void Client::onDisconnected() {
+        qDebug() << "WebSocket disconnected!";
+        
+        
+        // Stop heartbeat timer if it exists
+        if (heartbeatTimer) {
+            heartbeatTimer->stop();
+            heartbeatTimer->deleteLater();  // Clean up the timer
+            heartbeatTimer = nullptr;
+            qDebug() << "[heartbeat] Timer stopped";
+
+        }
+        emit disconnected();
+
+	}
     void Client::handleLoginResponse(const t4proto::v1::auth::LoginResponse& message) {
         // Check for result code 0 = success
         if (message.result() == 0) {
