@@ -46,7 +46,7 @@ template <> constexpr inline auto Client::qt_create_metaobjectdata<qt_meta_tag_Z
         "message",
         "connectToServer",
         "onConnected",
-        "onTextMessageReceived"
+        "onBinaryMessageReceived"
     };
 
     QtMocHelpers::UintData qt_methods {
@@ -62,9 +62,9 @@ template <> constexpr inline auto Client::qt_create_metaobjectdata<qt_meta_tag_Z
         QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPublic, QMetaType::Void),
         // Slot 'onConnected'
         QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onTextMessageReceived'
-        QtMocHelpers::SlotData<void(const QString &)>(8, 2, QMC::AccessPrivate, QMetaType::Void, {{
-            { QMetaType::QString, 5 },
+        // Slot 'onBinaryMessageReceived'
+        QtMocHelpers::SlotData<void(const QByteArray &)>(8, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { QMetaType::QByteArray, 5 },
         }}),
     };
     QtMocHelpers::UintData qt_properties {
@@ -94,7 +94,7 @@ void Client::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void
         case 2: _t->messageReceived((*reinterpret_cast< std::add_pointer_t<QString>>(_a[1]))); break;
         case 3: _t->connectToServer(); break;
         case 4: _t->onConnected(); break;
-        case 5: _t->onTextMessageReceived((*reinterpret_cast< std::add_pointer_t<QString>>(_a[1]))); break;
+        case 5: _t->onBinaryMessageReceived((*reinterpret_cast< std::add_pointer_t<QByteArray>>(_a[1]))); break;
         default: ;
         }
     }

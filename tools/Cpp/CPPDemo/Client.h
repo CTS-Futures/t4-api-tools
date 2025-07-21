@@ -22,10 +22,10 @@ class Client : public QObject {
 		//functions to connect, disconnect, and send messages
   
         void disconnectFromServer();
-        void sendMessage(const QString& message);
+        void sendMessage(const std::string& message);
         void handleOpen();
         void authenticate();
-        ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);
+        /*ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);*/
     signals: // can emit signals to notify other parts of the application
         void connected();
         void disconnected();
@@ -34,7 +34,7 @@ class Client : public QObject {
         void connectToServer();
     private slots:
         void onConnected();
-        void onTextMessageReceived(const QString& message);
+        void onBinaryMessageReceived(const QByteArray& message);
 
     private:
         QWebSocket socket;

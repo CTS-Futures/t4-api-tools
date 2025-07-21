@@ -5,6 +5,7 @@ CPPDemo::CPPDemo(QWidget *parent)
 {
    
     ui.setupUi(this);
+	printf("CPPDemo::CPPDemo\n");
     
 }
 

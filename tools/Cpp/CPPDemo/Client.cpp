@@ -11,11 +11,11 @@ Client::Client(QObject* parent)
     : QObject(parent)
 
 { //constructor initializes the websocket client
-    loadConfig("config.json"); // tries to load the configuration from a JSON file 
+    loadConfig("config/config.json"); // tries to load the configuration from a JSON file 
 
     connect(&socket, &QWebSocket::connected, this, &Client::onConnected);
     connect(&socket, &QWebSocket::disconnected, this, &Client::disconnected);
-    connect(&socket, &QWebSocket::textMessageReceived, this, &Client::onTextMessageReceived);
+    connect(&socket, &QWebSocket::binaryMessageReceived, this, &Client::onBinaryMessageReceived);
 }
         //LOAD CONFIGURATION FROM JSON FILE
     bool Client::loadConfig(const QString & path) {
@@ -56,74 +56,79 @@ Client::Client(QObject* parent)
 
       
     }
-    ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict) {
-        
-        //creates envelope
-        ClientMessage client_message;
+  //  ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict) {
+  //      
+  //      //creates envelope
+  //      ClientMessage client_message;
 
 
-        //checks if diciontary is empty
-        if (message_dict.empty()) {
-            throw std::invalid_argument("Empty message dictionary");
-        }
+  //      //checks if diciontary is empty
+  //      if (message_dict.empty()) {
+  //          throw std::invalid_argument("Empty message dictionary");
+  //      }
 
-		//gets the first key-value pair from the dictionary
-        const std::string& key = message_dict.begin()->first;
-        const google::protobuf::Message* value = message_dict.begin()->second;
+		////gets the first key-value pair from the dictionary
+  //      const std::string& key = message_dict.begin()->first;
+  //      const google::protobuf::Message* value = message_dict.begin()->second;
 
-		//decides which message type to set based on the key
-        if (key == "login_request") {
-            client_message.mutable_login_request()->CopyFrom(*value);
-        }
-        else if (key == "authentication_token_request") {
-            client_message.mutable_authentication_token_request()->CopyFrom(*value);
-        }
-        else if (key == "market_depth_subscribe") {
-            client_message.mutable_market_depth_subscribe()->CopyFrom(*value);
-        }
-        else if (key == "market_by_order_subscribe") {
-            client_message.mutable_market_by_order_subscribe()->CopyFrom(*value);
-        }
-        else if (key == "account_subscribe") {
-            client_message.mutable_account_subscribe()->CopyFrom(*value);
-        }
-        else if (key == "order_submit") {
-            client_message.mutable_order_submit()->CopyFrom(*value);
-        }
-        else if (key == "order_revise") {
-            client_message.mutable_order_revise()->CopyFrom(*value);
-        }
-        else if (key == "order_pull") {
-            client_message.mutable_order_pull()->CopyFrom(*value);
-        }
-        else if (key == "create_uds") {
-            client_message.mutable_create_uds()->CopyFrom(*value);
-        }
-        else if (key == "heartbeat") {
-            client_message.mutable_heartbeat()->CopyFrom(*value);
-        }
-        else {
-            throw std::invalid_argument("Unsupported message type: " + key);
-        }
+		////decides which message type to set based on the key
+  //      if (key == "login_request") {
+  //          client_message.mutable_login_request()->CopyFrom(*value);
+  //      }
+  //      else if (key == "authentication_token_request") {
+  //          client_message.mutable_authentication_token_request()->CopyFrom(*value);
+  //      }
+  //      else if (key == "market_depth_subscribe") {
+  //          client_message.mutable_market_depth_subscribe()->CopyFrom(*value);
+  //      }
+  //      else if (key == "market_by_order_subscribe") {
+  //          client_message.mutable_market_by_order_subscribe()->CopyFrom(*value);
+  //      }
+  //      else if (key == "account_subscribe") {
+  //          client_message.mutable_account_subscribe()->CopyFrom(*value);
+  //      }
+  //      else if (key == "order_submit") {
+  //          client_message.mutable_order_submit()->CopyFrom(*value);
+  //      }
+  //      else if (key == "order_revise") {
+  //          client_message.mutable_order_revise()->CopyFrom(*value);
+  //      }
+  //      else if (key == "order_pull") {
+  //          client_message.mutable_order_pull()->CopyFrom(*value);
+  //      }
+  //      else if (key == "create_uds") {
+  //          client_message.mutable_create_uds()->CopyFrom(*value);
+  //      }
+  //      else if (key == "heartbeat") {
+  //          client_message.mutable_heartbeat()->CopyFrom(*value);
+  //      }
+  //      else {
+  //          throw std::invalid_argument("Unsupported message type: " + key);
+  //      }
 
-        return client_message;
-    }
+  //      return client_message;
+  //  }
     void Client::connectToServer() {
+        if (socket.state() == QAbstractSocket::ConnectedState) {
+            qDebug() << "Already connected. Disconnecting first.";
+            socket.close();
+        }
         qDebug() << "button pressed!";
-        socket.open(apiUrl);
-		handleOpen();
+        socket.open(websocketUrl);
+
     }
 
     void Client::disconnectFromServer() {
         socket.close();
     }
 
-    void Client::sendMessage(const QString& message) {
-        socket.sendTextMessage(message);
+    void Client::sendMessage(const std::string& message){
+        socket.sendBinaryMessage(QByteArray::fromRawData(message.data(), message.size()));
     }
 
     void Client::handleOpen() {
-        authenticate();
+		qDebug() << "WebSocket opening...";
+        
 	}
 
     void Client::authenticate() {
@@ -141,17 +146,36 @@ Client::Client(QObject* parent)
         std::string serialized_message = message.SerializeAsString();
 
 		//send the message to the server
-		sendMessage(QString::fromStdString(serialized_message));
-        
+		sendMessage(serialized_message);
+		qDebug() << serialized_message;
 
 	}
     void Client::onConnected() {
         qDebug() << "WebSocket connected!";
+        authenticate();
         emit connected();
+        
     }
 
-    void Client::onTextMessageReceived(const QString& message) {
-        qDebug() << "Received message:" << message;
-        emit messageReceived(message);
-   }
+    void Client::onBinaryMessageReceived(const QByteArray& message) {
+        qDebug() << "[binary] Received message, size:" << message.size();
+
+        // Attempt to decode the protobuf response
+        t4proto::v1::service::ServerMessage serverMsg;
+        if (serverMsg.ParseFromArray(message.data(), message.size())) {
+            qDebug() << "Parsed message of type:" << QString::fromStdString(serverMsg.GetTypeName());
+
+            if (serverMsg.has_login_response()) {
+                qDebug() << "Login response received!";
+            }
+            else {
+                qDebug() << "Received another type of ServerMessage.";
+            }
+        }
+        else {
+            qDebug() << "Failed to parse protobuf from binary.";
+        }
+        qDebug() << message;
+    }
+
 

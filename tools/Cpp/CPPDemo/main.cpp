@@ -7,6 +7,6 @@ int main(int argc, char* argv[]) {
     MainWindow window;
     
     window.show();
-    client->connectToServer();
+    //client->connectToServer();
     return app.exec();
 }
