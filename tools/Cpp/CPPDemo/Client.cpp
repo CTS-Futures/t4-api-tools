@@ -156,7 +156,56 @@ Client::Client(QObject* parent)
         emit connected();
         
     }
+    void Client::handleLoginResponse(const t4proto::v1::auth::LoginResponse& message) {
+        // Check for result code 0 = success
+        if (message.result() == 0) {
+            loginResponse.CopyFrom(message);  // If you want to store it
 
+            // Store JWT token if available
+            if (message.has_authentication_token()) {
+                const auto& token = message.authentication_token();
+                if (!token.token().empty()) {
+                    jwtToken = QString::fromStdString(token.token());
+
+                    if (token.expire_time().seconds() > 0) {
+                        // Convert seconds to msec timestamp (epoch)
+                        qint64 expirationMs = static_cast<qint64>(token.expire_time().seconds()) * 1000;
+                        jwtExpiration = QDateTime::fromSecsSinceEpoch(token.expire_time().seconds());
+                        qDebug() << "JWT expiration set to:" << jwtExpiration;
+                    }
+                }
+            }
+
+            // Store accounts
+            //accounts.clear();
+            //for (const auto& account : message.accounts()) {
+            //    accounts[QString::fromStdString(account.account_id())] = account;
+            //}
+
+            // Trigger login event if you're simulating async
+            //loginEventSet = true;  // your own flag, or QWaitCondition::wakeAll()
+
+            // Notify UI
+            /*if (onAccountUpdate) {
+                QVariantList accountList;
+                for (const auto& acc : accounts) {
+                    QVariantMap accMap;
+                    accMap["account_id"] = QString::fromStdString(acc.account_id());
+                    accMap["description"] = QString::fromStdString(acc.description());
+                    accountList.append(accMap);
+                }
+
+                QVariantMap payload;
+                payload["type"] = "accounts";
+                payload["accounts"] = accountList;
+
+                onAccountUpdate(payload);
+            }*/
+        }
+        else {
+            qDebug() << "Login failed";
+        }
+	}
     void Client::onBinaryMessageReceived(const QByteArray& message) {
         qDebug() << "[binary] Received message, size:" << message.size();
 
@@ -164,18 +213,13 @@ Client::Client(QObject* parent)
         t4proto::v1::service::ServerMessage serverMsg;
         if (serverMsg.ParseFromArray(message.data(), message.size())) {
             qDebug() << "Parsed message of type:" << QString::fromStdString(serverMsg.GetTypeName());
-
+            qDebug() << serverMsg.has_login_response();
             if (serverMsg.has_login_response()) {
-                qDebug() << "Login response received!";
-            }
-            else {
-                qDebug() << "Received another type of ServerMessage.";
+                qDebug() << "test";
+				handleLoginResponse(serverMsg.login_response());
             }
         }
-        else {
-            qDebug() << "Failed to parse protobuf from binary.";
-        }
-        qDebug() << message;
+
     }
 
 

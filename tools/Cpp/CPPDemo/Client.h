@@ -9,7 +9,9 @@ using t4proto::v1::auth::LoginRequest;
 #include <map>
 #include <string>
 #include <iostream>
-
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonValue>
 
 //object called client inheriting from Qobject (required to use signals and slots))
 class Client : public QObject {
@@ -25,6 +27,7 @@ class Client : public QObject {
         void sendMessage(const std::string& message);
         void handleOpen();
         void authenticate();
+		void handleLoginResponse(const t4proto::v1::auth::LoginResponse& response);
         /*ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);*/
     signals: // can emit signals to notify other parts of the application
         void connected();
@@ -55,6 +58,30 @@ class Client : public QObject {
         QString mdExchangeId;
         QString mdContractId;
         int priceFormat = 0;
+
+        QString jwtToken;
+        QDateTime jwtExpiration;
+        QString pendingTokenRequest;
+        QMap<QString, std::function<void(bool)>> tokenResolvers; // requestID -> callback
+
+        // Account and connection state
+            // raw response or parsed object
+        QMap<QString, QJsonObject> accounts;
+        QString selectedAccount;
+        std::function<void(QJsonObject)> onAccountUpdate;
+        t4proto::v1::auth::LoginResponse loginResponse;
+        // Market data
+        QString currentMarketId;
+        QString currentSubscription;
+        QMap<QString, QJsonObject> marketDetails;
+        QMap<QString, QJsonObject> marketSnapshots;
+        QJsonObject marketUpdate;
+        QJsonObject marketHeaderUpdate;
+        std::function<void()> onMarketSwitch;
+
+        // Orders and positions
+        QMap<QString, QJsonObject> orders;
+        QMap<QString, QJsonObject> positions;
 };
 
 #endif // CLIENT_H
