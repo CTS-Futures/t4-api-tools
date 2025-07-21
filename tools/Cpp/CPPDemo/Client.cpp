@@ -203,13 +203,11 @@ Client::Client(QObject* parent)
             }
 
             // Store accounts
-            //accounts.clear();
-            //for (const auto& account : message.accounts()) {
-            //    accounts[QString::fromStdString(account.account_id())] = account;
-            //}
+            accounts.clear();
+            for (const auto& account : message.accounts()) {
+                accounts[QString::fromStdString(account.account_id())] = account;
+            }
 
-            // Trigger login event if you're simulating async
-            //loginEventSet = true;  // your own flag, or QWaitCondition::wakeAll()
 
             // Notify UI
             /*if (onAccountUpdate) {
@@ -316,5 +314,41 @@ Client::Client(QObject* parent)
             qDebug() << "[error] Failed to parse ServerMessage.";
         }
     }  
+    
+        void Client::subscribeAccount(const QString& accountId) {
+            //if an account is already selected then we can skip
+            if (selectedAccount == accountId) {
+                return;
+            }
 
+            //unsubscribe from the account
+            if (!selectedAccount.isEmpty()) {
+                AccountSubscribe unsubscribe;
+				
+                unsubscribe.set_subscribe(t4proto::v1::common::ACCOUNT_SUBSCRIBE_TYPE_NONE);
+                unsubscribe.set_subscribe_all_accounts(false);
+                unsubscribe.add_account_id(selectedAccount.toStdString());
+                unsubscribe.set_upl_mode(t4proto::v1::common::UPL_MODE_NONE);
 
+				ClientMessage unsubscribeMessage;
+                unsubscribeMessage.mutable_account_subscribe()->CopyFrom(unsubscribe);
+                std::string serializedUnsubscribe = unsubscribeMessage.SerializeAsString();
+                sendMessage(serializedUnsubscribe);
+				qDebug() << "Unsubscribed from account:" << selectedAccount;
+
+            }
+
+			selectedAccount = accountId; //set the selected account
+
+            AccountSubscribe subscribe;
+            subscribe.set_subscribe(t4proto::v1::common::ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES);
+            subscribe.set_subscribe_all_accounts(false);
+            subscribe.add_account_id(accountId.toStdString());
+			subscribe.set_upl_mode(t4proto::v1::common::UPL_MODE_AVERAGE);
+            ClientMessage subscribeMessage;
+            subscribeMessage.mutable_account_subscribe()->CopyFrom(subscribe);
+            std::string serializedSubscribe = subscribeMessage.SerializeAsString();
+			sendMessage(serializedSubscribe);
+			qDebug() << "Subscribing to account:" << accountId;
+
+    }

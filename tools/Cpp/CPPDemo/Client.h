@@ -4,6 +4,11 @@
 using t4proto::v1::service::ClientMessage;
 #include "t4/v1/auth/auth.pb.h"
 using t4proto::v1::auth::LoginRequest;
+#include "t4/v1/account/account.pb.h"
+using t4proto::v1::account::AccountSubscribe;
+
+#include "t4/v1/common/enums.pb.h"
+using t4proto::v1::common::AccountSubscribeType_descriptor;
 #include <QObject> //signals and slots
 #include <QWebSocket>
 #include <map>
@@ -28,13 +33,15 @@ class Client : public QObject {
         void handleOpen();
         void authenticate();
 		void handleLoginResponse(const t4proto::v1::auth::LoginResponse& response);
+    
         /*ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);*/
-    signals: // can emit signals to notify other parts of the application
+    signals: // can emit signals to notify other parts of the application 
         void connected();
         void disconnected();
         void messageReceived(QString message);
     public slots:
         void connectToServer();
+        void subscribeAccount(const QString& accountId);
     private slots:
         void onConnected();
         void onBinaryMessageReceived(const QByteArray& message);
@@ -54,7 +61,7 @@ class Client : public QObject {
         QString password;
         QString appName;
         QString appLicense;
-
+        
         // Market data config
         QString mdExchangeId;
         QString mdContractId;
@@ -67,7 +74,7 @@ class Client : public QObject {
 
         // Account and connection state
             // raw response or parsed object
-        QMap<QString, QJsonObject> accounts;
+        QMap<QString, t4proto::v1::auth::LoginResponse_Account> accounts;
         QString selectedAccount;
         std::function<void(QJsonObject)> onAccountUpdate;
         t4proto::v1::auth::LoginResponse loginResponse;
