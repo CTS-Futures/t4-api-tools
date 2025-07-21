@@ -130,6 +130,25 @@ Client::Client(QObject* parent)
 		qDebug() << "WebSocket opening...";
         
 	}
+    void Client::sendHeartbeat() {
+        try {
+            qint64 timestampMs = QDateTime::currentDateTimeUtc().toMSecsSinceEpoch();
+
+            // Create protobuf message
+            t4proto::v1::service::ClientMessage msg;
+            auto* heartbeat = msg.mutable_heartbeat();
+            heartbeat->set_timestamp(timestampMs);  // assuming .timestamp is int64
+
+            // Serialize and send
+            std::string serialized = msg.SerializeAsString();
+            sendMessage(serialized);
+
+            qDebug() << "Heartbeat sent at timestamp:" << timestampMs;
+        }
+        catch (const std::exception& e) {
+            qWarning() << "Failed to send heartbeat:" << e.what();
+        }
+    }
 
     void Client::authenticate() {
 		//sets the authentication request with the credentials loaded from the config file
@@ -160,6 +179,13 @@ Client::Client(QObject* parent)
         // Check for result code 0 = success
         if (message.result() == 0) {
             loginResponse.CopyFrom(message);  // If you want to store it
+            //start heartbeat timer
+            if (!heartbeatTimer) {
+                heartbeatTimer = new QTimer(this);
+                connect(heartbeatTimer, &QTimer::timeout, this, &Client::sendHeartbeat);
+                heartbeatTimer->start(20 * 1000);  // Every 20 seconds
+                qDebug() << "[heartbeat] Timer started";
+            }
 
             // Store JWT token if available
             if (message.has_authentication_token()) {
@@ -210,16 +236,85 @@ Client::Client(QObject* parent)
         qDebug() << "[binary] Received message, size:" << message.size();
 
         // Attempt to decode the protobuf response
-        t4proto::v1::service::ServerMessage serverMsg;
-        if (serverMsg.ParseFromArray(message.data(), message.size())) {
-            qDebug() << "Parsed message of type:" << QString::fromStdString(serverMsg.GetTypeName());
-            qDebug() << serverMsg.has_login_response();
-            if (serverMsg.has_login_response()) {
-                qDebug() << "test";
-				handleLoginResponse(serverMsg.login_response());
+        t4proto::v1::service::ServerMessage msg;
+        if (msg.ParseFromArray(message.data(), message.size())) {
+
+
+            if (msg.has_login_response()) {
+                handleLoginResponse(msg.login_response());
+            }
+            else if (msg.has_authentication_token()) {
+                qDebug() << "[authentication_token]\n"
+                    << QString::fromStdString(msg.authentication_token().DebugString());
+
+            }
+            else if (msg.has_account_subscribe_response()) {
+                qDebug() << "[account_subscribe_response]\n"
+                    << QString::fromStdString(msg.account_subscribe_response().DebugString());
+
+            }
+            else if (msg.has_account_update()) {
+                qDebug() << "[account_update]\n"
+                    << QString::fromStdString(msg.account_update().DebugString());
+
+            }
+            else if (msg.has_account_snapshot()) {
+                qDebug() << "[account_snapshot]\n"
+                    << QString::fromStdString(msg.account_snapshot().DebugString());
+
+            }
+            else if (msg.has_account_position()) {
+                qDebug() << "[account_position]\n"
+                    << QString::fromStdString(msg.account_position().DebugString());
+
+            }
+            else if (msg.has_market_details()) {
+                qDebug() << "[market_details]\n"
+                    << QString::fromStdString(msg.market_details().DebugString());
+
+            }
+            else if (msg.has_market_snapshot()) {
+                qDebug() << "[market_snapshot]\n"
+                    << QString::fromStdString(msg.market_snapshot().DebugString());
+
+            }
+            else if (msg.has_account_profit()) {
+                qDebug() << "[account_profit]\n"
+                    << QString::fromStdString(msg.account_profit().DebugString());
+
+            }
+            else if (msg.has_account_position_profit()) {
+                qDebug() << "[account_position_profit]\n"
+                    << QString::fromStdString(msg.account_position_profit().DebugString());
+
+            }
+            else if (msg.has_market_depth()) {
+                qDebug() << "[market_depth]\n"
+                    << QString::fromStdString(msg.market_depth().DebugString());
+
+            }
+            else if (msg.has_order_update_multi()) {
+                qDebug() << "[order_update_multi]\n"
+                    << QString::fromStdString(msg.order_update_multi().DebugString());
+
+            }
+            else if (msg.has_order_update()) {
+                qDebug() << "[order_update]\n"
+                    << QString::fromStdString(msg.order_update().DebugString());
+
+            }
+            else if (msg.has_heartbeat()) {
+                qDebug() << "heart beat received";
+            }
+            else {
+                qDebug() << "[unknown message type]";
+                qDebug() << "Full message dump:\n"
+                    << QString::fromStdString(msg.DebugString());
             }
         }
-
-    }
+        else {
+            qDebug() << "[error] Failed to parse ServerMessage.";
+        }
+    }  
 
 

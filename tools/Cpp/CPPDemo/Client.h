@@ -12,7 +12,7 @@ using t4proto::v1::auth::LoginRequest;
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonValue>
-
+#include <QTimer>
 //object called client inheriting from Qobject (required to use signals and slots))
 class Client : public QObject {
     Q_OBJECT
@@ -38,6 +38,7 @@ class Client : public QObject {
     private slots:
         void onConnected();
         void onBinaryMessageReceived(const QByteArray& message);
+        void sendHeartbeat();
 
     private:
         QWebSocket socket;
@@ -46,7 +47,7 @@ class Client : public QObject {
         // Connection info
         QUrl websocketUrl;
         QUrl apiUrl;
-
+        QTimer* heartbeatTimer = nullptr;
         // Credentials
         QString firm;
         QString username;
