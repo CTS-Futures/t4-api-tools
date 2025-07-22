@@ -70,7 +70,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>C:\Qt\6.9.1\msvc2022_64\include; C:\Qt\6.9.1\msvc2022_64\include\QtWebSockets; </AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Qt\6.9.1\msvc2022_64\include\QtNetworkAuth; C:\Qt\6.9.1\msvc2022_64\include\QtNetwork; C:\Qt\6.9.1\msvc2022_64\include; C:\Qt\6.9.1\msvc2022_64\include\QtWebSockets; </AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>C:\Qt\6.9.1\msvc2022_64\lib</AdditionalLibraryDirectories>

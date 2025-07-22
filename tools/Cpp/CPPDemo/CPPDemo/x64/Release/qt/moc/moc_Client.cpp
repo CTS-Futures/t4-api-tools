@@ -42,11 +42,16 @@ template <> constexpr inline auto Client::qt_create_metaobjectdata<qt_meta_tag_Z
         "connected",
         "",
         "disconnected",
-        "messageReceived",
-        "message",
+        "accountsUpdated",
+        "tokenRefreshed",
         "connectToServer",
+        "subscribeAccount",
+        "accountId",
         "onConnected",
-        "onBinaryMessageReceived"
+        "onDisconnected",
+        "onBinaryMessageReceived",
+        "message",
+        "sendHeartbeat"
     };
 
     QtMocHelpers::UintData qt_methods {
@@ -54,18 +59,26 @@ template <> constexpr inline auto Client::qt_create_metaobjectdata<qt_meta_tag_Z
         QtMocHelpers::SignalData<void()>(1, 2, QMC::AccessPublic, QMetaType::Void),
         // Signal 'disconnected'
         QtMocHelpers::SignalData<void()>(3, 2, QMC::AccessPublic, QMetaType::Void),
-        // Signal 'messageReceived'
-        QtMocHelpers::SignalData<void(QString)>(4, 2, QMC::AccessPublic, QMetaType::Void, {{
-            { QMetaType::QString, 5 },
-        }}),
+        // Signal 'accountsUpdated'
+        QtMocHelpers::SignalData<void()>(4, 2, QMC::AccessPublic, QMetaType::Void),
+        // Signal 'tokenRefreshed'
+        QtMocHelpers::SignalData<void()>(5, 2, QMC::AccessPublic, QMetaType::Void),
         // Slot 'connectToServer'
         QtMocHelpers::SlotData<void()>(6, 2, QMC::AccessPublic, QMetaType::Void),
-        // Slot 'onConnected'
-        QtMocHelpers::SlotData<void()>(7, 2, QMC::AccessPrivate, QMetaType::Void),
-        // Slot 'onBinaryMessageReceived'
-        QtMocHelpers::SlotData<void(const QByteArray &)>(8, 2, QMC::AccessPrivate, QMetaType::Void, {{
-            { QMetaType::QByteArray, 5 },
+        // Slot 'subscribeAccount'
+        QtMocHelpers::SlotData<void(const QString &)>(7, 2, QMC::AccessPublic, QMetaType::Void, {{
+            { QMetaType::QString, 8 },
         }}),
+        // Slot 'onConnected'
+        QtMocHelpers::SlotData<void()>(9, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'onDisconnected'
+        QtMocHelpers::SlotData<void()>(10, 2, QMC::AccessPrivate, QMetaType::Void),
+        // Slot 'onBinaryMessageReceived'
+        QtMocHelpers::SlotData<void(const QByteArray &)>(11, 2, QMC::AccessPrivate, QMetaType::Void, {{
+            { QMetaType::QByteArray, 12 },
+        }}),
+        // Slot 'sendHeartbeat'
+        QtMocHelpers::SlotData<void()>(13, 2, QMC::AccessPrivate, QMetaType::Void),
     };
     QtMocHelpers::UintData qt_properties {
     };
@@ -91,10 +104,14 @@ void Client::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void
         switch (_id) {
         case 0: _t->connected(); break;
         case 1: _t->disconnected(); break;
-        case 2: _t->messageReceived((*reinterpret_cast< std::add_pointer_t<QString>>(_a[1]))); break;
-        case 3: _t->connectToServer(); break;
-        case 4: _t->onConnected(); break;
-        case 5: _t->onBinaryMessageReceived((*reinterpret_cast< std::add_pointer_t<QByteArray>>(_a[1]))); break;
+        case 2: _t->accountsUpdated(); break;
+        case 3: _t->tokenRefreshed(); break;
+        case 4: _t->connectToServer(); break;
+        case 5: _t->subscribeAccount((*reinterpret_cast< std::add_pointer_t<QString>>(_a[1]))); break;
+        case 6: _t->onConnected(); break;
+        case 7: _t->onDisconnected(); break;
+        case 8: _t->onBinaryMessageReceived((*reinterpret_cast< std::add_pointer_t<QByteArray>>(_a[1]))); break;
+        case 9: _t->sendHeartbeat(); break;
         default: ;
         }
     }
@@ -103,7 +120,9 @@ void Client::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void
             return;
         if (QtMocHelpers::indexOfMethod<void (Client::*)()>(_a, &Client::disconnected, 1))
             return;
-        if (QtMocHelpers::indexOfMethod<void (Client::*)(QString )>(_a, &Client::messageReceived, 2))
+        if (QtMocHelpers::indexOfMethod<void (Client::*)()>(_a, &Client::accountsUpdated, 2))
+            return;
+        if (QtMocHelpers::indexOfMethod<void (Client::*)()>(_a, &Client::tokenRefreshed, 3))
             return;
     }
 }
@@ -127,14 +146,14 @@ int Client::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 6)
+        if (_id < 10)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 6;
+        _id -= 10;
     }
     if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 6)
+        if (_id < 10)
             *reinterpret_cast<QMetaType *>(_a[0]) = QMetaType();
-        _id -= 6;
+        _id -= 10;
     }
     return _id;
 }
@@ -152,8 +171,14 @@ void Client::disconnected()
 }
 
 // SIGNAL 2
-void Client::messageReceived(QString _t1)
+void Client::accountsUpdated()
 {
-    QMetaObject::activate<void>(this, &staticMetaObject, 2, nullptr, _t1);
+    QMetaObject::activate(this, &staticMetaObject, 2, nullptr);
+}
+
+// SIGNAL 3
+void Client::tokenRefreshed()
+{
+    QMetaObject::activate(this, &staticMetaObject, 3, nullptr);
 }
 QT_WARNING_POP
