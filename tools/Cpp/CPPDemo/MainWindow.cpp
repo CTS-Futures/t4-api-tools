@@ -9,7 +9,7 @@ MainWindow::MainWindow(QWidget* parent)
     //connects signals to slots or functions
     connect(client, &Client::accountsUpdated, this, &MainWindow::populateAccounts);//signal from clients, called accountsUpdated, will use a in this current object and invoke populateAccounts
     connect(accountDropdown, &QComboBox::currentTextChanged,this, &MainWindow::onAccountSelected);//signal from the accoutn dropdown, when text is changed, will invoke onAccountSelected
- 
+	connect(client, &Client::disconnected, this, &MainWindow::onDisconnectClicked); //signal from client when disconnected, will invoke onDisconnectClicked
 }
 
 MainWindow::~MainWindow() {}
@@ -159,4 +159,12 @@ void MainWindow::onAccountSelected(const QString& text) {
         client->subscribeAccount(accountId);
     }
 
+}
+
+void MainWindow::onDisconnectClicked() {
+	accountDropdown->clear(); //clears the account dropdown
+    accountDropdown->addItem("Select Account..."); //adds the default item back
+	qDebug() << "Disconnected from server, accounts cleared.";
+
+	//TODO: clear the market data, positions, orders, etc.
 }

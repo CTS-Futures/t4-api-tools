@@ -24,6 +24,7 @@ class MainWindow : public QMainWindow {
     private slots:
         void populateAccounts();
         void onAccountSelected(const QString& text);
+		void onDisconnectClicked();
     private:
         
         QComboBox* accountDropdown;
