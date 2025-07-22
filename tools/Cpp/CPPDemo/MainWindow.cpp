@@ -229,6 +229,10 @@ void MainWindow::onAccountSelected(const QString& text) {
 void MainWindow::onDisconnectClicked() {
 	accountDropdown->clear(); //clears the account dropdown
     accountDropdown->addItem("Select Account..."); //adds the default item back
+	marketGroup->setTitle("Market Data - (...)"); //resets the market group title
+	bestBidLabel->setText("-");
+	bestOfferLabel->setText("-");
+	lastTradeLabel->setText("-");
 	qDebug() << "Disconnected from server, accounts cleared.";
 
 	//TODO: clear the market data, positions, orders, etc.
