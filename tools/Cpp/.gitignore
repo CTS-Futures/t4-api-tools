@@ -7,8 +7,18 @@ CPPDemo/config/config.json
 *.exe
 *.recipe
 *.lastbuildstate
+*.dll
+*.idb
+*.suo
+*.sdf
+*.VC.db
+*.tlog
 x64/
 CPPDemo/x64/
-CPPDemo/Debug/
-CPPDemo/Release/
+CPPDemo/CPPDemo/Debug
+CPPDemo/CPPDemo/Release
+
 *.vcxproj.user
+
+# Code analysis
+*LastCodeAnalysisSucceeded*
