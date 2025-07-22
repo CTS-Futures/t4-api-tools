@@ -17,6 +17,7 @@ Client::Client(QObject* parent)
     connect(&socket, &QWebSocket::connected, this, &Client::onConnected);
     connect(&socket, &QWebSocket::disconnected, this, &Client::onDisconnected);
     connect(&socket, &QWebSocket::binaryMessageReceived, this, &Client::onBinaryMessageReceived);
+	connect(this, &Client::authenticated, this, &Client::onAuthenticated);
 }
         //LOAD CONFIGURATION FROM JSON FILE
     bool Client::loadConfig(const QString & path) {
@@ -123,12 +124,14 @@ Client::Client(QObject* parent)
 		//send the message to the server
 		sendMessage(serialized_message);
 		qDebug() << serialized_message;
+        
 
 	}
     void Client::onConnected() {
         qDebug() << "WebSocket connected!";
         authenticate();
-        emit connected();
+       emit connected();
+       
         
     }
 
@@ -144,7 +147,7 @@ Client::Client(QObject* parent)
             qDebug() << "[heartbeat] Timer stopped";
 
         }
-        emit disconnected();
+         emit disconnected();
 
 	}
     void Client::handleLoginResponse(const t4proto::v1::auth::LoginResponse& message) {
@@ -198,13 +201,125 @@ Client::Client(QObject* parent)
 
                 onAccountUpdate(payload);
             }*/
+            emit authenticated();
         }
         else {
             qDebug() << "Login failed";
         }
 	}
+    void Client::handleMarketDetails(const t4proto::v1::market::MarketDetails& detail) {
+        // Handle the market details
+        qDebug() << "[market_details] Received market details for market ID:"
+                 << QString::fromStdString(detail.market_id());
+		// store data
+		marketDetails[QString::fromStdString(detail.market_id())] = detail;
+
+	}
+    void Client::handleMarketSnapshot(const t4proto::v1::market::MarketSnapshot& snapshot) {
+        // Handle the market snapshot
+        qDebug() << "[market_snapshot] Received market snapshot for market ID:"
+                 << QString::fromStdString(snapshot.market_id());
+        // Process the snapshot data as needed
+        // For example, you can emit a signal with the snapshot data
+   /*     emit marketSnapshotReceived(snapshot);*/
+
+        for (const auto& msg : snapshot.messages()) {
+            if (msg.has_market_settlement()) {
+                continue;  // Skip market settlement messages
+            }
+            else if (msg.has_market_depth()) {
+                handleMarketDepth(msg.market_depth());
+            }
+        }
+        
+        QString marketId = QString::fromStdString(snapshot.market_id());
+  // Ensure marketDetails is initialized for this market
+        
+        if (marketDetails.contains(marketId)) {
+            const auto& details = marketDetails[marketId];
+           
+            if (!details.contract_id().empty() && details.expiry_date() > 0) {
+                QString formattedExpiry = QString::number(details.expiry_date());
+                updateMarketHeader(QString::fromStdString(details.contract_id()), formattedExpiry);
+            }
+        }
+	}
+
+    void Client::handleMarketDepth(const t4proto::v1::market::MarketDepth& depth) {
+        // Handle the market depth
+		marketSnapshots[QString::fromStdString(depth.market_id())] = depth;
+
+		const auto& detail = marketDetails.value(QString::fromStdString(depth.market_id()));
+
+        QString bestBid = "-";
+        if (depth.bids_size() > 0) {
+            const auto& bid = depth.bids(0);
+            double bidPrice = QString::fromStdString(bid.price().value()).toDouble();
+            int bidVolume =bid.volume();
+
+            QString priceStr = QString::number(bidPrice, 'f', priceFormat);
+            QString volumeStr = QString::number(bidVolume);
+            bestBid = volumeStr + "@" + priceStr;
+        }
+
+        QString bestOffer = "-";
+        if (depth.offers_size() > 0) {
+            const auto& offer = depth.offers(0);
+            double offerPrice = QString::fromStdString(offer.price().value()).toDouble();
+            int offerVolume =offer.volume();
+
+            QString priceStr = QString::number(offerPrice, 'f', priceFormat);
+            QString volumeStr = QString::number(offerVolume);
+            bestOffer = volumeStr + "@" + priceStr;
+        }
+
+        QString lastTrade = "-";
+        if (depth.has_trade_data() && depth.trade_data().has_last_trade_price()) {
+            double lastPrice = QString::fromStdString(depth.trade_data().last_trade_price().value()).toDouble();
+            int lastVolume = depth.trade_data().last_trade_volume();
+
+            QString priceStr = QString::number(lastPrice, 'f', priceFormat);
+            QString volumeStr = QString::number(lastVolume);
+            lastTrade = volumeStr + "@" + priceStr;
+        }
+
+        qDebug() << "[handleMarketDepth] Emitting UI update:" << bestBid << bestOffer << lastTrade;
+
+        emit updateMarketTable(
+            QString::fromStdString(detail.exchange_id()),
+            QString::fromStdString(detail.contract_id()),
+            QString::fromStdString(depth.market_id()),
+            bestBid,
+            bestOffer,
+            lastTrade
+        );
+	}
+    void Client::updateMarketHeader(const QString& contractId, QString& expiryDate) {
+        // Emit a signal to update the market header
+        QString expiryShort;
+
+        //exracts the firs t6 diftis from the expirty date 
+        expiryShort = expiryDate.left(6);  // Take first 6 digits
+        
+        QString displayText = contractId;
+
+        if (expiryShort.length() == 6) {
+            QString year = expiryShort.mid(2, 2);  // Last two digits of year
+            QString month = expiryShort.mid(4, 2); // Month
+
+            QMap<QString, QString> monthCodes = {
+                {"01", "F"}, {"02", "G"}, {"03", "H"}, {"04", "J"}, {"05", "K"}, {"06", "M"},
+                {"07", "N"}, {"08", "Q"}, {"09", "U"}, {"10", "V"}, {"11", "X"}, {"12", "Z"}
+            };
+
+            QString monthCode = monthCodes.value(month, month);
+            displayText += monthCode + year;
+        }
+        //sends signal
+		emit marketHeaderUpdate(displayText);
+	}
     void Client::onBinaryMessageReceived(const QByteArray& message) {
-        qDebug() << "[binary] Received message, size:" << message.size();
+      //  qDebug() << "[binary] Received message, size:" << message.size();
 
         // Attempt to decode the protobuf response
         t4proto::v1::service::ServerMessage msg;
@@ -230,7 +345,7 @@ Client::Client(QObject* parent)
                     << QString::fromStdString(msg.account_subscribe_response().DebugString());
 
             }
-            else if (msg.has_account_update()) {
+            /*else if (msg.has_account_update()) {
                 qDebug() << "[account_update]\n"
                     << QString::fromStdString(msg.account_update().DebugString());
 
@@ -244,18 +359,17 @@ Client::Client(QObject* parent)
                 qDebug() << "[account_position]\n"
                     << QString::fromStdString(msg.account_position().DebugString());
 
-            }
+            }*/
             else if (msg.has_market_details()) {
                 qDebug() << "[market_details]\n"
                     << QString::fromStdString(msg.market_details().DebugString());
 
             }
             else if (msg.has_market_snapshot()) {
-                qDebug() << "[market_snapshot]\n"
-                    << QString::fromStdString(msg.market_snapshot().DebugString());
+				handleMarketSnapshot(msg.market_snapshot());
 
             }
-            else if (msg.has_account_profit()) {
+           /* else if (msg.has_account_profit()) {
                 qDebug() << "[account_profit]\n"
                     << QString::fromStdString(msg.account_profit().DebugString());
 
@@ -264,10 +378,11 @@ Client::Client(QObject* parent)
                 qDebug() << "[account_position_profit]\n"
                     << QString::fromStdString(msg.account_position_profit().DebugString());
 
-            }
+            }*/
             else if (msg.has_market_depth()) {
                 qDebug() << "[market_depth]\n"
-                    << QString::fromStdString(msg.market_depth().DebugString());
+					<< QString::fromStdString(msg.market_depth().DebugString());
+				handleMarketDepth(msg.market_depth());
 
             }
             else if (msg.has_order_update_multi()) {
@@ -283,11 +398,11 @@ Client::Client(QObject* parent)
             else if (msg.has_heartbeat()) {
                 qDebug() << "heart beat received";
             }
-            else {
-                qDebug() << "[unknown message type]";
-                qDebug() << "Full message dump:\n"
-                    << QString::fromStdString(msg.DebugString());
-            }
+            //else {
+            //    qDebug() << "[unknown message type]";
+            //    qDebug() << "Full message dump:\n"
+            //        << QString::fromStdString(msg.DebugString());
+            //}
         }
         else {
             qDebug() << "[error] Failed to parse ServerMessage.";
@@ -379,7 +494,7 @@ Client::Client(QObject* parent)
             qDebug() << "token invalid";
             return QString();
         }
-        QUrl url = apiUrl.path() + "/markets/picker/firstmarket";
+        QUrl url = apiUrl.resolved(QUrl("/markets/picker/firstmarket"));
 
         QUrlQuery query;
         query.addQueryItem("exchangeid", exchangeId);
@@ -418,3 +533,68 @@ Client::Client(QObject* parent)
         qDebug() << "[market_id] Resolved market ID:" << marketId;
         return marketId;
     }
+
+    void Client::subscribeMarket(const QString& exchangeId, const QString& contractId, const QString& marketId) {
+        
+        if (exchangeId.isEmpty() || contractId.isEmpty() || marketId.isEmpty()) {
+            qWarning() << "Invalid parameters for market subscription";
+            return;
+        }
+        //emit a signal to change the ui
+		//would just have to change the header of the market table
+		//turn everything empty briefly before subscribing to the new market
+
+		//emit marketUpdated(exchangeId, contractId, marketId);
+        
+		//ensures we're not subscribing to the same market multiple times
+        QString key = exchangeId + "_" + contractId + "_" + marketId;
+
+        if (_latestRequestKey == key) {
+            qDebug() << "[subscribe_market] Duplicate request, skipping\n";
+            return;
+        }
+		//unsubscribe from the previous market if it exists
+        if (!_latestRequestKey.isEmpty()) {
+            MarketDepthSubscribe unsubscribe;
+            unsubscribe.set_exchange_id(_latestRequestKey.section('_', 0, 0).toStdString());
+            unsubscribe.set_contract_id(_latestRequestKey.section('_', 1, 1).toStdString());
+            unsubscribe.set_market_id(_latestRequestKey.section('_', 2, 2).toStdString());
+            unsubscribe.set_buffer(t4proto::v1::common::DEPTH_BUFFER_NO_SUBSCRIPTION);
+            unsubscribe.set_depth_levels(t4proto::v1::common::DEPTH_LEVELS_UNDEFINED);
+            ClientMessage unsubscribeMessage;
+            unsubscribeMessage.mutable_market_depth_subscribe()->CopyFrom(unsubscribe);
+            std::string serializedUnsubscribe = unsubscribeMessage.SerializeAsString();
+            sendMessage(serializedUnsubscribe);
+            qDebug() << "[subscribe_market] Unsubscribed from previous market:";
+
+        }
+
+		_latestRequestKey = key;  // Update the latest request key
+        mdExchangeId = exchangeId;
+        mdContractId = contractId;
+		currentMarketId = marketId;
+
+        //subscribes to the market depth
+		MarketDepthSubscribe subscribe;
+		subscribe.set_exchange_id(exchangeId.toStdString());
+		subscribe.set_contract_id(contractId.toStdString());
+		subscribe.set_market_id(marketId.toStdString());
+		subscribe.set_buffer(t4proto::v1::common::DEPTH_BUFFER_SMART);
+		subscribe.set_depth_levels(t4proto::v1::common::DEPTH_LEVELS_BEST_ONLY);
+
+        ClientMessage subscribeMessage;
+		subscribeMessage.mutable_market_depth_subscribe()->CopyFrom(subscribe);
+		std::string serializedSubscribe = subscribeMessage.SerializeAsString();
+		sendMessage(serializedSubscribe);
+
+        qDebug() << "[subscribe_market] Subscribed to market:" 
+			<< exchangeId << contractId << marketId;
+	}
+
+    void Client::onAuthenticated() {
+        qDebug() << "Client authenticated successfully!";
+		QString marketId = getMarketId(mdExchangeId, mdContractId);
+		subscribeMarket(mdExchangeId, mdContractId, marketId);
+
+	}
+

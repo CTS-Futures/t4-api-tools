@@ -10,6 +10,8 @@ MainWindow::MainWindow(QWidget* parent)
     connect(client, &Client::accountsUpdated, this, &MainWindow::populateAccounts);//signal from clients, called accountsUpdated, will use a in this current object and invoke populateAccounts
     connect(accountDropdown, &QComboBox::currentTextChanged,this, &MainWindow::onAccountSelected);//signal from the accoutn dropdown, when text is changed, will invoke onAccountSelected
 	connect(client, &Client::disconnected, this, &MainWindow::onDisconnectClicked); //signal from client when disconnected, will invoke onDisconnectClicked
+    connect(client, &Client::updateMarketTable, this, &MainWindow::MarketTableUpdate);
+
 }
 
 MainWindow::~MainWindow() {}
@@ -49,15 +51,38 @@ void MainWindow::setupUi() {
     gridLayout->setSpacing(16);
 
     // Market Data Group
+    //QGroupBox* marketGroup = new QGroupBox("Market Data - (...)");
+    //QGridLayout* marketLayout = new QGridLayout();
+    //marketLayout->addWidget(new QLabel("Best Bid"), 0, 0);
+    //bestBidLabel = new QLabel("-");
+    //marketLayout->addWidget(bestBidLabel, 1, 0);
+
+    //marketLayout->addWidget(new QLabel("Best Offer"), 0, 1);
+    //bestOfferLabel = new QLabel("-");
+    //marketLayout->addWidget(bestOfferLabel, 1, 1);
+
+    //marketLayout->addWidget(new QLabel("Last Trade"), 0, 2);
+    //lastTradeLabel = new QLabel("-");
+    //marketLayout->addWidget(lastTradeLabel, 1, 2);
+    //marketGroup->setLayout(marketLayout);
     QGroupBox* marketGroup = new QGroupBox("Market Data - (...)");
     QGridLayout* marketLayout = new QGridLayout();
+
     marketLayout->addWidget(new QLabel("Best Bid"), 0, 0);
-    marketLayout->addWidget(new QLabel("-"), 1, 0);
+    bestBidLabel = new QLabel("-");
+    marketLayout->addWidget(bestBidLabel, 1, 0);
+
     marketLayout->addWidget(new QLabel("Best Offer"), 0, 1);
-    marketLayout->addWidget(new QLabel("-"), 1, 1);
+    bestOfferLabel = new QLabel("-");
+    marketLayout->addWidget(bestOfferLabel, 1, 1);
+
     marketLayout->addWidget(new QLabel("Last Trade"), 0, 2);
-    marketLayout->addWidget(new QLabel("-"), 1, 2);
+    lastTradeLabel = new QLabel("-");
+    marketLayout->addWidget(lastTradeLabel, 1, 2);
+
     marketGroup->setLayout(marketLayout);
+
+
 
     // Submit Order Group
     QGroupBox* submitGroup = new QGroupBox("Submit Order");
@@ -167,4 +192,10 @@ void MainWindow::onDisconnectClicked() {
 	qDebug() << "Disconnected from server, accounts cleared.";
 
 	//TODO: clear the market data, positions, orders, etc.
+}
+
+void MainWindow::MarketTableUpdate(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade) {
+    bestBidLabel->setText(bestBid);
+    bestOfferLabel->setText(bestOffer);
+    lastTradeLabel->setText(lastTrade);
 }

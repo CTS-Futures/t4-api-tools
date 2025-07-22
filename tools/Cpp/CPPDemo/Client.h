@@ -11,7 +11,8 @@ using t4proto::v1::account::AccountSubscribe;
 #include "t4/v1/common/enums.pb.h"
 using t4proto::v1::common::AccountSubscribeType_descriptor;
 
-
+#include "t4/v1/market/market.pb.h"
+using t4proto::v1::market::MarketDepthSubscribe;
 #include <QObject> //signals and slots
 #include <QWebSocket>
 #include <map>
@@ -45,18 +46,29 @@ class Client : public QObject {
         void handleOpen();
         void authenticate();
 		void handleLoginResponse(const t4proto::v1::auth::LoginResponse& response);
+		void handleMarketSnapshot(const t4proto::v1::market::MarketSnapshot& snapshot);
+		void handleMarketDetails(const t4proto::v1::market::MarketDetails& detail);
+        void handleMarketDepth(const t4proto::v1::market::MarketDepth& depth);
+		void updateMarketHeader(const QString& contractId, QString& expiryDate);
         void refreshToken();
+
         QString getAuthToken();
         QString getMarketId(const QString& exchangeId, const QString& contractId);
         /*ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);*/
     signals: // can emit signals to notify other parts of the application 
         void connected();
         void disconnected();
+        void authenticated();
         void accountsUpdated();
         void tokenRefreshed();
+        void marketHeaderUpdate(QString& displayText);
+		void updateMarketTable(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);
+ //       void marketUpdated(const QString& exchangeId, const QString& contractId, const QString& marketId);
     public slots:
         void connectToServer();
         void subscribeAccount(const QString& accountId);
+        void subscribeMarket(const QString& exchangeId, const QString& contractId, const QString& marketId);
+        void onAuthenticated();
     private slots:
         void onConnected();
 		void onDisconnected();
@@ -81,6 +93,8 @@ class Client : public QObject {
         // Market data config
         QString mdExchangeId;
         QString mdContractId;
+        QString _latestRequestKey;
+
         int priceFormat = 0;
 
         QString jwtToken;
@@ -97,10 +111,10 @@ class Client : public QObject {
         // Market data
         QString currentMarketId;
         QString currentSubscription;
-        QMap<QString, QJsonObject> marketDetails;
-        QMap<QString, QJsonObject> marketSnapshots;
+        QMap<QString, t4proto::v1::market::MarketDetails> marketDetails;
+        QMap<QString, t4proto::v1::market::MarketDepth> marketSnapshots;
         QJsonObject marketUpdate;
-        QJsonObject marketHeaderUpdate;
+      
         std::function<void()> onMarketSwitch;
 
         // Orders and positions

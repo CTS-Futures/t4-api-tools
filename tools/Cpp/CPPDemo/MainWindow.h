@@ -21,6 +21,9 @@ class MainWindow : public QMainWindow {
     public:
         explicit MainWindow(QWidget* parent = nullptr);
         ~MainWindow();
+    public slots:
+        void MarketTableUpdate(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);
+
     private slots:
         void populateAccounts();
         void onAccountSelected(const QString& text);
@@ -28,6 +31,9 @@ class MainWindow : public QMainWindow {
     private:
         
         QComboBox* accountDropdown;
+        QLabel* bestBidLabel;
+        QLabel* bestOfferLabel;
+        QLabel* lastTradeLabel;
         void setupUi();
 		Client* client; // Pointer to the Client object for handling WebSocket communication
        
