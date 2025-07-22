@@ -61,7 +61,7 @@ class Client : public QObject {
         void authenticated();
         void accountsUpdated();
         void tokenRefreshed();
-        void marketHeaderUpdate(QString& displayText);
+        void marketHeaderUpdate(const QString& displayText);
 		void updateMarketTable(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);
  //       void marketUpdated(const QString& exchangeId, const QString& contractId, const QString& marketId);
     public slots:

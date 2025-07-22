@@ -11,6 +11,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(accountDropdown, &QComboBox::currentTextChanged,this, &MainWindow::onAccountSelected);//signal from the accoutn dropdown, when text is changed, will invoke onAccountSelected
 	connect(client, &Client::disconnected, this, &MainWindow::onDisconnectClicked); //signal from client when disconnected, will invoke onDisconnectClicked
     connect(client, &Client::updateMarketTable, this, &MainWindow::MarketTableUpdate);
+	connect(client, &Client::marketHeaderUpdate, this, &MainWindow::onMarketHeaderUpdate);
 
 }
 
@@ -65,7 +66,9 @@ void MainWindow::setupUi() {
     //lastTradeLabel = new QLabel("-");
     //marketLayout->addWidget(lastTradeLabel, 1, 2);
     //marketGroup->setLayout(marketLayout);
-    QGroupBox* marketGroup = new QGroupBox("Market Data - (...)");
+    marketGroup = new QGroupBox("Market Data - (...)");
+    marketGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; color:#ffffff; padding: 4px; }");
+
     QGridLayout* marketLayout = new QGridLayout();
 
     // Font for market values
@@ -182,6 +185,13 @@ void MainWindow::setupUi() {
     central->setLayout(mainLayout);
     setCentralWidget(central);
     setWindowTitle("T4 Qt Trader");
+
+	//additional styling for the groups
+    connectGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; color: #ffffff; padding: 4px; }");
+    submitGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; color: #ffffff; padding: 4px; }");
+    positionsGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; color: #ffffff; padding: 4px; }");
+    ordersGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; color: #ffffff; padding: 4px; }");
+
     resize(1400, 900);
 }
 
@@ -242,4 +252,8 @@ void MainWindow::MarketTableUpdate(const QString& exchangeId, const QString& con
     highlightChange(bestBidLabel, bestBid, QColor("#ccffcc"));     // light green
     highlightChange(bestOfferLabel, bestOffer, QColor("#ffcccc")); // light red
     highlightChange(lastTradeLabel, lastTrade, QColor("#cce5ff")); // light blue
+}
+
+void MainWindow::onMarketHeaderUpdate(const QString& displayText) {
+    marketGroup->setTitle("Market Data - " + displayText);
 }

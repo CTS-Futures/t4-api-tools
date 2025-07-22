@@ -211,6 +211,8 @@ Client::Client(QObject* parent)
         // Handle the market details
         qDebug() << "[market_details] Received market details for market ID:"
                  << QString::fromStdString(detail.market_id());
+        qDebug() << QString::fromStdString(detail.contract_id());
+       // qDebug() << detail.expiry_date();
 		// store data
 		marketDetails[QString::fromStdString(detail.market_id())] = detail;
 
@@ -234,15 +236,13 @@ Client::Client(QObject* parent)
         
         QString marketId = QString::fromStdString(snapshot.market_id());
   // Ensure marketDetails is initialized for this market
-        
-        if (marketDetails.contains(marketId)) {
-            const auto& details = marketDetails[marketId];
-           
-            if (!details.contract_id().empty() && details.expiry_date() > 0) {
-                QString formattedExpiry = QString::number(details.expiry_date());
-                updateMarketHeader(QString::fromStdString(details.contract_id()), formattedExpiry);
-            }
-        }
+        const auto& details = marketDetails[marketId];
+        qDebug() << "[snapshot] contract_id:" << QString::fromStdString(details.contract_id());
+        qDebug() << "[snapshot] expiry_date:" << details.expiry_date();
+        QString formattedExpiry = QString::number(details.expiry_date());
+        updateMarketHeader(QString::fromStdString(details.contract_id()), formattedExpiry);
+
+
 	}
 
     void Client::handleMarketDepth(const t4proto::v1::market::MarketDepth& depth) {
@@ -316,7 +316,7 @@ Client::Client(QObject* parent)
             displayText += monthCode + year;
         }
         //sends signal
-		emit marketHeaderUpdate(displayText);
+        emit marketHeaderUpdate(displayText);
 	}
     void Client::onBinaryMessageReceived(const QByteArray& message) {
       //  qDebug() << "[binary] Received message, size:" << message.size();
@@ -361,8 +361,7 @@ Client::Client(QObject* parent)
 
             }*/
             else if (msg.has_market_details()) {
-                qDebug() << "[market_details]\n"
-                    << QString::fromStdString(msg.market_details().DebugString());
+				handleMarketDetails(msg.market_details());
 
             }
             else if (msg.has_market_snapshot()) {
