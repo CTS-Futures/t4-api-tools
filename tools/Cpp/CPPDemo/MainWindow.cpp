@@ -68,20 +68,50 @@ void MainWindow::setupUi() {
     QGroupBox* marketGroup = new QGroupBox("Market Data - (...)");
     QGridLayout* marketLayout = new QGridLayout();
 
-    marketLayout->addWidget(new QLabel("Best Bid"), 0, 0);
+    // Font for market values
+    QFont valueFont;
+    valueFont.setPointSize(14);
+    valueFont.setBold(true);
+
+    // Font for labels
+    QFont labelFont;
+    labelFont.setPointSize(10);
+    labelFont.setBold(true);
+
+    QLabel* bestBidText = new QLabel("Best Bid");
+    bestBidText->setAlignment(Qt::AlignCenter);
+    bestBidText->setFont(labelFont);
+    marketLayout->addWidget(bestBidText, 0, 0);
+
     bestBidLabel = new QLabel("-");
+    bestBidLabel->setFont(valueFont);
+    bestBidLabel->setAlignment(Qt::AlignCenter);
+    bestBidLabel->setStyleSheet("border: 2px solid #4CAF50; background-color: #e8f5e9; color: #2e7d32; padding: 6px;");
     marketLayout->addWidget(bestBidLabel, 1, 0);
 
-    marketLayout->addWidget(new QLabel("Best Offer"), 0, 1);
+    QLabel* bestOfferText = new QLabel("Best Offer");
+    bestOfferText->setAlignment(Qt::AlignCenter);
+    bestOfferText->setFont(labelFont);
+    marketLayout->addWidget(bestOfferText, 0, 1);
+
     bestOfferLabel = new QLabel("-");
+    bestOfferLabel->setFont(valueFont);
+    bestOfferLabel->setAlignment(Qt::AlignCenter);
+    bestOfferLabel->setStyleSheet("border: 2px solid #f44336; background-color: #ffebee; color: #c62828; padding: 6px;");
     marketLayout->addWidget(bestOfferLabel, 1, 1);
 
-    marketLayout->addWidget(new QLabel("Last Trade"), 0, 2);
+    QLabel* lastTradeText = new QLabel("Last Trade");
+    lastTradeText->setAlignment(Qt::AlignCenter);
+    lastTradeText->setFont(labelFont);
+    marketLayout->addWidget(lastTradeText, 0, 2);
+
     lastTradeLabel = new QLabel("-");
+    lastTradeLabel->setFont(valueFont);
+    lastTradeLabel->setAlignment(Qt::AlignCenter);
+    lastTradeLabel->setStyleSheet("border: 2px solid #1976d2; background-color: #e3f2fd; color: #0d47a1; padding: 6px;");
     marketLayout->addWidget(lastTradeLabel, 1, 2);
 
     marketGroup->setLayout(marketLayout);
-
 
 
     // Submit Order Group
@@ -198,4 +228,18 @@ void MainWindow::MarketTableUpdate(const QString& exchangeId, const QString& con
     bestBidLabel->setText(bestBid);
     bestOfferLabel->setText(bestOffer);
     lastTradeLabel->setText(lastTrade);
+    auto highlightChange = [](QLabel* label, const QString& newValue, const QColor& flashColor) {
+        if (label->text() != newValue) {
+            label->setText(newValue);
+            label->setStyleSheet(QString("background-color: %1;").arg(flashColor.name()));
+
+            QTimer::singleShot(300, [label]() {
+                label->setStyleSheet("");  // Reset style after flash
+                });
+        }
+        };
+
+    highlightChange(bestBidLabel, bestBid, QColor("#ccffcc"));     // light green
+    highlightChange(bestOfferLabel, bestOffer, QColor("#ffcccc")); // light red
+    highlightChange(lastTradeLabel, lastTrade, QColor("#cce5ff")); // light blue
 }
