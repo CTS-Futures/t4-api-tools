@@ -31,6 +31,7 @@ import t4proto.v1.account.Account.AccountPosition;
 import t4proto.v1.orderrouting.Orderrouting.OrderUpdateMultiMessage;
 import t4proto.v1.orderrouting.Orderrouting;
 import t4proto.v1.orderrouting.Orderrouting.OrderUpdate;
+import t4proto.v1.common.Enums.AccountSubscribeType;
 
 
 //market sybscriber
@@ -254,10 +255,23 @@ import javafx.application.Platform;
                   case ACCOUNT_DETAILS:
                      handleAccountDetails(serverMessage.getAccountDetails());
                      break;
+
+                  case ACCOUNT_POSITION:
+                     handleAccountPosition(serverMessage.getAccountPosition());
+                     break;
+
+                  case ACCOUNT_UPDATE:
+                     handleAccountUpdate(serverMessage.getAccountUpdate());
+                     break;
                
                   case ORDER_UPDATE_MULTI:
                      handleOrderUpdateMulti(serverMessage.getOrderUpdateMulti());
                      break;
+
+                  case ACCOUNT_SNAPSHOT:
+                     handleAccountSnapshot(serverMessage.getAccountSnapshot());
+                     break;
+
                default:
                    System.out.println("Received unknown payload: " + payloadCase);
          }
@@ -331,20 +345,30 @@ import javafx.application.Platform;
         /* // Store accounts (pseudo-handling — needs real model mapping)
         accounts.clear(); */
             for (Auth.LoginResponse.Account account : response.getAccountsList()) {
-               //accounts.put(account.getAccountId(), account); // assuming map<String, Object>
                loginAccounts.put(account.getAccountId(), account);
             }
-            System.out.println(loginAccounts);
+            //System.out.println(loginAccounts);
             // Trigger account update if needed
             if (onAccountUpdate != null) {
                // Wrap in real update logic or class
                System.out.println("Accounts updated");
+            }
+
+            if (!loginAccounts.isEmpty()) {
+               selectedAccountId = loginAccounts.keySet().iterator().next(); // auto-pick first
+               System.out.println("Selected account: " + selectedAccountId);
             }
                handleConnectionStatusChanged(true);
 
          } else {
             System.err.println("Login failed: " + response.getErrorMessage());
             disconnect(); // or close socket
+         }
+         if (posOrdersUI != null) {
+            Platform.runLater(() -> posOrdersUI.updatePositionsAndOrders(getPositions(), getOrders()));
+         }
+         if (selectedAccountId != null) {
+               subscribeToAccount(selectedAccountId);
          }
 
       }
@@ -354,6 +378,51 @@ import javafx.application.Platform;
          System.out.println(accountDetails);
          System.out.println("Updated account: " + details.getAccountId());
       }
+
+      private void handleAccountUpdate(Account.AccountUpdate update) {
+         System.out.println("Account update for account: " + update.getAccountId());
+         // Optional: Display equity, margin, PnL if needed
+      }
+
+      private void handleAccountSnapshot(Account.AccountSnapshot snapshot) {
+    List<AccountPosition> newPositions = new ArrayList<>();
+    List<OrderUpdate> newOrders = new ArrayList<>();
+
+    for (Account.AccountSnapshotMessage msg : snapshot.getMessagesList()) {
+        switch (msg.getPayloadCase()) {
+            case ACCOUNT_POSITION:
+                newPositions.add(msg.getAccountPosition());
+                break;
+
+            case ORDER_UPDATE_MULTI:
+                for (Orderrouting.OrderUpdateMultiMessage update : msg.getOrderUpdateMulti().getUpdatesList()) {
+                    if (update.getPayloadCase() == Orderrouting.OrderUpdateMultiMessage.PayloadCase.ORDER_UPDATE) {
+                        newOrders.add(update.getOrderUpdate());
+                    }
+                }
+                break;
+
+            default:
+                System.out.println("Unhandled snapshot message: " + msg.getPayloadCase());
+        }
+    }
+
+    System.out.printf("Received snapshot: %d positions, %d orders\n", newPositions.size(), newOrders.size());
+
+    for (AccountPosition pos : newPositions) {
+        String key = pos.getAccountId() + "_" + pos.getMarketId();
+        positions.put(key, pos);
+    }
+
+    for (OrderUpdate ord : newOrders) {
+        orders.put(ord.getUniqueId(), ord);
+    }
+
+    // Push to UI
+    if (posOrdersUI != null) {
+        Platform.runLater(() -> posOrdersUI.updatePositionsAndOrders(newPositions, newOrders));
+    }
+}
 
       private void handleConnectionStatusChanged(boolean connected) {
          this.isConnected = connected;
@@ -389,6 +458,30 @@ public String getAuthToken() throws Exception {
         return jwtToken;
     }
     throw new IOException("JWT token is expired or not available.");
+}
+
+   private void subscribeToAccount(String accountId) {
+    Account.AccountSubscribe subscribe = Account.AccountSubscribe.newBuilder()
+        .addAccountId(accountId)
+        .setSubscribe(AccountSubscribeType.ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES)
+        .setSubscribeAllAccounts(false)
+        .build();
+
+    ClientMessage msg = ClientMessage.newBuilder()
+        .setAccountSubscribe(subscribe)
+        .build();
+
+    sendMessageToServer(msg);
+    System.out.println("Subscribed to account: " + accountId);
+}
+
+
+   public void updatePositionsAndOrders(
+    List<AccountPosition> positions,
+    List<OrderUpdate> orders
+) {
+    // TODO: Implement table update logic here
+    System.out.println("Positions: " + positions.size() + ", Orders: " + orders.size());
 }
 
 
@@ -768,7 +861,8 @@ public String getAuthToken() throws Exception {
     String market = update.getMarketId();
     String side = update.getBuySell().name(); // BUY_SELL_BUY or SELL
     int volume = update.getWorkingVolume();
-    String price = update.getCurrentLimitPrice().getValue();
+    String price = update.hasCurrentLimitPrice()
+    ? String.valueOf(update.getCurrentLimitPrice().getValue()): "";
     String status = update.getStatus().name();        // <- was `getOrderStatus()`
     String action = update.getChange().name();        // <- was `getOrderAction()`
 
@@ -841,7 +935,8 @@ public String getAuthToken() throws Exception {
         String market = status.getMarketId();
         String side = existing.getBuySell().name(); // fallback
         int volume = status.getWorkingVolume();
-        String price = status.getCurrentLimitPrice().getValue();
+        String price = status.hasCurrentLimitPrice()
+          ? String.valueOf(status.getCurrentLimitPrice().getValue()) : "--";
         String statusText = status.getStatus().name();
         String action = status.getChange().name(); // << This replaces getAction()
 
