@@ -13,6 +13,7 @@
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include "Client.h"
+#include "ContractPickerDialog.h"
 #include <QMainWindow>
 
 class MainWindow : public QMainWindow {
@@ -34,6 +35,8 @@ class MainWindow : public QMainWindow {
         QLabel* bestBidLabel;
         QLabel* bestOfferLabel;
         QLabel* lastTradeLabel;
+        QPushButton* contractButton;
+        QPushButton* expiryButton;
         void setupUi();
 		Client* client; // Pointer to the Client object for handling WebSocket communication
        

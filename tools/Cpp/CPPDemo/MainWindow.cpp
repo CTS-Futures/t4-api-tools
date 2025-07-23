@@ -1,5 +1,5 @@
 #include "mainwindow.h"
-
+#include <QScreen>
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent) {
     client = new Client(this);
@@ -52,22 +52,9 @@ void MainWindow::setupUi() {
     gridLayout->setSpacing(16);
 
     // Market Data Group
-    //QGroupBox* marketGroup = new QGroupBox("Market Data - (...)");
-    //QGridLayout* marketLayout = new QGridLayout();
-    //marketLayout->addWidget(new QLabel("Best Bid"), 0, 0);
-    //bestBidLabel = new QLabel("-");
-    //marketLayout->addWidget(bestBidLabel, 1, 0);
-
-    //marketLayout->addWidget(new QLabel("Best Offer"), 0, 1);
-    //bestOfferLabel = new QLabel("-");
-    //marketLayout->addWidget(bestOfferLabel, 1, 1);
-
-    //marketLayout->addWidget(new QLabel("Last Trade"), 0, 2);
-    //lastTradeLabel = new QLabel("-");
-    //marketLayout->addWidget(lastTradeLabel, 1, 2);
-    //marketGroup->setLayout(marketLayout);
+    
     marketGroup = new QGroupBox("Market Data - (...)");
-    marketGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; color:#ffffff; padding: 4px; }");
+    marketGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; padding: 4px; }");
 
     QGridLayout* marketLayout = new QGridLayout();
 
@@ -113,6 +100,56 @@ void MainWindow::setupUi() {
     lastTradeLabel->setAlignment(Qt::AlignCenter);
     lastTradeLabel->setStyleSheet("border: 2px solid #1976d2; background-color: #e3f2fd; color: #0d47a1; padding: 6px;");
     marketLayout->addWidget(lastTradeLabel, 1, 2);
+
+
+    // Create horizontal layout for the two buttons
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    buttonLayout->setSpacing(8); // space between buttons
+    buttonLayout->setAlignment(Qt::AlignRight); // align to top-right
+
+    contractButton = new QPushButton("Contract");
+	contractButton->setEnabled(false); 
+    expiryButton = new QPushButton("Expiry");
+	expiryButton->setEnabled(false);
+
+    connect(contractButton, &QPushButton::clicked, this, [this]() {
+        ContractPickerDialog dlg(this);
+        connect(&dlg, &ContractPickerDialog::contractSelected, this, [](const QString& contract) {
+            qDebug() << "Selected:" << contract;
+            });
+        dlg.exec();
+        });
+
+
+    buttonLayout->addWidget(contractButton);
+    buttonLayout->addStretch();
+    buttonLayout->addWidget(expiryButton);
+    
+
+    // Wrap the top row in a horizontal layout that includes buttons and table headers
+    QHBoxLayout* topRowLayout = new QHBoxLayout();
+    buttonLayout->setContentsMargins(0, 0, 0, 0);
+    topRowLayout->addLayout(buttonLayout);
+
+    // Insert the top row into the grid layout at row 0 spanning all 3 columns
+    marketLayout->addLayout(topRowLayout, 0, 0, 1, 3);
+
+    marketLayout->addWidget(bestBidText, 1, 0);
+    marketLayout->addWidget(bestBidLabel, 2, 0);
+    marketLayout->addWidget(bestOfferText, 1, 1);
+    marketLayout->addWidget(bestOfferLabel, 2, 1);
+    marketLayout->addWidget(lastTradeText, 1, 2);
+    marketLayout->addWidget(lastTradeLabel, 2, 2);
+
+    bestBidLabel->setMinimumHeight(100);
+    bestOfferLabel->setMinimumHeight(100);
+    lastTradeLabel->setMinimumHeight(100);
+    // Create a container layout for the entire market group
+    QVBoxLayout* marketContainerLayout = new QVBoxLayout();
+    marketContainerLayout->addLayout(buttonLayout);  // buttons on top
+    marketContainerLayout->addLayout(marketLayout);  // market data grid below
+
+    marketGroup->setLayout(marketContainerLayout);
 
     marketGroup->setLayout(marketLayout);
 
@@ -187,12 +224,17 @@ void MainWindow::setupUi() {
     setWindowTitle("T4 Qt Trader");
 
 	//additional styling for the groups
-    connectGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; color: #ffffff; padding: 4px; }");
-    submitGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; color: #ffffff; padding: 4px; }");
-    positionsGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; color: #ffffff; padding: 4px; }");
-    ordersGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; color: #ffffff; padding: 4px; }");
+    connectGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; padding: 4px; }");
+    submitGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt;  padding: 4px; }");
+    positionsGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt;  padding: 4px; }");
+    ordersGroup->setStyleSheet("QGroupBox::title { font-weight: bold; font-size: 14pt; padding: 4px; }");
 
-    resize(1400, 900);
+    resize(1920, 1080);
+    QTimer::singleShot(0, this, [this]() {
+        this->layout()->activate();  // Ensures the layout recalculates sizes
+        this->updateGeometry();      // Triggers a geometry refresh
+        });
+
 }
 
 //populates accounts into the account drop down
@@ -233,6 +275,8 @@ void MainWindow::onDisconnectClicked() {
 	bestBidLabel->setText("-");
 	bestOfferLabel->setText("-");
 	lastTradeLabel->setText("-");
+	contractButton->setEnabled(false); //disables the contract button
+	expiryButton->setEnabled(false); //disables the expiry button
 	qDebug() << "Disconnected from server, accounts cleared.";
 
 	//TODO: clear the market data, positions, orders, etc.
@@ -259,5 +303,7 @@ void MainWindow::MarketTableUpdate(const QString& exchangeId, const QString& con
 }
 
 void MainWindow::onMarketHeaderUpdate(const QString& displayText) {
+	contractButton->setEnabled(true); 
+	expiryButton->setEnabled(true); //enables the contract and expiry buttons when the market is ready to play with
     marketGroup->setTitle("Market Data - " + displayText);
 }
