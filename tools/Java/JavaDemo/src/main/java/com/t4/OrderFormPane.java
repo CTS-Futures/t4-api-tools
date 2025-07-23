@@ -19,8 +19,12 @@ public class OrderFormPane extends VBox {
 
     public OrderFormPane() {
         setSpacing(10);
-        setPadding(new Insets(10));
+        setPadding(new Insets(15));
         setStyle("-fx-background-color: white; -fx-border-color: #cccccc; -fx-border-radius: 6px; -fx-background-radius: 6px;");
+        setAlignment(Pos.TOP_LEFT);
+        setFillWidth(true);
+        setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(this, Priority.ALWAYS);
 
         Label title = new Label("Submit Order");
         title.setFont(Font.font("Arial", 16));
@@ -37,7 +41,7 @@ public class OrderFormPane extends VBox {
         sideBox.getItems().addAll("Buy", "Sell");
         sideBox.setValue("Buy");
 
-        // Form layout
+        // Layout fields
         form.add(new Label("Type:"), 0, 0);
         form.add(typeBox, 1, 0);
 
@@ -56,6 +60,7 @@ public class OrderFormPane extends VBox {
         form.add(new Label("Stop Loss ($):"), 2, 2);
         form.add(stopLossField, 3, 2);
 
+        // Submit button
         submitButton.setMaxWidth(Double.MAX_VALUE);
         submitButton.setStyle("-fx-background-color: #444; -fx-text-fill: white; -fx-font-weight: bold;");
         GridPane.setColumnSpan(submitButton, 4);
@@ -81,7 +86,6 @@ public class OrderFormPane extends VBox {
 
             Alert alert = new Alert(Alert.AlertType.INFORMATION, "Order Submitted!", ButtonType.OK);
             alert.showAndWait();
-
         } catch (NumberFormatException ex) {
             Alert alert = new Alert(Alert.AlertType.ERROR, "Invalid input: " + ex.getMessage(), ButtonType.OK);
             alert.showAndWait();
