@@ -35,6 +35,8 @@ using t4proto::v1::market::MarketDepthSubscribe;
 class Client : public QObject {
     Q_OBJECT
     public:
+        QVector<QJsonObject> exchanges;
+        QMap<QString, QVector<QJsonObject>> contractsCache;
         explicit Client(QObject* parent = nullptr); //constructor method
 
         bool loadConfig(const QString& path);
@@ -51,7 +53,8 @@ class Client : public QObject {
         void handleMarketDepth(const t4proto::v1::market::MarketDepth& depth);
 		void updateMarketHeader(const QString& contractId, QString& expiryDate);
         void refreshToken();
-
+        void load_exchanges();
+        void load_contracts(const QString& exchangeId);
         QString getAuthToken();
         QString getMarketId(const QString& exchangeId, const QString& contractId);
         /*ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);*/
@@ -63,6 +66,7 @@ class Client : public QObject {
         void tokenRefreshed();
         void marketHeaderUpdate(const QString& displayText);
 		void updateMarketTable(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);
+        void contractsUpdated();
  //       void marketUpdated(const QString& exchangeId, const QString& contractId, const QString& marketId);
     public slots:
         void connectToServer();
@@ -114,7 +118,7 @@ class Client : public QObject {
         QMap<QString, t4proto::v1::market::MarketDetails> marketDetails;
         QMap<QString, t4proto::v1::market::MarketDepth> marketSnapshots;
         QJsonObject marketUpdate;
-      
+        
         std::function<void()> onMarketSwitch;
 
         // Orders and positions

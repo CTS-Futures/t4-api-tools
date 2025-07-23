@@ -3,8 +3,8 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 
-ContractPickerDialog::ContractPickerDialog(QWidget* parent)
-    : QDialog(parent) {
+ContractPickerDialog::ContractPickerDialog(Client* client, const QVector<QJsonObject>& exchanges, QWidget* parent)
+    : QDialog(parent), nestedClient(client) {
     setWindowTitle("Select a Contract");
     setMinimumSize(400, 500);
 
@@ -31,21 +31,26 @@ ContractPickerDialog::ContractPickerDialog(QWidget* parent)
     mainLayout->addLayout(buttonLayout);
 
     // Sample data
-    QStringList groups = {
-        "CBOT Commodity Futures", "CBOT Commodity Options",
-        "CBOT Equity Futures", "CBOT Equity Options",
-        "CBOT Financial Futures", "CBOT Financial Options",
-        "CFE", "CME Agricultural Futures"
-    };
-    for (const QString& group : groups) {
-        auto* parent = new QTreeWidgetItem(tree);
-        parent->setText(0, group);
+
+    for (const QJsonObject& obj : exchanges) {
+        QString description = obj["description"].toString();
+        QString exchangeId = obj["exchangeId"].toString();
+
+        // Create the parent node
+        QTreeWidgetItem* parent = new QTreeWidgetItem(tree);
+        parent->setText(0, description);
         parent->setExpanded(false);
-        for (int i = 1; i <= 3; ++i) {
-            auto* child = new QTreeWidgetItem(parent);
-            child->setText(0, group + QString(" - Contract %1").arg(i));
-        }
+
+        // Store exchangeId as custom user data
+        parent->setData(0, Qt::UserRole, exchangeId);
+
+        // Insert dummy child to allow expansion
+        new QTreeWidgetItem(parent);
+
+        // Add some mock children for demonstration (e.g., contracts under this exchange)
     }
+
+    connect(tree, &QTreeWidget::itemExpanded, this, &ContractPickerDialog::onItemExpanded);
 
     connect(searchEdit, &QLineEdit::textChanged, this, &ContractPickerDialog::filterContracts);
     connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
@@ -62,6 +67,44 @@ ContractPickerDialog::ContractPickerDialog(QWidget* parent)
         });
 }
 
+void ContractPickerDialog::onItemExpanded(QTreeWidgetItem* item) {
+    // Check if this item already has real children
+    if (item->childCount() > 0 && item->child(0)->data(0, Qt::UserRole).isNull() == true) {
+        // Remove the dummy node
+        item->removeChild(item->child(0));
+    }
+    else {
+        return; // Already populated
+    }
+
+    QString exchangeId = item->data(0, Qt::UserRole).toString();
+
+    if (!exchangeId.isEmpty()) {
+        if (!nestedClient) {
+            qWarning() << "Client pointer is null!";
+            return;
+        }
+        qDebug() << "Loading contracts for exchange:" << exchangeId;
+        nestedClient->load_contracts(exchangeId);  // You might want to emit a signal here instead
+        // Then dynamically insert contracts below `item` as child QTreeWidgetItems
+        // Retrieve cached contracts
+        const QVector<QJsonObject>& contracts = nestedClient->contractsCache.value(exchangeId);
+
+        if (contracts.isEmpty()) {
+            qDebug() << "[ContractPickerDialog] No contracts found for exchange:" << exchangeId;
+            return;
+        }
+
+        for (const QJsonObject& contract : contracts) {
+            QString contractDesc = contract.value("description").toString();
+            QString contractId = contract.value("contractID").toString();
+
+            QTreeWidgetItem* contractItem = new QTreeWidgetItem(item);
+            contractItem->setText(0, QString("%1 (%2)").arg(contractDesc, contractId));
+            contractItem->setData(0, Qt::UserRole, contractId); // Optional: store contractID for later
+        }
+    }
+}
 void ContractPickerDialog::filterContracts(const QString& text) {
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
         auto* parent = tree->topLevelItem(i);

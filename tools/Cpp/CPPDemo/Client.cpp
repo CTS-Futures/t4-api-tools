@@ -283,7 +283,7 @@ Client::Client(QObject* parent)
             lastTrade = volumeStr + "@" + priceStr;
         }
 
-        qDebug() << "[handleMarketDepth] Emitting UI update:" << bestBid << bestOffer << lastTrade;
+      
 
         emit updateMarketTable(
             QString::fromStdString(detail.exchange_id()),
@@ -379,8 +379,6 @@ Client::Client(QObject* parent)
 
             }*/
             else if (msg.has_market_depth()) {
-                qDebug() << "[market_depth]\n"
-					<< QString::fromStdString(msg.market_depth().DebugString());
 				handleMarketDepth(msg.market_depth());
 
             }
@@ -597,3 +595,133 @@ Client::Client(QObject* parent)
 
 	}
 
+    //Contract Picker Functions
+	//loads the exchanges from the API 
+    void Client::load_exchanges() {
+        //if contracts are already stored, then we don't run this again
+        if (!exchanges.isEmpty()) {
+            return;
+        }
+
+        QString token = getAuthToken();
+
+        if (token.isEmpty())
+        {
+            qDebug() << "token invalid";
+            return;
+        }
+        QUrl url = apiUrl.resolved(QUrl("/markets/exchanges"));
+
+
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        request.setRawHeader("Authorization", "Bearer " + token.toUtf8());
+
+        QNetworkAccessManager manager;
+        QNetworkReply* reply = manager.get(request);
+
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();  // Block until request is finished
+
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[exchanges] Network error:" << reply->errorString();
+            reply->deleteLater();
+            return;
+        }
+
+        QByteArray response = reply->readAll();
+        reply->deleteLater();
+
+        QJsonDocument json = QJsonDocument::fromJson(response);
+        if (!json.isObject()) {
+            qWarning() << "[exchanges] Invalid JSON response";
+        
+        }
+
+        QJsonArray exchangeArray = json.array();
+
+        for (const QJsonValue& value : exchangeArray) {
+            if (value.isObject()) {
+                exchanges.append(value.toObject());
+            }
+        }
+        qDebug() << json;
+        // Sort by "description"
+        std::sort(exchanges.begin(), exchanges.end(), [](const QJsonObject& a, const QJsonObject& b) {
+            return a["description"].toString().toLower() < b["description"].toString().toLower();
+            });
+        qDebug() << exchanges;
+
+        emit contractsUpdated();  // or a more appropriate signal
+        return;
+    }
+
+    void Client::load_contracts(const QString& exchangeId) {
+
+		//if contracts are already stored, then we don't run this again
+       //todo
+        QString token = getAuthToken();
+
+        if (token.isEmpty())
+        {
+            qDebug() << "token invalid";
+            return;
+        }
+        
+
+		//set up url and query parameters
+        QUrl url = apiUrl.resolved(QUrl("/markets/contracts"));
+        QUrlQuery query;
+        query.addQueryItem("exchangeid", exchangeId);
+        url.setQuery(query);
+
+
+        //http request
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        request.setRawHeader("Authorization", "Bearer " + token.toUtf8());
+
+        QNetworkAccessManager manager;
+        QNetworkReply* reply = manager.get(request);
+
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();  // Block until request is finished
+
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[contracts] Network error:" << reply->errorString();
+            reply->deleteLater();
+            return;
+        }
+
+        QByteArray response = reply->readAll();
+        reply->deleteLater();
+        qDebug() << response;
+        QJsonDocument json = QJsonDocument::fromJson(response);
+        if (!json.isArray()) {
+            qWarning() << "[contracts] Invalid JSON response";
+            return;
+        }
+;
+        QJsonArray contractArray = json.array();  // example key
+
+        QVector<QJsonObject> contracts;
+        for (const QJsonValue& value : contractArray) {
+            if (value.isObject()) {
+                contracts.append(value.toObject());
+            }
+        }
+
+        // Sort by "description"
+        std::sort(contracts.begin(), contracts.end(), [](const QJsonObject& a, const QJsonObject& b) {
+            return a["description"].toString().toLower() < b["description"].toString().toLower();
+            });
+        qDebug() << contracts;
+        //cache the contracts
+        contractsCache[exchangeId] = contracts;
+
+
+
+
+    }

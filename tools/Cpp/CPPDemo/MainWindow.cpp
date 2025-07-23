@@ -109,17 +109,19 @@ void MainWindow::setupUi() {
 
     contractButton = new QPushButton("Contract");
 	contractButton->setEnabled(false); 
+    connect(contractButton, &QPushButton::clicked, client, &Client::load_exchanges);
     expiryButton = new QPushButton("Expiry");
 	expiryButton->setEnabled(false);
 
-    connect(contractButton, &QPushButton::clicked, this, [this]() {
-        ContractPickerDialog dlg(this);
+    connect(contractButton, &QPushButton::clicked, this, [this, client = this->client]() {
+        ContractPickerDialog dlg(this->client, client->exchanges, this);
+
         connect(&dlg, &ContractPickerDialog::contractSelected, this, [](const QString& contract) {
             qDebug() << "Selected:" << contract;
             });
+
         dlg.exec();
         });
-
 
     buttonLayout->addWidget(contractButton);
     buttonLayout->addStretch();
