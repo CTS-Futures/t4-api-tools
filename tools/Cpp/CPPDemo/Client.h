@@ -37,8 +37,10 @@ class Client : public QObject {
     public:
         QVector<QJsonObject> exchanges;
         QMap<QString, QVector<QJsonObject>> contractsCache;
+        QMap<QString, QVector<QJsonObject>> groupsCache;
+        QMap<QString, QVector<QJsonObject>> marketsCache;
         explicit Client(QObject* parent = nullptr); //constructor method
-
+         
         bool loadConfig(const QString& path);
 
 		//functions to connect, disconnect, and send messages
@@ -55,6 +57,9 @@ class Client : public QObject {
         void refreshToken();
         void load_exchanges();
         void load_contracts(const QString& exchangeId);
+        QVector<QJsonObject> loadGroups();
+        QVector<QJsonObject> loadMarketsForGroups(QString& strategyType, QString& expiryDate);
+        QString getStrategyDisplayName(const QString& strategyType);
         QString getAuthToken();
         QVector<QJsonObject> handleSearch(const QString& text);
         QString getMarketId(const QString& exchangeId, const QString& contractId);

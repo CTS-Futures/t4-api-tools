@@ -112,7 +112,16 @@ void MainWindow::setupUi() {
     connect(contractButton, &QPushButton::clicked, client, &Client::load_exchanges);
     expiryButton = new QPushButton("Expiry");
 	expiryButton->setEnabled(false);
+    connect(expiryButton, &QPushButton::clicked, this, [this]() {
+        ExpiryPickerDialog dlg(this->client, this);
 
+        // Optional: Connect to expirySelected signal
+        connect(&dlg, &ExpiryPickerDialog::expirySelected, this, [](const QString& expiry) {
+            qDebug() << "User selected expiry:" << expiry;
+            });
+
+        dlg.exec();
+        });
     connect(contractButton, &QPushButton::clicked, this, [this, client = this->client]() {
         ContractPickerDialog dlg(this->client, client->exchanges, this);
 

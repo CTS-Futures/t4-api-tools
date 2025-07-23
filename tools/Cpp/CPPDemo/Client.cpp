@@ -797,3 +797,189 @@ Client::Client(QObject* parent)
 
 
     }
+
+    //Expiry Picker Functions
+    QVector<QJsonObject> Client::loadGroups(){
+        QString token = getAuthToken();
+
+        if (token.isEmpty())
+        {
+            qDebug() << "token invalid";
+            return QVector<QJsonObject>();
+        }
+
+
+        //set up url and query parameters
+        QUrl url = apiUrl.resolved(QUrl("/markets/picker/groups"));
+        QUrlQuery query;
+        query.addQueryItem("exchangeid", mdExchangeId);
+        query.addQueryItem("contractid", mdContractId);
+        url.setQuery(query);
+
+
+        //http request
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        request.setRawHeader("Authorization", "Bearer " + token.toUtf8());
+
+        QNetworkAccessManager manager;
+        QNetworkReply* reply = manager.get(request);
+
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();  // Block until request is finished
+
+
+        //error checks
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[serach] Network error:" << reply->errorString();
+            reply->deleteLater();
+            return QVector<QJsonObject>();
+        }
+
+
+        QByteArray response = reply->readAll();//reads the reply from the api
+        reply->deleteLater();
+        QJsonDocument json = QJsonDocument::fromJson(response);
+
+        //checks if json is valid
+        if (!json.isArray()) {
+            qWarning() << "[search] Invalid JSON response";
+            return QVector<QJsonObject>();
+        }
+
+        QJsonArray groupsArray = json.array();
+        QVector<QJsonObject> groupObjects;
+
+        for (const QJsonValue& value : groupsArray) {
+            if (value.isObject()) {
+                groupObjects.append(value.toObject());
+            }
+        }
+        QString key = "root";
+        groupsCache[key] = groupObjects;
+        return groupObjects;
+
+    }
+
+    QVector<QJsonObject> Client::loadMarketsForGroups(QString& strategyType, QString& expiryDate) {
+        
+        //caches groups
+        QString cacheKey = strategyType + "_" + (expiryDate.isEmpty() ? "None" : expiryDate);
+
+        if (marketsCache.contains(cacheKey)) {
+            return marketsCache[cacheKey];
+        }
+
+
+        QString token = getAuthToken();
+
+
+        if (token.isEmpty())
+        {
+            qDebug() << "token invalid";
+            return QVector<QJsonObject>();
+        }
+
+
+        //set up url and query parameters
+        QUrl url = apiUrl.resolved(QUrl("/markets/picker"));
+        QUrlQuery query;
+        query.addQueryItem("exchangeid", mdExchangeId);
+        query.addQueryItem("strategytype", strategyType);
+        url.setQuery(query);
+
+
+        //http request
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        request.setRawHeader("Authorization", "Bearer " + token.toUtf8());
+
+        QNetworkAccessManager manager;
+        QNetworkReply* reply = manager.get(request);
+
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();  // Block until request is finished
+
+
+        //error checks
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[market_exppirty] Network error:" << reply->errorString();
+            reply->deleteLater();
+            return QVector<QJsonObject>();
+        }
+
+
+        QByteArray response = reply->readAll();//reads the reply from the api
+        reply->deleteLater();
+        QJsonDocument json = QJsonDocument::fromJson(response);
+
+        //checks if json is valid
+        if (!json.isArray()) {
+            qWarning() << "[market_expiry] Invalid JSON response";
+            return QVector<QJsonObject>();
+        }
+
+        QJsonArray marketsArray = json.array();
+        QVector<QJsonObject> marketObjects;
+
+        for (const QJsonValue& value : marketsArray) {
+            if (value.isObject()) {
+                marketObjects.append(value.toObject());
+            }
+        }
+
+        marketsCache[cacheKey] = marketObjects;
+        return marketObjects;
+      
+    }
+
+
+
+QString Client::getStrategyDisplayName(const QString& strategyType) {
+    static const QMap<QString, QString> strategyTypeMap = {
+        {"None", "Outright"},
+        {"CalendarSpread", "Calendar Spread"},
+        {"RtCalendarSpread", "RT Calendar Spread"},
+        {"InterContractSpread", "Inter Contract Spread"},
+        {"Butterfly", "Butterfly"},
+        {"Condor", "Condor"},
+        {"DoubleButterfly", "Double Butterfly"},
+        {"Horizontal", "Horizontal"},
+        {"Bundle", "Bundle"},
+        {"MonthVsPack", "Month vs Pack"},
+        {"Pack", "Pack"},
+        {"PackSpread", "Pack Spread"},
+        {"PackButterfly", "Pack Butterfly"},
+        {"BundleSpread", "Bundle Spread"},
+        {"Strip", "Strip"},
+        {"Crack", "Crack"},
+        {"TreasurySpread", "Treasury Spread"},
+        {"Crush", "Crush"},
+        {"ThreeWay", "Three Way"},
+        {"ThreeWayStraddleVsCall", "Three Way Straddle vs Call"},
+        {"ThreeWayStraddleVsPut", "Three Way Straddle vs Put"},
+        {"Box", "Box"},
+        {"XmasTree", "Christmas Tree"},
+        {"ConditionalCurve", "Conditional Curve"},
+        {"Double", "Double"},
+        {"HorizontalStraddle", "Horizontal Straddle"},
+        {"IronCondor", "Iron Condor"},
+        {"Ratio1X2", "Ratio 1x2"},
+        {"Ratio1X3", "Ratio 1x3"},
+        {"Ratio2X3", "Ratio 2x3"},
+        {"RiskReversal", "Risk Reversal"},
+        {"StraddleStrip", "Straddle Strip"},
+        {"Straddle", "Straddle"},
+        {"Strangle", "Strangle"},
+        {"Vertical", "Vertical"},
+        {"JellyRoll", "Jelly Roll"},
+        {"IronButterfly", "Iron Butterfly"},
+        {"Guts", "Guts"},
+        {"Generic", "Generic"},
+        {"Diagonal", "Diagonal"}
+    };
+
+    return strategyTypeMap.value(strategyType, strategyType);
+}

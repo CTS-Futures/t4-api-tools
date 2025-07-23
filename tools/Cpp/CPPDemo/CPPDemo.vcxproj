@@ -108,6 +108,7 @@
   <ItemGroup>
     <ClCompile Include="Client.cpp" />
     <ClCompile Include="ContractPickerDialog.cpp" />
+    <ClCompile Include="ExpiryPickerDialog.cpp" />
     <ClCompile Include="MainWindow.cpp" />
     <ClCompile Include="t4\v1\account\account.pb.cc" />
     <ClCompile Include="t4\v1\auth\auth.pb.cc" />
@@ -128,6 +129,7 @@
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="ContractPickerDialog.h" />
+    <QtMoc Include="ExpiryPickerDialog.h" />
     <ClInclude Include="t4\v1\account\account.pb.h" />
     <ClInclude Include="t4\v1\auth\auth.pb.h" />
     <ClInclude Include="t4\v1\common\enums.pb.h" />

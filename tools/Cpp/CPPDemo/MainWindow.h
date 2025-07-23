@@ -14,6 +14,7 @@
 #include <QTableWidgetItem>
 #include "Client.h"
 #include "ContractPickerDialog.h"
+#include "ExpiryPickerDialog.h"
 #include <QMainWindow>
 
 class MainWindow : public QMainWindow {
