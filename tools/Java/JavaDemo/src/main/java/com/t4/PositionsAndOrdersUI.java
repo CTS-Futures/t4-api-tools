@@ -121,6 +121,7 @@ public class PositionsAndOrdersUI extends VBox {
 }
  */
 
+// PositionsAndOrdersUI.java
 package com.t4;
 
 import javafx.application.Platform;
@@ -132,25 +133,19 @@ import com.t4.helpers.PositionRow;
 import com.t4.helpers.OrderRow;
 import t4proto.v1.account.Account.AccountPosition;
 import t4proto.v1.orderrouting.Orderrouting.OrderUpdate;
-
 import java.util.List;
 
-public class PositionsAndOrdersUI extends HBox {
+public class PositionsAndOrdersUI {
 
     private final TableView<PositionRow> positionsTable = new TableView<>();
     private final TableView<OrderRow> ordersTable = new TableView<>();
     private final ObservableList<PositionRow> positionsList = FXCollections.observableArrayList();
     private final ObservableList<OrderRow> ordersList = FXCollections.observableArrayList();
+    private final VBox positionsBox = new VBox(5);
+    private final VBox ordersBox = new VBox(5);
 
     public PositionsAndOrdersUI() {
-        setSpacing(20);
-        setPadding(new Insets(10));
-
-        // === POSITIONS ===
-        Label positionsLabel = new Label("Positions");
-        positionsLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
         positionsTable.setItems(positionsList);
-        positionsTable.setPlaceholder(new Label("No open positions"));
         positionsTable.getColumns().addAll(
             createColumn("Market", "market"),
             createColumn("Net", "netPos"),
@@ -158,16 +153,7 @@ public class PositionsAndOrdersUI extends HBox {
             createColumn("Working", "working")
         );
 
-        VBox positionsBox = new VBox(5, positionsLabel, positionsTable);
-        positionsBox.setPadding(new Insets(10));
-        positionsBox.setStyle("-fx-background-color: #f9f9f9; -fx-border-color: #ccc; -fx-border-radius: 5;");
-        VBox.setVgrow(positionsTable, Priority.ALWAYS);
-
-        // === ORDERS ===
-        Label ordersLabel = new Label("Orders");
-        ordersLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
         ordersTable.setItems(ordersList);
-        ordersTable.setPlaceholder(new Label("No active orders"));
         ordersTable.getColumns().addAll(
             createColumn("Market", "market"),
             createColumn("Side", "side"),
@@ -177,18 +163,19 @@ public class PositionsAndOrdersUI extends HBox {
             createColumn("Action", "action")
         );
 
-        VBox ordersBox = new VBox(5, ordersLabel, ordersTable);
+        Label posLabel = new Label("Positions");
+        posLabel.setStyle("-fx-font-weight: bold;");
+        positionsBox.getChildren().addAll(posLabel, positionsTable);
+        positionsBox.setPadding(new Insets(10));
+        positionsBox.setStyle("-fx-background-color: white; -fx-border-color: #cccccc; -fx-border-radius: 6px; -fx-background-radius: 6px;");
+        VBox.setVgrow(positionsTable, Priority.ALWAYS);
+
+        Label ordLabel = new Label("Orders");
+        ordLabel.setStyle("-fx-font-weight: bold;");
+        ordersBox.getChildren().addAll(ordLabel, ordersTable);
         ordersBox.setPadding(new Insets(10));
-        ordersBox.setStyle("-fx-background-color: #f9f9f9; -fx-border-color: #ccc; -fx-border-radius: 5;");
+        ordersBox.setStyle("-fx-background-color: white; -fx-border-color: #cccccc; -fx-border-radius: 6px; -fx-background-radius: 6px;");
         VBox.setVgrow(ordersTable, Priority.ALWAYS);
-
-        // === Equal width and grow ===
-        positionsBox.setMaxWidth(Double.MAX_VALUE);
-        ordersBox.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(positionsBox, Priority.ALWAYS);
-        HBox.setHgrow(ordersBox, Priority.ALWAYS);
-
-        getChildren().addAll(positionsBox, ordersBox);
     }
 
     private <T> TableColumn<T, String> createColumn(String title, String property) {
@@ -196,6 +183,14 @@ public class PositionsAndOrdersUI extends HBox {
         col.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>(property));
         col.setPrefWidth(100);
         return col;
+    }
+
+    public VBox getPositionsBox() {
+        return positionsBox;
+    }
+
+    public VBox getOrdersBox() {
+        return ordersBox;
     }
 
     public void updatePositionsAndOrders(List<AccountPosition> positions, List<OrderUpdate> orders) {
@@ -234,9 +229,7 @@ public class PositionsAndOrdersUI extends HBox {
     }
 
     public void addOrder(String market, String side, int volume, String price, String status, String action) {
-        Platform.runLater(() -> {
-            ordersList.add(new OrderRow(market, side, volume, price, status, action));
-        });
+        Platform.runLater(() -> ordersList.add(new OrderRow(market, side, volume, price, status, action)));
     }
 
     public void updateOrder(OrderRow updated) {
@@ -259,12 +252,4 @@ public class PositionsAndOrdersUI extends HBox {
         }
         return null;
     }
-
-    public Node getPositionsPane() {
-    return new VBox(new Label("Positions"), positionsTable);
-}
-
-public Node getOrdersPane() {
-    return new VBox(new Label("Orders"), ordersTable);
-}
 }
