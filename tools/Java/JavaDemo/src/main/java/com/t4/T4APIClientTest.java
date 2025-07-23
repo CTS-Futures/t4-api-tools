@@ -1,10 +1,3 @@
-    //Start with Configuration and the constructor
-    /*
-     * Constructor has hearbeats that test the connections every 2 miliseconds 
-     * What are tyhe message timeouts? 
-     * 
-     */
-
 package com.t4;
 
 // Protobuf-generated classes (adjust these based on actual generated package structure)
@@ -32,7 +25,20 @@ import t4proto.v1.orderrouting.Orderrouting.OrderUpdateMultiMessage;
 import t4proto.v1.orderrouting.Orderrouting;
 import t4proto.v1.orderrouting.Orderrouting.OrderUpdate;
 import t4proto.v1.common.Enums.AccountSubscribeType;
+import t4proto.v1.common.Enums.BuySell;
+import t4proto.v1.common.Enums.PriceType;
+import t4proto.v1.common.Enums.TimeType;
+import t4proto.v1.common.Enums.OrderLink;
+import t4proto.v1.common.Enums.ActivationType;
+import t4proto.v1.common.PriceOuterClass.Decimal;
 
+
+import t4proto.v1.orderrouting.Orderrouting.OrderSubmit.Order;
+import t4proto.v1.orderrouting.Orderrouting.OrderSubmit;
+import t4proto.v1.orderrouting.Orderrouting.OrderPull;
+import t4proto.v1.orderrouting.Orderrouting.OrderRevise;
+import t4proto.v1.orderrouting.Orderrouting.OrderRevise.Revise;
+import t4proto.v1.common.PriceOuterClass.Price;
 
 //market sybscriber
 import com.t4.helpers.MarketSubscriber;
@@ -74,7 +80,6 @@ import java.util.concurrent.TimeUnit;
 
 import javafx.application.Platform;
 
-//Having some threading problems
  
 
      @ClientEndpoint
@@ -102,7 +107,7 @@ import javafx.application.Platform;
         private boolean isConnected = false;
         private Auth.LoginResponse loginResponse = null;
         private Map<String, Auth.LoginResponse.Account> accounts = new HashMap<>();
-        private Object selectedAccount = null;
+        private String selectedAccount = null;
         private boolean isLoggedIn = false; //starts heartbeats once loggedin and connncted
         private Map<String, Auth.LoginResponse.Account> loginAccounts = new HashMap<>();
         private Map<String, AccountDetails> accountDetails = new HashMap<>();
@@ -271,7 +276,6 @@ import javafx.application.Platform;
                   case ACCOUNT_SNAPSHOT:
                      handleAccountSnapshot(serverMessage.getAccountSnapshot());
                      break;
-
                default:
                    System.out.println("Received unknown payload: " + payloadCase);
          }
@@ -984,6 +988,164 @@ public List<AccountPosition> getPositions() {
    public void setPositionsAndOrdersUI(PositionsAndOrdersUI ui) {
       this.posOrdersUI = ui;
    }
+
+public void submitOrder(String side, int volume, double price, String priceType, Double takeProfitDollars, Double stopLossDollars) {
+    if (selectedAccount == null || currentMarketId == null) {
+        throw new IllegalStateException("No account or market selected");
+    }
+
+    MarketDetails marketDetails = marketDetailsMap.get(currentMarketId);
+    if (marketDetails == null) {
+        System.err.println("Market details not found for marketId: " + currentMarketId);
+        return;
+    }
+
+    BuySell buySell = side.equalsIgnoreCase("buy") ? BuySell.BUY_SELL_BUY : BuySell.BUY_SELL_SELL;
+    PriceType priceTypeEnum = priceType.equalsIgnoreCase("market") ? 
+        PriceType.PRICE_TYPE_MARKET : PriceType.PRICE_TYPE_LIMIT;
+    OrderLink orderLink = (takeProfitDollars != null || stopLossDollars != null) ?
+        OrderLink.ORDER_LINK_AUTO_OCO : OrderLink.ORDER_LINK_NONE;
+
+    List<Order> orders = new ArrayList<>();
+
+    // Main order
+    Order.Builder mainOrder = Order.newBuilder()
+        .setBuySell(buySell)
+        .setPriceType(priceTypeEnum)
+        .setTimeType(TimeType.TIME_TYPE_NORMAL)
+        .setVolume(volume);
+
+    if (priceTypeEnum == PriceType.PRICE_TYPE_LIMIT) {
+        mainOrder.setLimitPrice(
+    Price.newBuilder()
+        .setValue(String.valueOf(price))
+        .build()
+);
+
+    }
+
+    orders.add(mainOrder.build());
+
+    // Calculate bracket orders
+    BuySell protectionSide = (buySell == BuySell.BUY_SELL_BUY) ? 
+        BuySell.BUY_SELL_SELL : BuySell.BUY_SELL_BUY;
+
+    if (takeProfitDollars != null) {
+        double pointValue = Double.parseDouble(marketDetails.getPointValue().getValue());
+        double minTick = Double.parseDouble(marketDetails.getMinPriceIncrement().getValue());
+        double tpPoints = takeProfitDollars / pointValue;
+        double tpPrice = tpPoints * minTick;
+
+        Order tpOrder = Order.newBuilder()
+            .setBuySell(protectionSide)
+            .setPriceType(PriceType.PRICE_TYPE_LIMIT)
+            .setTimeType(TimeType.TIME_TYPE_GOOD_TILL_CANCELLED)
+            .setVolume(0)
+            .setLimitPrice(
+    Price.newBuilder()
+        .setValue(String.valueOf(tpPrice))
+        .build()
+)
+            .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
+            .build();
+
+        orders.add(tpOrder);
+    }
+
+    if (stopLossDollars != null) {
+        double pointValue = Double.parseDouble(marketDetails.getPointValue().getValue());
+        double minTick = Double.parseDouble(marketDetails.getMinPriceIncrement().getValue());
+        double slPoints = stopLossDollars / pointValue;
+        double slPrice = slPoints * minTick;
+
+        Order slOrder = Order.newBuilder()
+            .setBuySell(protectionSide)
+            .setPriceType(PriceType.PRICE_TYPE_STOP_MARKET)
+            .setTimeType(TimeType.TIME_TYPE_GOOD_TILL_CANCELLED)
+            .setVolume(0)
+            .setStopPrice(
+    Price.newBuilder()
+        .setValue(String.valueOf(slPrice))
+        .build()
+)
+            .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
+            .build();
+
+        orders.add(slOrder);
+    }
+
+    OrderSubmit orderSubmit = OrderSubmit.newBuilder()
+        .setAccountId(selectedAccount)
+        .setMarketId(currentMarketId)
+        .setManualOrderIndicator(true)
+        .setOrderLink(orderLink)
+        .addAllOrders(orders)
+        .build();
+
+    ClientMessage msg = ClientMessage.newBuilder()
+        .setOrderSubmit(orderSubmit)
+        .build();
+
+    sendMessageToServer(msg);
+}
+
+
+
+   public void pullOrder(String orderId) {
+    if (selectedAccount == null || currentMarketId == null) {
+        throw new IllegalStateException("No account or market selected");
+    }
+
+    OrderPull.Pull pull = OrderPull.Pull.newBuilder()
+        .setUniqueId(orderId)
+        .build();
+
+    OrderPull orderPull = OrderPull.newBuilder()
+        .setAccountId(selectedAccount)
+        .setMarketId(currentMarketId)
+        .setManualOrderIndicator(true)
+        .addPulls(pull)
+        .build();
+
+    ClientMessage msg = ClientMessage.newBuilder()
+        .setOrderPull(orderPull)
+        .build();
+
+    sendMessageToServer(msg);
+}
+
+
+public void reviseOrder(String orderId, int volume, Double price, String priceType) {
+    if (selectedAccount == null || currentMarketId == null) {
+        throw new IllegalStateException("No account or market selected");
+    }
+
+    OrderRevise.Revise.Builder reviseBuilder = OrderRevise.Revise.newBuilder()
+        .setUniqueId(orderId)
+        .setVolume(volume);
+
+    if ("limit".equalsIgnoreCase(priceType) && price != null) {
+        reviseBuilder.setLimitPrice(
+            Price.newBuilder()
+                .setValue(String.valueOf(price))
+                .build()
+        );
+    }
+
+    OrderRevise orderRevise = OrderRevise.newBuilder()
+        .setAccountId(selectedAccount)
+        .setMarketId(currentMarketId)
+        .setManualOrderIndicator(true)
+        .addRevisions(reviseBuilder)
+        .build();
+
+    ClientMessage msg = ClientMessage.newBuilder()
+        .setOrderRevise(orderRevise)
+        .build();
+
+    sendMessageToServer(msg);
+}
+
 
 
 

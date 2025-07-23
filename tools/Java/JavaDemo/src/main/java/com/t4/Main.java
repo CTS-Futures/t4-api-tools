@@ -3,10 +3,11 @@ package com.t4;
 import com.t4.ContractSelectorDialog.ContractData;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.geometry.Insets;
 import javafx.scene.Scene;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.VBox;
+import javafx.scene.layout.*;
 import javafx.stage.Stage;
+
 import java.io.IOException;
 
 public class Main extends Application {
@@ -17,12 +18,13 @@ public class Main extends Application {
         T4APIClientTest client = T4APIClientTest.getInstance();
         ConnectionUI connectionPane = new ConnectionUI(client);
         MarketDataPane marketPane = new MarketDataPane();
+        OrderFormPane orderForm = new OrderFormPane();
         PositionsAndOrdersUI posOrdersUI = new PositionsAndOrdersUI();
 
         client.setMarketDataP(marketPane);
-        client.setPositionsAndOrdersUI(posOrdersUI); // ✅ Hook it into T4APIClientTest
+        client.setPositionsAndOrdersUI(posOrdersUI);
 
-        // Handle "Connect" button
+        // Connect logic
         connectionPane.setOnConnect(() -> {
             try {
                 client.connect(() -> {
@@ -31,16 +33,14 @@ public class Main extends Application {
                         marketPane.enableSelectMarket(true);
                     });
 
-                    // Auto-subscribe to ES
                     new Thread(() -> {
                         try {
                             String marketId = client.fetchMarketIdFromApi("CME_Eq", "ES");
                             client.selectMarket(marketId);
-                            System.out.println("Auto-subscribing to: " + marketId);
+                            defaultSubscribed = true;
                             Platform.runLater(() ->
                                 marketPane.updateSymbol("CME_Eq ES (" + marketId + ")")
                             );
-                            defaultSubscribed = true;
                         } catch (Exception e) {
                             System.err.println("Failed to auto-subscribe:");
                             e.printStackTrace();
@@ -52,19 +52,17 @@ public class Main extends Application {
             }
         });
 
-        // Handle "Select Market"
+        // Market selection
         marketPane.setOnSelectMarket(() -> {
             ContractSelectorDialog dialog = new ContractSelectorDialog(client, contract -> {
                 new Thread(() -> {
                     try {
                         String marketId = client.fetchMarketIdFromApi(contract.exchangeId, contract.contractId);
                         client.selectMarket(marketId);
-                        System.out.println("User selected: " + marketId);
                         defaultSubscribed = true;
                         Platform.runLater(() -> marketPane.updateSymbol(contract.toString()));
                     } catch (IOException ex) {
                         if (ex.getMessage().contains("404")) {
-                            System.err.println("Market not found, displaying fallback UI.");
                             client.unsubscribeFromCurrentMarket();
                             Platform.runLater(() -> {
                                 marketPane.updateSymbol(contract.toString());
@@ -74,7 +72,6 @@ public class Main extends Application {
                             });
                         } else {
                             ex.printStackTrace();
-                            Platform.runLater(() -> marketPane.updateSymbol("Failed to subscribe"));
                         }
                     }
                 }).start();
@@ -82,11 +79,31 @@ public class Main extends Application {
             dialog.show();
         });
 
-        // Layout and scene
-        VBox root = new VBox(10, connectionPane, marketPane, posOrdersUI);
-        VBox.setVgrow(posOrdersUI, Priority.ALWAYS);
+        // Top: Market + Order panes side-by-side
+        HBox marketOrderBox = new HBox(20, marketPane, orderForm);
+        marketOrderBox.setPadding(new Insets(10));
+        marketOrderBox.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(marketPane, Priority.ALWAYS);
+        HBox.setHgrow(orderForm, Priority.ALWAYS);
+        marketPane.setMaxWidth(Double.MAX_VALUE);
+        orderForm.setMaxWidth(Double.MAX_VALUE);
 
-        Scene scene = new Scene(root, 1000, 700);
+        // Bottom: Positions + Orders side-by-side
+        Node positionsPane = posOrdersUI.getPositionsPane();
+        Node ordersPane = posOrdersUI.getOrdersPane();
+
+        HBox posOrdersBox = new HBox(20, positionsPane, ordersPane);
+        posOrdersBox.setPadding(new Insets(10));
+        posOrdersBox.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(positionsPane, Priority.ALWAYS);
+        HBox.setHgrow(ordersPane, Priority.ALWAYS);
+
+        // Root layout
+        VBox root = new VBox(10, connectionPane, marketOrderBox, posOrdersBox);
+        root.setPadding(new Insets(10));
+        VBox.setVgrow(posOrdersBox, Priority.ALWAYS);
+
+        Scene scene = new Scene(root, 1200, 800);
         primaryStage.setScene(scene);
         primaryStage.setTitle("T4 API Client");
         primaryStage.show();
