@@ -545,22 +545,25 @@ Client::Client(QObject* parent)
         
 		//ensures we're not subscribing to the same market multiple times
         QString key = exchangeId + "_" + contractId + "_" + marketId;
-
+        
         if (_latestRequestKey == key) {
             qDebug() << "[subscribe_market] Duplicate request, skipping\n";
             return;
         }
+       
 		//unsubscribe from the previous market if it exists
         if (!_latestRequestKey.isEmpty()) {
             MarketDepthSubscribe unsubscribe;
-            unsubscribe.set_exchange_id(_latestRequestKey.section('_', 0, 0).toStdString());
-            unsubscribe.set_contract_id(_latestRequestKey.section('_', 1, 1).toStdString());
-            unsubscribe.set_market_id(_latestRequestKey.section('_', 2, 2).toStdString());
+            unsubscribe.set_exchange_id(mdExchangeId.toStdString());
+            unsubscribe.set_contract_id(mdContractId.toStdString());
+            unsubscribe.set_market_id(currentMarketId.toStdString());
             unsubscribe.set_buffer(t4proto::v1::common::DEPTH_BUFFER_NO_SUBSCRIPTION);
             unsubscribe.set_depth_levels(t4proto::v1::common::DEPTH_LEVELS_UNDEFINED);
             ClientMessage unsubscribeMessage;
             unsubscribeMessage.mutable_market_depth_subscribe()->CopyFrom(unsubscribe);
             std::string serializedUnsubscribe = unsubscribeMessage.SerializeAsString();
+            t4proto::v1::service::ClientMessage msg;
+            qDebug() << QString::fromStdString(unsubscribe.DebugString());
             sendMessage(serializedUnsubscribe);
             qDebug() << "[subscribe_market] Unsubscribed from previous market:";
 
@@ -718,9 +721,78 @@ Client::Client(QObject* parent)
             return a["description"].toString().toLower() < b["description"].toString().toLower();
             });
         qDebug() << contracts;
+
         //cache the contracts
         contractsCache[exchangeId] = contracts;
 
+
+    }
+
+    //Uses api "search" method to return list of matching text
+    QVector<QJsonObject> Client::handleSearch(const QString& text) {
+        QString token = getAuthToken();
+
+        if (token.isEmpty())
+        {
+            qDebug() << "token invalid";
+            return QVector<QJsonObject>();
+        }
+
+
+        //set up url and query parameters
+        QUrl url = apiUrl.resolved(QUrl("/markets/contracts/search"));
+        QUrlQuery query;
+        query.addQueryItem("search", text);
+        url.setQuery(query);
+
+
+        //http request
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        request.setRawHeader("Authorization", "Bearer " + token.toUtf8());
+
+        QNetworkAccessManager manager;
+        QNetworkReply* reply = manager.get(request);
+
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();  // Block until request is finished
+
+
+        //error checks
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[serach] Network error:" << reply->errorString();
+            reply->deleteLater();
+            return QVector<QJsonObject>();
+        }
+
+
+        QByteArray response = reply->readAll();//reads the reply from the api
+        reply->deleteLater();
+        QJsonDocument json = QJsonDocument::fromJson(response);
+
+        //checks if json is valid
+        if (!json.isArray()) {
+            qWarning() << "[search] Invalid JSON response";
+            return QVector<QJsonObject>();
+        }
+
+        QJsonArray searchesArray = json.array();
+        QVector<QJsonObject> search_objects;
+
+        for (const QJsonValue& value : searchesArray) {
+            if (value.isObject()) {
+                search_objects.append(value.toObject());
+            }
+        }
+
+        //sort by "description"
+        std::sort(search_objects.begin(), search_objects.end(), [](const QJsonObject& a, const QJsonObject& b) {
+            return a["description"].toString().toLower() < b["description"].toString().toLower();
+            });
+
+
+        return search_objects;
 
 
 

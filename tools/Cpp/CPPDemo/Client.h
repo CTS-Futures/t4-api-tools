@@ -56,6 +56,7 @@ class Client : public QObject {
         void load_exchanges();
         void load_contracts(const QString& exchangeId);
         QString getAuthToken();
+        QVector<QJsonObject> handleSearch(const QString& text);
         QString getMarketId(const QString& exchangeId, const QString& contractId);
         /*ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);*/
     signals: // can emit signals to notify other parts of the application 

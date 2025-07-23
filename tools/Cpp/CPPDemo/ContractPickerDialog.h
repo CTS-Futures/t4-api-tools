@@ -21,6 +21,7 @@ private slots:
     void filterContracts(const QString& text);
     void onItemDoubleClicked(QTreeWidgetItem* item, int column);
     void onItemExpanded(QTreeWidgetItem* item);
+    void handleSelection();
 private:
     Client* nestedClient;
     QLineEdit* searchEdit;
