@@ -46,6 +46,7 @@ void ExpiryPickerDialog::buildUI() {
 
     connect(cancelBtn, &QPushButton::clicked, this, &ExpiryPickerDialog::reject);
     connect(selectButton, &QPushButton::clicked, this, &ExpiryPickerDialog::onConfirmSelection);
+    connect(treeWidget, &QTreeWidget::itemDoubleClicked, this, &ExpiryPickerDialog::onConfirmSelection);
 
     btnLayout->addStretch();
     btnLayout->addWidget(selectButton);
@@ -119,20 +120,48 @@ void ExpiryPickerDialog::onItemExpanded(QTreeWidgetItem* item) {
 }
 
 void ExpiryPickerDialog::onItemSelected() {
-    auto items = treeWidget->selectedItems();
-    if (!items.isEmpty() && items[0]->childCount() == 0) {
-        selectedExpiry = items[0]->text(0);
+    
+    QList<QTreeWidgetItem*> selectedItems = treeWidget->selectedItems();
+    qDebug() << selectedItems;
+    if (selectedItems.isEmpty()) {
+        selectedExpiry = QJsonObject();  // clear
+        selectButton->setEnabled(false);
+        return;
+    }
+
+    QTreeWidgetItem* item = selectedItems.first();
+    QString type = item->data(0, Qt::UserRole + 1).toString();
+
+    if (type == "market") {
+        QString marketId = item->data(0, Qt::UserRole + 2).toString();
+        QString expiryDate = item->data(0, Qt::UserRole + 3).toString();
+        QString description = item->data(0, Qt::UserRole + 4).toString();
+
+        // Store in a QJsonObject (mimics a Python dict)
+        selectedExpiry = QJsonObject{
+            { "marketId", marketId },
+            { "expiryDate", expiryDate },
+            { "description", description },
+            { "exchangeId", exchangeId },
+            { "contractId", contractId }
+        };
+        qDebug() << selectedExpiry;
         selectButton->setEnabled(true);
     }
     else {
-        selectedExpiry.clear();
+        selectedExpiry = QJsonObject();  // clear
         selectButton->setEnabled(false);
     }
 }
 
 void ExpiryPickerDialog::onConfirmSelection() {
-    if (!selectedExpiry.isEmpty() && onSelectCallback) {
-        onSelectCallback(selectedExpiry);
-    }
+
+    //subscribes to the market with the new ifnormation
+    client->subscribeMarket(
+        selectedExpiry["exchangeId"].toString(),
+        selectedExpiry["contractId"].toString(),
+        selectedExpiry["marketId"].toString()
+	);
+    
     accept();
 }

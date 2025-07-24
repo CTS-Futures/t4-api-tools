@@ -14,7 +14,7 @@ class ExpiryPickerDialog : public QDialog {
 public:
     explicit ExpiryPickerDialog(QWidget* parent = nullptr, Client* client = nullptr, std::function<void(QString)> onSelect = nullptr);
     void loadAndRenderMarkets(QTreeWidgetItem* item, QString strategy, QString expiry);
-
+    QJsonObject selectedExpiry;
 signals:
     void expirySelected(const QString& expiry);
 private slots:
@@ -32,7 +32,7 @@ private:
 
     QString exchangeId;
     QString contractId;
-    QString selectedExpiry;
+ 
 
     QTreeWidget* treeWidget;
     QPushButton* selectButton;
