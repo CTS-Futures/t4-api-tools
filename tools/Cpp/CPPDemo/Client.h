@@ -13,6 +13,8 @@ using t4proto::v1::common::AccountSubscribeType_descriptor;
 
 #include "t4/v1/market/market.pb.h"
 using t4proto::v1::market::MarketDepthSubscribe;
+
+#include "t4/v1/orderrouting/orderrouting.pb.h"
 #include <QObject> //signals and slots
 #include <QWebSocket>
 #include <map>
@@ -37,10 +39,13 @@ class Client : public QObject {
     public:
         QString mdExchangeId;
         QString mdContractId;
+        QString selectedAccount;
+        QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders;
         QVector<QJsonObject> exchanges;
         QMap<QString, QVector<QJsonObject>> contractsCache;
         QMap<QString, QVector<QJsonObject>> groupsCache;
         QMap<QString, QVector<QJsonObject>> marketsCache;
+
         explicit Client(QObject* parent = nullptr); //constructor method
          
         bool loadConfig(const QString& path);
@@ -59,7 +64,14 @@ class Client : public QObject {
         void handleAccountSnapshot(const t4proto::v1::account::AccountSnapshot snapshot);
         void handleAccountPositionProfit(const t4proto::v1::account::AccountPositionProfit message);
         void handleAccountPosition(const t4proto::v1::account::AccountPosition message);
-		void updateMarketHeader(const QString& contractId, QString& expiryDate);
+        void handleOrderUpdate(const t4proto::v1::orderrouting::OrderUpdate& update);
+		void handleOrderUpdateStatus(const t4proto::v1::orderrouting::OrderUpdateStatus& status);
+		void handleOrderUpdateTrade(const t4proto::v1::orderrouting::OrderUpdateTrade& trade);
+		void handleOrderUpdateTradeLeg(const t4proto::v1::orderrouting::OrderUpdateTradeLeg& tradeLeg);
+        void handleOrderUpdateFailed(const t4proto::v1::orderrouting::OrderUpdateFailed& failed);
+		void handleOrderUpdateMulti(const t4proto::v1::orderrouting::OrderUpdateMulti& multiUpdate);
+        void updateMarketHeader(const QString& contractId, QString& expiryDate);
+		
         void refreshToken();
         void load_exchanges();
         void load_contracts(const QString& exchangeId);
@@ -79,6 +91,7 @@ class Client : public QObject {
         void tokenRefreshed();
         void marketHeaderUpdate(const QString& displayText);
 		void updateMarketTable(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);
+		void ordersUpdated(QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders);
         void contractsUpdated();
  //       void marketUpdated(const QString& exchangeId, const QString& contractId, const QString& marketId);
     public slots:
@@ -121,7 +134,7 @@ class Client : public QObject {
         // Account and connection state
             // raw response or parsed object
         QMap<QString, t4proto::v1::auth::LoginResponse_Account> accounts;
-        QString selectedAccount;
+       
         std::function<void(QJsonObject)> onAccountUpdate;
         t4proto::v1::auth::LoginResponse loginResponse;
         // Market data
@@ -134,7 +147,7 @@ class Client : public QObject {
         std::function<void()> onMarketSwitch;
 
         // Orders and positions
-        QMap<QString, QJsonObject> orders;
+        
         QMap<QString, QJsonObject> positions;
 };
 

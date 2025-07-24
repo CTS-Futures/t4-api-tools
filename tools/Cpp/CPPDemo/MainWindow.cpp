@@ -13,6 +13,8 @@ MainWindow::MainWindow(QWidget* parent)
     connect(client, &Client::updateMarketTable, this, &MainWindow::MarketTableUpdate);
 	connect(client, &Client::marketHeaderUpdate, this, &MainWindow::onMarketHeaderUpdate);
 	connect(client, &Client::accountsPositionsUpdated, this, &MainWindow::PositionTableUpdate);
+    connect(client, &Client::ordersUpdated, this, &MainWindow::OrderTableUpdate);
+
 }
 
 MainWindow::~MainWindow() {}
@@ -207,7 +209,7 @@ void MainWindow::setupUi() {
     // Orders Group
     QGroupBox* ordersGroup = new QGroupBox("Orders");
     QVBoxLayout* ordersLayout = new QVBoxLayout();
-    QTableWidget* ordersTable = new QTableWidget(0, 7);
+    ordersTable = new QTableWidget(0, 7);
     ordersTable->setHorizontalHeaderLabels({ "Time", "Market", "Side", "Volume", "Price", "Status", "Action" });
     ordersLayout->addWidget(ordersTable);
     ordersGroup->setLayout(ordersLayout);
@@ -316,19 +318,19 @@ void MainWindow::MarketTableUpdate(const QString& exchangeId, const QString& con
 }
 
 void MainWindow::PositionTableUpdate(QJsonArray positions) {
-    // This function would update the positions table in the UI
-    // For now, we will just log the positions
-        // Find the positions table (declared in setupUi)
+    //this function would update the positions table in the UI
+   
+	//find the positions table widget
     QTableWidget* positionsTable = findChild<QTableWidget*>();
     if (!positionsTable) {
         qWarning() << "Positions table not found!";
         return;
     }
 
-    // Clear the table
+    //clear the table
     positionsTable->setRowCount(0);
 
-    // Loop through the array and populate table
+    //loop through the positions data and populate table
     for (const QJsonValue& val : positions) {
         if (!val.isObject()) continue;
 
@@ -342,7 +344,7 @@ void MainWindow::PositionTableUpdate(QJsonArray positions) {
         int workingSells = pos.value("working_sells").toInt();
         QString working = QString("%1/%2").arg(workingBuys).arg(workingSells);
 
-        // Add a row
+        //add a row
         int row = positionsTable->rowCount();
         positionsTable->insertRow(row);
         positionsTable->setItem(row, 0, new QTableWidgetItem(market));
@@ -350,6 +352,11 @@ void MainWindow::PositionTableUpdate(QJsonArray positions) {
         positionsTable->setItem(row, 2, new QTableWidgetItem(QString::number(pnl, 'f', 2)));
         positionsTable->setItem(row, 3, new QTableWidgetItem(working));
 
+		//widens the first column to fit the market names
+        positionsTable->setColumnWidth(0, 200);
+
+
+		//todo: make the P&L column green/red based on positive/negative P&L
         // Set color based on P&L
         //QColor backgroundColor;
         //if (pnl > 0)
@@ -366,6 +373,66 @@ void MainWindow::PositionTableUpdate(QJsonArray positions) {
         //    }
         //}
     }
+}
+
+void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders) {
+    qDebug() << "table being updated";
+	//this function would update the orders table in the UI 
+
+    //filters all of the ordres of the current acocunt
+    QJsonArray filteredOrders;
+
+    for (const auto& order : orders) {
+        if (QString::fromStdString(order.account_id()) == this->client->selectedAccount) {
+            QJsonObject orderJson{
+                { "unique_id", QString::fromStdString(order.unique_id()) },
+                { "account_id", QString::fromStdString(order.account_id()) },
+                { "market_id", QString::fromStdString(order.market_id()) },
+                { "status", QString::fromStdString(order.status_detail()) },
+           //     { "price_type", QString::fromNumber(order.price_type()) },
+                { "current_volume", static_cast<int>(order.current_volume()) },
+                { "working_volume", static_cast<int>(order.working_volume()) },
+                { "exchange_order_id", QString::fromStdString(order.exchange_order_id()) },
+                { "status_detail", QString::fromStdString(order.status_detail()) },
+                // Add other fields as needed
+            };
+            filteredOrders.append(orderJson);
+        }
+    }
+
+    //ui update!
+    // Step 2: Populate the QTableWidget
+    if (!ordersTable) return;
+
+    ordersTable->setRowCount(0);  // Clear table
+
+    for (const QJsonValue& val : filteredOrders) {
+        QJsonObject order = val.toObject();
+        int row = ordersTable->rowCount();
+        ordersTable->insertRow(row);
+
+        QString timeStr = QDateTime::fromSecsSinceEpoch(order["time"].toVariant().toLongLong())
+            .toString("yyyy-MM-dd HH:mm:ss");
+
+        QString market = order["market_id"].toString();
+        QString side = order["side"].toString();
+        QString volume = QString("%1/%2")
+            .arg(order["current_volume"].toInt())
+            .arg(order["working_volume"].toInt());
+        QString price = order["price"].toString();
+        QString status = order["status"].toString();
+        QString action = order["exchange_order_id"].toString();
+
+        ordersTable->setItem(row, 0, new QTableWidgetItem(timeStr));
+        ordersTable->setItem(row, 1, new QTableWidgetItem(market));
+        ordersTable->setItem(row, 2, new QTableWidgetItem(side));
+        ordersTable->setItem(row, 3, new QTableWidgetItem(volume));
+        ordersTable->setItem(row, 4, new QTableWidgetItem(price));
+        ordersTable->setItem(row, 5, new QTableWidgetItem(status));
+        ordersTable->setItem(row, 6, new QTableWidgetItem(action));
+    }
+
+    ordersTable->resizeColumnsToContents();
 }
 void MainWindow::onMarketHeaderUpdate(const QString& displayText) {
 	contractButton->setEnabled(true); 

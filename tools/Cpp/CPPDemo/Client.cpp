@@ -406,7 +406,7 @@ Client::Client(QObject* parent)
             }
 
             emit accountsPositionsUpdated(filteredPositions);
-        }
+         }
         }
 
 
@@ -423,12 +423,10 @@ Client::Client(QObject* parent)
             case t4proto::v1::account::AccountSnapshotMessage::kAccountPosition:
                 handleAccountPosition(msg.account_position());
                 break;
-                //case t4proto::v1::account::AccountSnapshotMessage::kOrderUpdateMulti:
-                //    handleOrderUpdateMulti(msg.order_update_multi());
-                //    break;
-                //case t4proto::v1::account::AccountSnapshotMessage::kOrderUpdate:
-                //    handleOrderUpdate(msg.order_update());
-                //    break;
+            case t4proto::v1::account::AccountSnapshotMessage::kOrderUpdateMulti:
+                handleOrderUpdateMulti(msg.order_update_multi());
+                break;
+
             case t4proto::v1::account::AccountSnapshotMessage::PAYLOAD_NOT_SET:
             default:
                 
@@ -437,6 +435,102 @@ Client::Client(QObject* parent)
          
         }
     }
+
+    void Client::handleOrderUpdate(const t4proto::v1::orderrouting::OrderUpdate& update) {
+        // Handle order updates
+        
+
+		orders[QString::fromStdString(update.unique_id())] = update;
+
+        emit ordersUpdated(orders);
+	}
+
+    void Client::handleOrderUpdateStatus(const t4proto::v1::orderrouting::OrderUpdateStatus& status) {
+
+        QString uniqueId = QString::fromStdString(status.unique_id());
+
+        if (!orders.contains(uniqueId)) {
+            qWarning() << "Order ID not found:" << uniqueId;
+            return;
+        }
+
+        t4proto::v1::orderrouting::OrderUpdate existingOrder = orders[uniqueId];
+
+        existingOrder.set_status(status.status());
+        *existingOrder.mutable_time() = status.time();
+        existingOrder.set_price_type(status.price_type());
+        existingOrder.set_current_volume(status.current_volume());
+        existingOrder.set_working_volume(status.working_volume());
+        // existingOrder.set_instruction_extra(status.instruction_extra()); // Uncomment if needed
+        existingOrder.set_exchange_order_id(status.exchange_order_id());
+        existingOrder.set_status_detail(status.status_detail());
+
+        orders[uniqueId] = existingOrder;
+        emit ordersUpdated(orders);
+	}
+
+
+    //debug functions
+    void Client::handleOrderUpdateTrade(const t4proto::v1::orderrouting::OrderUpdateTrade& tradeUpdate) {
+        qDebug() << "Trade update:"
+            << QString::fromStdString(tradeUpdate.unique_id())
+            << ", trade:"
+            << QString::fromStdString(tradeUpdate.exchange_trade_id());
+    }
+
+    void Client::handleOrderUpdateTradeLeg(const t4proto::v1::orderrouting::OrderUpdateTradeLeg& legUpdate) {
+        qDebug() << "Trade leg update:"
+            << QString::fromStdString(legUpdate.unique_id())
+            << ", leg index:"
+            << legUpdate.leg_index();
+    }
+
+    void Client::handleOrderUpdateFailed(const t4proto::v1::orderrouting::OrderUpdateFailed& failedUpdate) {
+        qDebug() << "Order failed:"
+            << QString::fromStdString(failedUpdate.unique_id())
+            << ", status:"
+            << QString::fromStdString(failedUpdate.status_detail());
+    }
+
+    
+    void Client::handleOrderUpdateMulti(const t4proto::v1::orderrouting::OrderUpdateMulti& multiUpdate) {
+        int updatesProcessed = 0;
+
+        for (const auto& update : multiUpdate.updates()) {
+            if (update.has_order_update()) {
+                updatesProcessed++;
+                handleOrderUpdate(update.order_update());
+            }
+            else if (update.has_order_update_status()) {
+                updatesProcessed++;
+                handleOrderUpdateStatus(update.order_update_status());
+            }
+            else if (update.has_order_update_trade()) {
+                updatesProcessed++;
+                handleOrderUpdateTrade(update.order_update_trade());
+            }
+            else if (update.has_order_update_trade_leg()) {
+                updatesProcessed++;
+                handleOrderUpdateTradeLeg(update.order_update_trade_leg());
+            }
+            else if (update.has_order_update_failed()) {
+                updatesProcessed++;
+                handleOrderUpdateFailed(update.order_update_failed());
+            }
+            else {
+                qWarning() << "[OrderUpdateMulti] Unknown update type in message";
+            }
+        }
+
+        if (updatesProcessed != multiUpdate.updates_size()) {
+            qWarning() << "[OrderUpdateMulti] Mismatch: expected"
+                << multiUpdate.updates_size() << "processed" << updatesProcessed;
+        }
+        else {
+            qDebug() << "[OrderUpdateMulti] Processed" << updatesProcessed << "updates";
+        }
+        
+	}
     void Client::updateMarketHeader(const QString& contractId, QString& expiryDate) {
         // Emit a signal to update the market header
         QString expiryShort;
@@ -468,7 +562,7 @@ Client::Client(QObject* parent)
         t4proto::v1::service::ServerMessage msg;
         if (msg.ParseFromArray(message.data(), message.size())) {
 
-
+            qDebug() << QString::fromStdString(msg.DebugString());
             if (msg.has_login_response()) {
                 handleLoginResponse(msg.login_response());
             }
@@ -494,13 +588,11 @@ Client::Client(QObject* parent)
 
             }
              else if (msg.has_account_snapshot()) {
-                 qDebug() << "[account_snapshot]\n"
-                     << QString::fromStdString(msg.account_snapshot().DebugString());
+                 
                  handleAccountSnapshot(msg.account_snapshot());
              }
             else if (msg.has_account_position()) {
-                qDebug() << "[account_position]\n"
-                    << QString::fromStdString(msg.account_position().DebugString());
+               
 				handleAccountPosition(msg.account_position());
 
             }
@@ -513,8 +605,7 @@ Client::Client(QObject* parent)
 
             }
             else if (msg.has_account_position_profit()) {
-                qDebug() << "[account_position_profit]\n"
-                    << QString::fromStdString(msg.account_position_profit().DebugString());
+                
 				handleAccountPositionProfit(msg.account_position_profit());
             }
             else if (msg.has_market_depth()) {
@@ -524,21 +615,23 @@ Client::Client(QObject* parent)
             else if (msg.has_order_update_multi()) {
                 qDebug() << "[order_update_multi]\n"
                     << QString::fromStdString(msg.order_update_multi().DebugString());
+				handleOrderUpdateMulti(msg.order_update_multi());
 
             }
             else if (msg.has_order_update()) {
                 qDebug() << "[order_update]\n"
                     << QString::fromStdString(msg.order_update().DebugString());
+				handleOrderUpdate(msg.order_update());
 
             }
             else if (msg.has_heartbeat()) {
                 qDebug() << "heart beat received";
             }
-            //else {
-            //    qDebug() << "[unknown message type]";
-            //    qDebug() << "Full message dump:\n"
-            //        << QString::fromStdString(msg.DebugString());
-            //}
+             else {
+                qDebug() << "[unknown message type]";
+                qDebug() << "Full message dump:\n"
+                    << QString::fromStdString(msg.DebugString());
+            }
         }
         
     }  

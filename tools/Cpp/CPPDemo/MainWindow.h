@@ -27,6 +27,7 @@ class MainWindow : public QMainWindow {
         void MarketTableUpdate(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);
         void onMarketHeaderUpdate(const QString& displayText);
 		void PositionTableUpdate(QJsonArray positions);
+		void OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders);
 private slots:
        
         void openExpiryPickerDialog();
@@ -36,6 +37,7 @@ private slots:
     private:
         QGroupBox* marketGroup;
         QComboBox* accountDropdown;
+        QTableWidget* ordersTable;
         QLabel* bestBidLabel;
         QLabel* bestOfferLabel;
         QLabel* lastTradeLabel;
