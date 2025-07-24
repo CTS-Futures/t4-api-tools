@@ -112,16 +112,8 @@ void MainWindow::setupUi() {
     connect(contractButton, &QPushButton::clicked, client, &Client::load_exchanges);
     expiryButton = new QPushButton("Expiry");
 	expiryButton->setEnabled(false);
-    connect(expiryButton, &QPushButton::clicked, this, [this]() {
-        ExpiryPickerDialog dlg(this->client, this);
+    connect(expiryButton, &QPushButton::clicked, this, &MainWindow::openExpiryPickerDialog);
 
-        // Optional: Connect to expirySelected signal
-        connect(&dlg, &ExpiryPickerDialog::expirySelected, this, [](const QString& expiry) {
-            qDebug() << "User selected expiry:" << expiry;
-            });
-
-        dlg.exec();
-        });
     connect(contractButton, &QPushButton::clicked, this, [this, client = this->client]() {
         ContractPickerDialog dlg(this->client, client->exchanges, this);
 
@@ -246,6 +238,16 @@ void MainWindow::setupUi() {
         this->updateGeometry();      // Triggers a geometry refresh
         });
 
+}
+void MainWindow::openExpiryPickerDialog() {
+    ExpiryPickerDialog* dlg = new ExpiryPickerDialog(this, client);
+
+    connect(dlg, &ExpiryPickerDialog::expirySelected, this, [](const QString& expiry) {
+        qDebug() << "User selected expiry:" << expiry;
+        });
+
+    dlg->setAttribute(Qt::WA_DeleteOnClose);  // optional cleanup
+    dlg->exec();  // modal; blocks until closed
 }
 
 //populates accounts into the account drop down

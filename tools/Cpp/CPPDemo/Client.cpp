@@ -886,6 +886,7 @@ Client::Client(QObject* parent)
         QUrl url = apiUrl.resolved(QUrl("/markets/picker"));
         QUrlQuery query;
         query.addQueryItem("exchangeid", mdExchangeId);
+		query.addQueryItem("contractid", mdContractId);
         query.addQueryItem("strategytype", strategyType);
         url.setQuery(query);
 

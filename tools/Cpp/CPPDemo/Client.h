@@ -35,6 +35,8 @@ using t4proto::v1::market::MarketDepthSubscribe;
 class Client : public QObject {
     Q_OBJECT
     public:
+        QString mdExchangeId;
+        QString mdContractId;
         QVector<QJsonObject> exchanges;
         QMap<QString, QVector<QJsonObject>> contractsCache;
         QMap<QString, QVector<QJsonObject>> groupsCache;
@@ -101,8 +103,7 @@ class Client : public QObject {
         QString appLicense;
         
         // Market data config
-        QString mdExchangeId;
-        QString mdContractId;
+
         QString _latestRequestKey;
 
         int priceFormat = 0;

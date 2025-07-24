@@ -1,30 +1,39 @@
-#ifndef EXPIRYPICKERDIALOG_H
-#define EXPIRYPICKERDIALOG_H
+#pragma once
 
 #include <QDialog>
 #include <QTreeWidget>
 #include <QPushButton>
+#include <QLabel>
+#include <QVBoxLayout>
+#include <QFrame>
 #include "Client.h"
 
 class ExpiryPickerDialog : public QDialog {
     Q_OBJECT
 
 public:
-    explicit ExpiryPickerDialog(Client* client, QWidget* parent = nullptr);
-    QVariantMap selectedExpiryMeta() const;
+    explicit ExpiryPickerDialog(QWidget* parent = nullptr, Client* client = nullptr, std::function<void(QString)> onSelect = nullptr);
+    void loadAndRenderMarkets(QTreeWidgetItem* item, QString strategy, QString expiry);
 
 signals:
-    void expirySelected(const QString& label);
-
+    void expirySelected(const QString& expiry);
 private slots:
-    void handleSelection();
+    void onItemExpanded(QTreeWidgetItem* item);
+    void onItemSelected();
+    void onConfirmSelection();
+    void loadAndRenderGroups();
 
 private:
-    Client* nestedClient;
-    QTreeWidget* tree;
-    QPushButton* cancelBtn;
-    QPushButton* selectBtn;
-    QVariantMap selectedMeta;  // Stores exchangeId, expiryID, etc.
-};
+    void buildUI();
 
-#endif // EXPIRYPICKERDIALOG_H
+    Client* client;
+  
+    std::function<void(QString)> onSelectCallback;
+
+    QString exchangeId;
+    QString contractId;
+    QString selectedExpiry;
+
+    QTreeWidget* treeWidget;
+    QPushButton* selectButton;
+};

@@ -1,68 +1,138 @@
 #include "ExpiryPickerDialog.h"
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QHeaderView>
 
-ExpiryPickerDialog::ExpiryPickerDialog(Client* client, QWidget* parent)
-    : QDialog(parent), nestedClient(client) {
+ExpiryPickerDialog::ExpiryPickerDialog(QWidget* parent, Client* client, std::function<void(QString)> onSelect)
+    : QDialog(parent), client(client), onSelectCallback(onSelect) {
     setWindowTitle("Select Expiry");
-    setMinimumSize(400, 300);
+    resize(500, 600);
+    setModal(true);
 
-    QVBoxLayout* mainLayout = new QVBoxLayout(this);
+    exchangeId = client->mdExchangeId;
+    contractId = client->mdContractId;
 
-    tree = new QTreeWidget();
-    tree->setHeaderHidden(true);
-    mainLayout->addWidget(tree);
-
-    // Outright and Calendar Spread root items
-    QTreeWidgetItem* outrightItem = new QTreeWidgetItem(tree);
-    outrightItem->setText(0, "Outright");
-
-    QTreeWidgetItem* spreadItem = new QTreeWidgetItem(tree);
-    spreadItem->setText(0, "Calendar Spread");
-
-    // Dummy example children for now
-    new QTreeWidgetItem(outrightItem, QStringList() << "2025-SEP");
-    new QTreeWidgetItem(outrightItem, QStringList() << "2025-DEC");
-
-    new QTreeWidgetItem(spreadItem, QStringList() << "SEP-DEC");
-    new QTreeWidgetItem(spreadItem, QStringList() << "DEC-MAR");
-
-    outrightItem->setExpanded(false);
-    spreadItem->setExpanded(false);
-
-    // Buttons
-    QHBoxLayout* buttonLayout = new QHBoxLayout();
-    cancelBtn = new QPushButton("Cancel");
-    selectBtn = new QPushButton("Select");
-    selectBtn->setEnabled(false);
-
-    buttonLayout->addStretch();
-    buttonLayout->addWidget(cancelBtn);
-    buttonLayout->addWidget(selectBtn);
-    mainLayout->addLayout(buttonLayout);
-
-    connect(tree, &QTreeWidget::itemSelectionChanged, this, [this]() {
-        QTreeWidgetItem* item = tree->currentItem();
-        bool isLeaf = item && item->childCount() == 0;
-        selectBtn->setEnabled(isLeaf);
-        });
-
-    connect(selectBtn, &QPushButton::clicked, this, &ExpiryPickerDialog::handleSelection);
-    connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+    buildUI();
+    QTimer::singleShot(0, this, &ExpiryPickerDialog::loadAndRenderGroups);
 }
 
-void ExpiryPickerDialog::handleSelection() {
-    QTreeWidgetItem* item = tree->currentItem();
-    if (!item || item->childCount() > 0)
+void ExpiryPickerDialog::buildUI() {
+    auto layout = new QVBoxLayout(this);
+
+    // Title
+    auto title = new QLabel("Select Expiry");
+    QFont font = title->font();
+    font.setBold(true);
+    font.setPointSize(12);
+    title->setFont(font);
+    layout->addWidget(title);
+
+    // Tree container
+    treeWidget = new QTreeWidget(this);
+    treeWidget->setHeaderHidden(true);
+    layout->addWidget(treeWidget, 1); // stretch
+
+    connect(treeWidget, &QTreeWidget::itemExpanded, this, &ExpiryPickerDialog::onItemExpanded);
+    connect(treeWidget, &QTreeWidget::itemSelectionChanged, this, &ExpiryPickerDialog::onItemSelected);
+
+    // Separator
+    QFrame* separator = new QFrame(this);
+    separator->setFrameShape(QFrame::HLine);
+    separator->setFrameShadow(QFrame::Sunken);
+    layout->addWidget(separator);
+
+    // Button bar
+    auto btnLayout = new QHBoxLayout();
+    QPushButton* cancelBtn = new QPushButton("Cancel");
+    selectButton = new QPushButton("Select");
+    selectButton->setEnabled(false);
+
+    connect(cancelBtn, &QPushButton::clicked, this, &ExpiryPickerDialog::reject);
+    connect(selectButton, &QPushButton::clicked, this, &ExpiryPickerDialog::onConfirmSelection);
+
+    btnLayout->addStretch();
+    btnLayout->addWidget(selectButton);
+    btnLayout->addWidget(cancelBtn);
+    layout->addLayout(btnLayout);
+}
+
+void ExpiryPickerDialog::loadAndRenderGroups() {
+    QVector<QJsonObject> groups = client->loadGroups();  // Sync or async if needed
+    if (groups.isEmpty()) {
+        treeWidget->clear();
         return;
+	}
+    treeWidget->clear();
+    for (const QJsonObject& group : groups) {
+        QString strategy= group["strategyType"].toString();
+        QString expiry = group["expiryDate"].toString();
+        QString label = client->getStrategyDisplayName(strategy);
+        int marketCount = group["marketCount"].toInt();
 
-    QString label = item->text(0);
-    selectedMeta["label"] = label;
-    emit expirySelected(label);
-    accept();
+        // Unique ID equivalent: strategy + "_" + expiry
+        QString nodeId = QString("%1_%2").arg(strategy, expiry.isEmpty() ? "none" : expiry);
+
+        // Create top-level parent item
+        QTreeWidgetItem* parentItem = new QTreeWidgetItem(treeWidget);
+        parentItem->setText(0, label);
+        parentItem->setData(0, Qt::UserRole, nodeId);  // simulate iid
+        parentItem->setData(0, Qt::UserRole + 1, "group");
+        parentItem->setData(0, Qt::UserRole + 2, strategy);
+        parentItem->setData(0, Qt::UserRole + 3, expiry);
+
+        // Add dummy child to make expandable
+        QTreeWidgetItem* dummyChild = new QTreeWidgetItem();
+        dummyChild->setText(0, "");  // empty so it stays hidden
+        parentItem->addChild(dummyChild);
+
+        treeWidget->addTopLevelItem(parentItem);
+    }
+    qDebug() << "Loaded" << groups;
+}
+void ExpiryPickerDialog::loadAndRenderMarkets(QTreeWidgetItem* item, QString strategy, QString expiry) {
+    QVector<QJsonObject> markets = client->loadMarketsForGroups(strategy, expiry);  // synchronous
+
+    if (markets.isEmpty()) return;
+
+    for (const QJsonObject& m : markets) {
+        QString marketId = m["marketID"].toString();
+        QString expiryDate = m["expiryDate"].toString();
+        QString description = m["description"].toString();
+        QString label = description.isEmpty() ? marketId : description;
+
+        QTreeWidgetItem* marketItem = new QTreeWidgetItem(item);  // Insert into the parent
+        marketItem->setText(0, label);
+        marketItem->setData(0, Qt::UserRole + 1, "market");
+        marketItem->setData(0, Qt::UserRole + 2, marketId);
+        marketItem->setData(0, Qt::UserRole + 3, expiryDate);
+        marketItem->setData(0, Qt::UserRole + 4, description);
+    }
+}
+void ExpiryPickerDialog::onItemExpanded(QTreeWidgetItem* item) {
+    QString type = item->data(0, Qt::UserRole + 1).toString();
+    if (type != "group") return;
+
+    // Clear dummy child
+    item->takeChildren();
+
+    QString strategy = item->data(0, Qt::UserRole + 2).toString();
+    QString expiry = item->data(0, Qt::UserRole + 3).toString();
+
+    loadAndRenderMarkets(item, strategy, expiry);  // call 3rd function
 }
 
-QVariantMap ExpiryPickerDialog::selectedExpiryMeta() const {
-    return selectedMeta;
+void ExpiryPickerDialog::onItemSelected() {
+    auto items = treeWidget->selectedItems();
+    if (!items.isEmpty() && items[0]->childCount() == 0) {
+        selectedExpiry = items[0]->text(0);
+        selectButton->setEnabled(true);
+    }
+    else {
+        selectedExpiry.clear();
+        selectButton->setEnabled(false);
+    }
+}
+
+void ExpiryPickerDialog::onConfirmSelection() {
+    if (!selectedExpiry.isEmpty() && onSelectCallback) {
+        onSelectCallback(selectedExpiry);
+    }
+    accept();
 }

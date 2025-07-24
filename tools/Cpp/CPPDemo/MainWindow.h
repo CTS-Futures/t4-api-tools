@@ -27,6 +27,8 @@ class MainWindow : public QMainWindow {
         void MarketTableUpdate(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);
         void onMarketHeaderUpdate(const QString& displayText);
     private slots:
+       
+        void openExpiryPickerDialog();
         void populateAccounts();
         void onAccountSelected(const QString& text);
 		void onDisconnectClicked();
