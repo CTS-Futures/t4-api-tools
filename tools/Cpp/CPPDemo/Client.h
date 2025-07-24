@@ -55,6 +55,10 @@ class Client : public QObject {
 		void handleMarketSnapshot(const t4proto::v1::market::MarketSnapshot& snapshot);
 		void handleMarketDetails(const t4proto::v1::market::MarketDetails& detail);
         void handleMarketDepth(const t4proto::v1::market::MarketDepth& depth);
+        void handleAccountUpdate(const t4proto::v1::account::AccountUpdate update);
+        void handleAccountSnapshot(const t4proto::v1::account::AccountSnapshot snapshot);
+        void handleAccountPositionProfit(const t4proto::v1::account::AccountPositionProfit message);
+        void handleAccountPosition(const t4proto::v1::account::AccountPosition message);
 		void updateMarketHeader(const QString& contractId, QString& expiryDate);
         void refreshToken();
         void load_exchanges();
@@ -71,6 +75,7 @@ class Client : public QObject {
         void disconnected();
         void authenticated();
         void accountsUpdated();
+        void accountsPositionsUpdated(QJsonArray positions);
         void tokenRefreshed();
         void marketHeaderUpdate(const QString& displayText);
 		void updateMarketTable(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);

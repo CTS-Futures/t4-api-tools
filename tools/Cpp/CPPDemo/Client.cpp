@@ -185,22 +185,7 @@ Client::Client(QObject* parent)
 
             emit accountsUpdated();
 
-            // Notify UI
-            /*if (onAccountUpdate) {
-                QVariantList accountList;
-                for (const auto& acc : accounts) {
-                    QVariantMap accMap;
-                    accMap["account_id"] = QString::fromStdString(acc.account_id());
-                    accMap["description"] = QString::fromStdString(acc.description());
-                    accountList.append(accMap);
-                }
-
-                QVariantMap payload;
-                payload["type"] = "accounts";
-                payload["accounts"] = accountList;
-
-                onAccountUpdate(payload);
-            }*/
+         
             emit authenticated();
         }
         else {
@@ -294,6 +279,164 @@ Client::Client(QObject* parent)
             lastTrade
         );
 	}
+
+    void Client::handleAccountUpdate(const t4proto::v1::account::AccountUpdate update) {
+        qDebug() << "pass";
+    }
+
+    
+    void Client::handleAccountPosition(const t4proto::v1::account::AccountPosition message) {
+		//generates a key for the position
+        QString key = QString::fromStdString(message.account_id()) + "_" + QString::fromStdString(message.market_id());
+
+
+        QJsonObject posObj{
+            { "account_id",    QString::fromStdString(message.account_id()) },
+            { "exchange_id",   QString::fromStdString(message.exchange_id()) },
+            { "contract_id",   QString::fromStdString(message.contract_id()) },
+            { "market_id",     QString::fromStdString(message.market_id()) },
+            { "buys",          static_cast<int>(message.buys()) },
+            { "sells",         static_cast<int>(message.sells()) },
+            { "working_buys",  static_cast<int>(message.working_buys()) },
+            { "working_sells", static_cast<int>(message.working_sells()) },
+            { "upl",           0.0 },
+            { "rpl",           0.0 },
+            { "total_pnl",     0.0 }
+            };
+
+		positions[key] = posObj; //stores the position in the position map
+       
+
+        QJsonArray filteredPositions;
+        for (const auto& pos : positions) {
+            if (pos["account_id"].toString() == selectedAccount) {
+                filteredPositions.append(pos);
+			}
+            
+
+        }
+        //emit a signal to the ui
+        emit accountsPositionsUpdated(filteredPositions);
+
+
+    }
+    void Client::handleAccountPositionProfit(const t4proto::v1::account::AccountPositionProfit message) {
+        qDebug() << "[account_position_profit] Received profit update for account ID:"
+            << QString::fromStdString(message.account_id());
+
+        // Create key for position
+        QString key = QString::fromStdString(message.account_id()) + "_" + QString::fromStdString(message.market_id());
+
+        // Load existing or initialize position object
+        QJsonObject position;
+        if (positions.contains(key)) {
+            position = positions[key];
+        }
+        else {
+            position = QJsonObject{
+                { "account_id",    QString::fromStdString(message.account_id()) },
+                { "exchange_id",   QString::fromStdString(message.exchange_id()) },
+                { "contract_id",   QString::fromStdString(message.contract_id()) },
+                { "market_id",     QString::fromStdString(message.market_id()) },
+                { "buys",          0 },
+                { "sells",         0 },
+                { "working_buys",  0 },
+                { "working_sells", 0 }
+            };
+        }
+
+        // Update P&L fields
+        double upl = message.upl_trade();
+        double rpl = message.rpl();
+        double totalPnl = upl + rpl;
+
+        position["upl"] = upl;
+        position["rpl"] = rpl;
+        position["total_pnl"] = totalPnl;
+
+        // Save updated position
+        positions[key] = position;
+
+        // Optional: enrich log with market snapshot info
+        QString marketId = QString::fromStdString(message.market_id());
+        QString marketInfo;
+
+        if (marketSnapshots.contains(marketId)) {
+            const auto& snapshot = marketSnapshots[marketId];
+
+            QString bestBid = "-";
+            if (snapshot.bids_size() > 0) {
+                const auto& bid = snapshot.bids(0);
+                bestBid = QString("%1@%2")
+                    .arg(bid.volume())
+                    .arg(QString::fromStdString(bid.price().value()));
+            }
+
+            QString bestOffer = "-";
+            if (snapshot.offers_size() > 0) {
+                const auto& offer = snapshot.offers(0);
+                bestOffer = QString("%1@%2")
+                    .arg(offer.volume())
+                    .arg(QString::fromStdString(offer.price().value()));
+            }
+
+            QString lastTrade = "-";
+            if (snapshot.has_trade_data() && snapshot.trade_data().has_last_trade_price()) {
+                lastTrade = QString("%1@%2")
+                    .arg(snapshot.trade_data().last_trade_volume())
+                    .arg(QString::fromStdString(snapshot.trade_data().last_trade_price().value()));
+            }
+
+            marketInfo = QString(" (Bid: %1, Offer: %2, Last: %3)").arg(bestBid, bestOffer, lastTrade);
+        }
+
+        qDebug() << QString("[Position P&L update] Market: %1%2, UPL: %3, RPL: %4, Total P&L: %5")
+            .arg(marketId, marketInfo)
+            .arg(upl)
+            .arg(rpl)
+            .arg(totalPnl);
+
+        // Emit filtered positions for the selected account
+        if (QString::fromStdString(message.account_id()) == selectedAccount) {
+            QJsonArray filteredPositions;
+            for (const auto& pos : positions) {
+                if (pos["account_id"].toString() == selectedAccount) {
+                    filteredPositions.append(pos);
+                }
+            }
+
+            emit accountsPositionsUpdated(filteredPositions);
+        }
+        }
+
+
+	
+    void Client::handleAccountSnapshot(const t4proto::v1::account::AccountSnapshot snapshot) {
+        
+        //grabs all the differnt information from the snapshot and sends it to handlers
+        for (const auto& msg : snapshot.messages()) {
+            switch (msg.payload_case()) {
+
+            case t4proto::v1::account::AccountSnapshotMessage::kAccountUpdate:
+                handleAccountUpdate(msg.account_update());
+                break;
+            case t4proto::v1::account::AccountSnapshotMessage::kAccountPosition:
+                handleAccountPosition(msg.account_position());
+                break;
+                //case t4proto::v1::account::AccountSnapshotMessage::kOrderUpdateMulti:
+                //    handleOrderUpdateMulti(msg.order_update_multi());
+                //    break;
+                //case t4proto::v1::account::AccountSnapshotMessage::kOrderUpdate:
+                //    handleOrderUpdate(msg.order_update());
+                //    break;
+            case t4proto::v1::account::AccountSnapshotMessage::PAYLOAD_NOT_SET:
+            default:
+                
+                break;
+            }
+         
+        }
+    }
     void Client::updateMarketHeader(const QString& contractId, QString& expiryDate) {
         // Emit a signal to update the market header
         QString expiryShort;
@@ -345,21 +488,22 @@ Client::Client(QObject* parent)
                     << QString::fromStdString(msg.account_subscribe_response().DebugString());
 
             }
-            /*else if (msg.has_account_update()) {
-                qDebug() << "[account_update]\n"
+             if (msg.has_account_update()) {
+               qDebug() << "[account_update]\n"
                     << QString::fromStdString(msg.account_update().DebugString());
 
             }
-            else if (msg.has_account_snapshot()) {
-                qDebug() << "[account_snapshot]\n"
-                    << QString::fromStdString(msg.account_snapshot().DebugString());
-
-            }
+             else if (msg.has_account_snapshot()) {
+                 qDebug() << "[account_snapshot]\n"
+                     << QString::fromStdString(msg.account_snapshot().DebugString());
+                 handleAccountSnapshot(msg.account_snapshot());
+             }
             else if (msg.has_account_position()) {
                 qDebug() << "[account_position]\n"
                     << QString::fromStdString(msg.account_position().DebugString());
+				handleAccountPosition(msg.account_position());
 
-            }*/
+            }
             else if (msg.has_market_details()) {
 				handleMarketDetails(msg.market_details());
 
@@ -368,16 +512,11 @@ Client::Client(QObject* parent)
 				handleMarketSnapshot(msg.market_snapshot());
 
             }
-           /* else if (msg.has_account_profit()) {
-                qDebug() << "[account_profit]\n"
-                    << QString::fromStdString(msg.account_profit().DebugString());
-
-            }
             else if (msg.has_account_position_profit()) {
                 qDebug() << "[account_position_profit]\n"
                     << QString::fromStdString(msg.account_position_profit().DebugString());
-
-            }*/
+				handleAccountPositionProfit(msg.account_position_profit());
+            }
             else if (msg.has_market_depth()) {
 				handleMarketDepth(msg.market_depth());
 
@@ -401,9 +540,7 @@ Client::Client(QObject* parent)
             //        << QString::fromStdString(msg.DebugString());
             //}
         }
-        else {
-            qDebug() << "[error] Failed to parse ServerMessage.";
-        }
+        
     }  
     
     void Client::subscribeAccount(const QString& accountId) {

@@ -12,7 +12,7 @@ MainWindow::MainWindow(QWidget* parent)
 	connect(client, &Client::disconnected, this, &MainWindow::onDisconnectClicked); //signal from client when disconnected, will invoke onDisconnectClicked
     connect(client, &Client::updateMarketTable, this, &MainWindow::MarketTableUpdate);
 	connect(client, &Client::marketHeaderUpdate, this, &MainWindow::onMarketHeaderUpdate);
-
+	connect(client, &Client::accountsPositionsUpdated, this, &MainWindow::PositionTableUpdate);
 }
 
 MainWindow::~MainWindow() {}
@@ -315,6 +315,58 @@ void MainWindow::MarketTableUpdate(const QString& exchangeId, const QString& con
     highlightChange(lastTradeLabel, lastTrade, QColor("#cce5ff")); // light blue
 }
 
+void MainWindow::PositionTableUpdate(QJsonArray positions) {
+    // This function would update the positions table in the UI
+    // For now, we will just log the positions
+        // Find the positions table (declared in setupUi)
+    QTableWidget* positionsTable = findChild<QTableWidget*>();
+    if (!positionsTable) {
+        qWarning() << "Positions table not found!";
+        return;
+    }
+
+    // Clear the table
+    positionsTable->setRowCount(0);
+
+    // Loop through the array and populate table
+    for (const QJsonValue& val : positions) {
+        if (!val.isObject()) continue;
+
+        QJsonObject pos = val.toObject();
+        QString market = pos.value("market_id").toString();
+        int buys = pos.value("buys").toInt();
+        int sells = pos.value("sells").toInt();
+        int net = buys - sells;
+        double pnl = pos.value("total_pnl").toDouble();
+        int workingBuys = pos.value("working_buys").toInt();
+        int workingSells = pos.value("working_sells").toInt();
+        QString working = QString("%1/%2").arg(workingBuys).arg(workingSells);
+
+        // Add a row
+        int row = positionsTable->rowCount();
+        positionsTable->insertRow(row);
+        positionsTable->setItem(row, 0, new QTableWidgetItem(market));
+        positionsTable->setItem(row, 1, new QTableWidgetItem(QString::number(net)));
+        positionsTable->setItem(row, 2, new QTableWidgetItem(QString::number(pnl, 'f', 2)));
+        positionsTable->setItem(row, 3, new QTableWidgetItem(working));
+
+        // Set color based on P&L
+        //QColor backgroundColor;
+        //if (pnl > 0)
+        //    backgroundColor = QColor("#e8f5e9");  // green-ish
+        //else if (pnl < 0)
+        //    backgroundColor = QColor("#ffebee");  // red-ish
+        //else
+        //    backgroundColor = QColor("#f5f5f5");  // neutral gray
+
+        //for (int col = 0; col < 4; ++col) {
+        //    QTableWidgetItem* item = positionsTable->item(row, col);
+        //    if (item) {
+        //        item->setBackground(backgroundColor);
+        //    }
+        //}
+    }
+}
 void MainWindow::onMarketHeaderUpdate(const QString& displayText) {
 	contractButton->setEnabled(true); 
 	expiryButton->setEnabled(true); //enables the contract and expiry buttons when the market is ready to play with
