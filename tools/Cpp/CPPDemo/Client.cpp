@@ -439,7 +439,7 @@ Client::Client(QObject* parent)
     void Client::handleOrderUpdate(const t4proto::v1::orderrouting::OrderUpdate& update) {
         // Handle order updates
         
-
+        qDebug() << update.DebugString();
 		orders[QString::fromStdString(update.unique_id())] = update;
 
         emit ordersUpdated(orders);
@@ -562,7 +562,6 @@ Client::Client(QObject* parent)
         t4proto::v1::service::ServerMessage msg;
         if (msg.ParseFromArray(message.data(), message.size())) {
 
-            qDebug() << QString::fromStdString(msg.DebugString());
             if (msg.has_login_response()) {
                 handleLoginResponse(msg.login_response());
             }
@@ -580,11 +579,6 @@ Client::Client(QObject* parent)
             else if (msg.has_account_subscribe_response()) {
                 qDebug() << "[account_subscribe_response]\n"
                     << QString::fromStdString(msg.account_subscribe_response().DebugString());
-
-            }
-             if (msg.has_account_update()) {
-               qDebug() << "[account_update]\n"
-                    << QString::fromStdString(msg.account_update().DebugString());
 
             }
              else if (msg.has_account_snapshot()) {
@@ -613,14 +607,10 @@ Client::Client(QObject* parent)
 
             }
             else if (msg.has_order_update_multi()) {
-                qDebug() << "[order_update_multi]\n"
-                    << QString::fromStdString(msg.order_update_multi().DebugString());
 				handleOrderUpdateMulti(msg.order_update_multi());
 
             }
             else if (msg.has_order_update()) {
-                qDebug() << "[order_update]\n"
-                    << QString::fromStdString(msg.order_update().DebugString());
 				handleOrderUpdate(msg.order_update());
 
             }

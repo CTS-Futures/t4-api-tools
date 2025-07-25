@@ -378,26 +378,30 @@ void MainWindow::PositionTableUpdate(QJsonArray positions) {
 void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders) {
     qDebug() << "table being updated";
 	//this function would update the orders table in the UI 
-
+   
     //filters all of the ordres of the current acocunt
     QJsonArray filteredOrders;
 
     for (const auto& order : orders) {
-        if (QString::fromStdString(order.account_id()) == this->client->selectedAccount) {
-            QJsonObject orderJson{
-                { "unique_id", QString::fromStdString(order.unique_id()) },
-                { "account_id", QString::fromStdString(order.account_id()) },
-                { "market_id", QString::fromStdString(order.market_id()) },
-                { "status", QString::fromStdString(order.status_detail()) },
-           //     { "price_type", QString::fromNumber(order.price_type()) },
-                { "current_volume", static_cast<int>(order.current_volume()) },
-                { "working_volume", static_cast<int>(order.working_volume()) },
-                { "exchange_order_id", QString::fromStdString(order.exchange_order_id()) },
-                { "status_detail", QString::fromStdString(order.status_detail()) },
-                // Add other fields as needed
-            };
-            filteredOrders.append(orderJson);
-        }
+        if (QString::fromStdString(order.account_id()) != this->client->selectedAccount)
+            continue;
+
+        QJsonObject obj;
+
+        // Convert only required fields
+        obj["time"] = static_cast<qint64>(order.time().seconds());  // Just seconds
+
+        obj["market_id"] = QString::fromStdString(order.market_id());
+        obj["buy_sell"] = static_cast<int>(order.buy_sell());
+
+        obj["new_volume"] = order.new_volume();  // optional: use has_new_volume()
+        obj["current_volume"] = order.current_volume();
+        obj["working_volume"] = order.working_volume();
+        obj["status"] = order.status();
+        if (order.has_new_limit_price())
+            obj["new_limit_price"] = QString::fromStdString(order.new_limit_price().value());
+
+        filteredOrders.append(obj);
     }
 
     //ui update!
@@ -405,23 +409,39 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
     if (!ordersTable) return;
 
     ordersTable->setRowCount(0);  // Clear table
-
+    qDebug() << filteredOrders;
     for (const QJsonValue& val : filteredOrders) {
         QJsonObject order = val.toObject();
         int row = ordersTable->rowCount();
         ordersTable->insertRow(row);
 
         QString timeStr = QDateTime::fromSecsSinceEpoch(order["time"].toVariant().toLongLong())
-            .toString("yyyy-MM-dd HH:mm:ss");
+            .toString("HH:mm:ss");
 
+        // Market
         QString market = order["market_id"].toString();
-        QString side = order["side"].toString();
+
+        // Side (buy/sell)
+        QString side = (order["buy_sell"].toInt() == 1) ? "Buy" : "Sell";
+
+        // Volume: prefer new_volume if present and > 0, otherwise fallback
+        int newVol = order["new_volume"].toInt();
+        int currVol = order["current_volume"].toInt();
+        int workingVol = order["working_volume"].toInt();
         QString volume = QString("%1/%2")
-            .arg(order["current_volume"].toInt())
-            .arg(order["working_volume"].toInt());
-        QString price = order["price"].toString();
-        QString status = order["status"].toString();
-        QString action = order["exchange_order_id"].toString();
+            .arg(newVol > 0 ? newVol : currVol)
+            .arg(workingVol);
+
+        // Price (handle value safely)
+        QJsonValue priceVal = order["new_limit_price"];
+        qDebug() << order["status"];
+        QString price = (!priceVal.isUndefined() && !priceVal.isNull())
+            ? priceVal.toString()
+            : QString("—");
+
+        // Status
+        QString status = QString::number(order["status"].toInt());
+        
 
         ordersTable->setItem(row, 0, new QTableWidgetItem(timeStr));
         ordersTable->setItem(row, 1, new QTableWidgetItem(market));
@@ -429,7 +449,7 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
         ordersTable->setItem(row, 3, new QTableWidgetItem(volume));
         ordersTable->setItem(row, 4, new QTableWidgetItem(price));
         ordersTable->setItem(row, 5, new QTableWidgetItem(status));
-        ordersTable->setItem(row, 6, new QTableWidgetItem(action));
+     /*   ordersTable->setItem(row, 6, new QTableWidgetItem(action));*/
     }
 
     ordersTable->resizeColumnsToContents();
