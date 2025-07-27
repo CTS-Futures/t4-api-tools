@@ -29,7 +29,7 @@ class MainWindow : public QMainWindow {
 		void PositionTableUpdate(QJsonArray positions);
 		void OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders);
 private slots:
-       
+        void handleSubmitOrder();
         void openExpiryPickerDialog();
         void populateAccounts();
         void onAccountSelected(const QString& text);
@@ -43,6 +43,12 @@ private slots:
         QLabel* lastTradeLabel;
         QPushButton* contractButton;
         QPushButton* expiryButton;
+        QComboBox* typeCombo;
+        QComboBox* sideCombo;
+        QSpinBox* volumeSpin;
+        QDoubleSpinBox* priceSpin;
+        QLineEdit* tpEdit;
+        QLineEdit* slEdit;
         void setupUi();
 		Client* client; // Pointer to the Client object for handling WebSocket communication
        

@@ -10,11 +10,21 @@ using t4proto::v1::account::AccountSubscribe;
 
 #include "t4/v1/common/enums.pb.h"
 using t4proto::v1::common::AccountSubscribeType_descriptor;
+using t4proto::v1::common::BuySell;
+using t4proto::v1::common::OrderLink;
+using t4proto::v1::common::TimeType;
+using t4proto::v1::common::ActivationType;
 
 #include "t4/v1/market/market.pb.h"
 using t4proto::v1::market::MarketDepthSubscribe;
 
 #include "t4/v1/orderrouting/orderrouting.pb.h"
+using t4proto::v1::orderrouting::OrderSubmit;
+using t4proto::v1::orderrouting::OrderSubmit_Order;
+
+#include "t4/v1/common/price.pb.h"
+using t4proto::v1::common::PriceType;
+using t4proto::v1::common::Price;
 #include <QObject> //signals and slots
 #include <QWebSocket>
 #include <map>
@@ -71,7 +81,8 @@ class Client : public QObject {
         void handleOrderUpdateFailed(const t4proto::v1::orderrouting::OrderUpdateFailed& failed);
 		void handleOrderUpdateMulti(const t4proto::v1::orderrouting::OrderUpdateMulti& multiUpdate);
         void updateMarketHeader(const QString& contractId, QString& expiryDate);
-		
+        void submitOrder(const QString& side, double volume, const QString& price, const QString& priceType = "limit", std::optional<double> takeProfitDollars = std::nullopt, std::optional<double> stopLossDollars = std::nullopt);
+
         void refreshToken();
         void load_exchanges();
         void load_contracts(const QString& exchangeId);
@@ -93,12 +104,14 @@ class Client : public QObject {
 		void updateMarketTable(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);
 		void ordersUpdated(QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders);
         void contractsUpdated();
+
  //       void marketUpdated(const QString& exchangeId, const QString& contractId, const QString& marketId);
     public slots:
         void connectToServer();
         void subscribeAccount(const QString& accountId);
         void subscribeMarket(const QString& exchangeId, const QString& contractId, const QString& marketId);
         void onAuthenticated();
+
     private slots:
         void onConnected();
 		void onDisconnected();

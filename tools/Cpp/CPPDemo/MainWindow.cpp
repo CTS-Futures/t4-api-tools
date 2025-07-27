@@ -14,6 +14,7 @@ MainWindow::MainWindow(QWidget* parent)
 	connect(client, &Client::marketHeaderUpdate, this, &MainWindow::onMarketHeaderUpdate);
 	connect(client, &Client::accountsPositionsUpdated, this, &MainWindow::PositionTableUpdate);
     connect(client, &Client::ordersUpdated, this, &MainWindow::OrderTableUpdate);
+    
 
 }
 
@@ -164,40 +165,40 @@ void MainWindow::setupUi() {
     QGridLayout* submitLayout = new QGridLayout();
 
     submitLayout->addWidget(new QLabel("Type:"), 0, 0);
-    QComboBox* typeCombo = new QComboBox();
+    typeCombo = new QComboBox();
     typeCombo->addItems({ "Limit", "Market" });
     submitLayout->addWidget(typeCombo, 1, 0);
 
     submitLayout->addWidget(new QLabel("Side:"), 0, 1);
-    QComboBox* sideCombo = new QComboBox();
+    sideCombo = new QComboBox();
     sideCombo->addItems({ "Buy", "Sell" });
     submitLayout->addWidget(sideCombo, 1, 1);
 
     submitLayout->addWidget(new QLabel("Volume:"), 2, 0);
-    QSpinBox* volumeSpin = new QSpinBox();
+    volumeSpin = new QSpinBox();
     volumeSpin->setRange(1, 10000);
     submitLayout->addWidget(volumeSpin, 3, 0);
 
     submitLayout->addWidget(new QLabel("Price:"), 2, 1);
-    QDoubleSpinBox* priceSpin = new QDoubleSpinBox();
+    priceSpin = new QDoubleSpinBox();
     priceSpin->setRange(0.01, 99999);
     priceSpin->setDecimals(2);
     priceSpin->setValue(100);
     submitLayout->addWidget(priceSpin, 3, 1);
 
     submitLayout->addWidget(new QLabel("Take Profit ($):"), 4, 0);
-    QLineEdit* tpEdit = new QLineEdit("Optional");
+    tpEdit = new QLineEdit("Optional");
     submitLayout->addWidget(tpEdit, 5, 0);
 
     submitLayout->addWidget(new QLabel("Stop Loss ($):"), 4, 1);
-    QLineEdit* slEdit = new QLineEdit("Optional");
+    slEdit = new QLineEdit("Optional");
     submitLayout->addWidget(slEdit, 5, 1);
 
     QPushButton* submitBtn = new QPushButton("Submit Order");
     submitLayout->addWidget(submitBtn, 6, 0, 1, 2);
 
     submitGroup->setLayout(submitLayout);
-
+	connect(submitBtn, &QPushButton::clicked, this, &MainWindow::handleSubmitOrder);
     // Positions Group
     QGroupBox* positionsGroup = new QGroupBox("Positions");
     QVBoxLayout* posLayout = new QVBoxLayout();
@@ -458,4 +459,32 @@ void MainWindow::onMarketHeaderUpdate(const QString& displayText) {
 	contractButton->setEnabled(true); 
 	expiryButton->setEnabled(true); //enables the contract and expiry buttons when the market is ready to play with
     marketGroup->setTitle("Market Data - " + displayText);
+}
+
+void MainWindow::handleSubmitOrder() {
+    QString priceTypeStr = typeCombo->currentText();
+    QString sideStr = sideCombo->currentText();
+    double price = priceSpin->value();
+    int volume = volumeSpin->value();
+
+    std::optional<double> tpDollars = std::nullopt;
+    std::optional<double> slDollars = std::nullopt;
+
+    bool ok;
+
+    double tpVal = tpEdit->text().toDouble(&ok);
+    if (ok) tpDollars = tpVal;
+
+    double slVal = slEdit->text().toDouble(&ok);
+    if (ok) slDollars = slVal;
+
+    // Convert everything and call submitOrder
+    client->submitOrder(
+        sideStr.toLower(),              // "buy" or "sell"
+        volume,
+        QString::number(price, 'f', 2), // force string format
+        priceTypeStr.toLower(),         // "limit" or "market"
+        tpDollars,
+        slDollars
+    );
 }

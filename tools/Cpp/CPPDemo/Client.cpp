@@ -531,6 +531,148 @@ Client::Client(QObject* parent)
         }
         
 	}
+    void Client::submitOrder(const QString& side,
+        double volume,
+        const QString& price,
+        const QString& priceType,
+        std::optional<double> takeProfitDollars,
+        std::optional<double> stopLossDollars)
+    {
+        if (currentMarketId.isEmpty()) {
+            qDebug() << "No market selected";
+            return;
+        }
+        if (!marketDetails.contains(currentMarketId)) {
+            qDebug() << "Market details not found";
+            return;
+        }
+        auto market = marketDetails.value(currentMarketId);
+
+
+        // Convert price type string to enum
+        auto priceTypeVal = (priceType.toLower() == "market")
+            ? PriceType::PRICE_TYPE_MARKET
+            : PriceType::PRICE_TYPE_LIMIT;
+
+        // Convert buy/sell string to enum
+        BuySell buySellValue = (side.toLower() == "buy")
+            ? BuySell::BUY_SELL_BUY
+            : BuySell::BUY_SELL_SELL;
+
+        // Determine if bracket orders are needed
+        bool hasBracketOrders = takeProfitDollars.has_value() || stopLossDollars.has_value();
+
+        OrderLink orderLinkVal = hasBracketOrders
+            ? OrderLink::ORDER_LINK_AUTO_OCO
+            : OrderLink::ORDER_LINK_NONE;
+
+        // Main order
+
+        OrderSubmit_Order mainOrder;
+        mainOrder.set_buy_sell(buySellValue);
+        mainOrder.set_price_type(priceTypeVal);
+        mainOrder.set_time_type(TimeType::TIME_TYPE_NORMAL);
+        mainOrder.set_volume(volume);
+
+        double tickPrice = price.toDouble();
+        if (priceTypeVal == PriceType::PRICE_TYPE_LIMIT) {
+            Price* limitPrice = new Price();
+            limitPrice->set_value(QString::number(tickPrice).toStdString());
+            mainOrder.set_allocated_limit_price(limitPrice);
+        }
+
+        // Add main order to order list
+        std::vector<OrderSubmit_Order> orders;
+        orders.push_back(mainOrder);
+
+        // Protection side is opposite of main
+        BuySell protectionSide = (buySellValue == BuySell::BUY_SELL_BUY)
+            ? BuySell::BUY_SELL_SELL
+            : BuySell::BUY_SELL_BUY;
+        
+        //// Take profit
+        if (takeProfitDollars.has_value()) {
+            double pointValue = std::stod(market.point_value().value());
+            double minTick = std::stod(market.min_price_increment().value());
+
+            double points = takeProfitDollars.value() / pointValue;
+            double tpPrice = points * minTick;
+
+            OrderSubmit_Order tpOrder;
+            tpOrder.set_buy_sell(protectionSide);
+            tpOrder.set_price_type(PriceType::PRICE_TYPE_LIMIT);
+            tpOrder.set_time_type(TimeType::TIME_TYPE_GOOD_TILL_CANCELLED);
+            tpOrder.set_volume(0);
+            tpOrder.set_activation_type(ActivationType::ACTIVATION_TYPE_HOLD);
+
+            Price* tpLimit = new Price();
+            tpLimit->set_value(QString::number(tpPrice).toStdString());
+            tpOrder.set_allocated_limit_price(tpLimit);
+
+            orders.push_back(tpOrder);
+        }
+
+        //// Stop loss
+        if (stopLossDollars.has_value()) {
+            double pointValue = std::stod(market.point_value().value());
+            double minTick = std::stod(market.min_price_increment().value());
+
+            double points = stopLossDollars.value() / pointValue;
+            double slPrice = points * minTick;
+
+            OrderSubmit_Order slOrder;
+            slOrder.set_buy_sell(protectionSide);
+            slOrder.set_price_type(PriceType::PRICE_TYPE_STOP_MARKET);
+            slOrder.set_time_type(TimeType::TIME_TYPE_GOOD_TILL_CANCELLED);
+            slOrder.set_volume(0);
+            slOrder.set_activation_type(ActivationType::ACTIVATION_TYPE_HOLD);
+
+            Price* stopPrice = new Price();
+            stopPrice->set_value(QString::number(slPrice).toStdString());
+            slOrder.set_allocated_stop_price(stopPrice);
+
+            orders.push_back(slOrder);
+        }
+
+        //// Compose final OrderSubmit message
+        OrderSubmit orderSubmit;
+        orderSubmit.set_account_id(selectedAccount.toStdString());
+        orderSubmit.set_market_id(currentMarketId.toStdString());
+        orderSubmit.set_order_link(orderLinkVal);
+        orderSubmit.set_manual_order_indicator(true);
+
+        for (const auto& ord : orders) {
+            *orderSubmit.add_orders() = ord;
+        }
+
+        //// Send it
+        ClientMessage orderMessage;
+        orderMessage.mutable_order_submit()->CopyFrom(orderSubmit);
+        std::string serializedOrder = orderMessage.SerializeAsString();
+        sendMessage(serializedOrder);
+
+
+       
+        // Console logs
+        QString sideText = (buySellValue == BuySell::BUY_SELL_BUY) ? "Buy" : "Sell";
+        QString priceText = (priceTypeVal == PriceType::PRICE_TYPE_MARKET) ? "Market" : price;
+        qDebug() << "Order submitted:" << sideText << volume << "@" << priceText << "(Type:" << priceType << ")";
+
+        if (takeProfitDollars.has_value()) {
+            QString tpSide = (protectionSide == BuySell::BUY_SELL_BUY) ? "Buy" : "Sell";
+            qDebug() << "Take profit: $" << takeProfitDollars.value() << "(" << tpSide << ")";
+        }
+
+        if (stopLossDollars.has_value()) {
+            QString slSide = (protectionSide == BuySell::BUY_SELL_BUY) ? "Buy" : "Sell";
+            qDebug() << "Stop loss: $" << stopLossDollars.value() << "(" << slSide << ")";
+        }
+
+        if (hasBracketOrders) {
+            qDebug() << "OCO (One Cancels Other) bracket order applied";
+        }
+    }
+
     void Client::updateMarketHeader(const QString& contractId, QString& expiryDate) {
         // Emit a signal to update the market header
         QString expiryShort;
@@ -557,7 +699,7 @@ Client::Client(QObject* parent)
 	}
     void Client::onBinaryMessageReceived(const QByteArray& message) {
       //  qDebug() << "[binary] Received message, size:" << message.size();
-
+		qDebug() << marketDetails.value(currentMarketId).DebugString();
         // Attempt to decode the protobuf response
         t4proto::v1::service::ServerMessage msg;
         if (msg.ParseFromArray(message.data(), message.size())) {
