@@ -443,14 +443,27 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
         // Status
         QString status = QString::number(order["status"].toInt());
         
+        if (order["status"].toInt() == 1) {
+            editBtn = new QPushButton("Edit");
 
+            //connect(editBtn, &QPushButton::clicked, this, [=]() {
+            //    QString orderId = order["market_id"].toString();  // Or however you track the order ID
+            //    qDebug() << "Cancel clicked for:" << orderId;
+            //    client->pullOrder(orderId);  // Replace with your actual cancel logic
+            //    });
+
+            ordersTable->setCellWidget(row, 6, editBtn);
+        }
+        else {
+            ordersTable->setItem(row, 6, new QTableWidgetItem(""));  // Empty cell
+        }
         ordersTable->setItem(row, 0, new QTableWidgetItem(timeStr));
         ordersTable->setItem(row, 1, new QTableWidgetItem(market));
         ordersTable->setItem(row, 2, new QTableWidgetItem(side));
         ordersTable->setItem(row, 3, new QTableWidgetItem(volume));
         ordersTable->setItem(row, 4, new QTableWidgetItem(price));
         ordersTable->setItem(row, 5, new QTableWidgetItem(status));
-     /*   ordersTable->setItem(row, 6, new QTableWidgetItem(action));*/
+        
     }
 
     ordersTable->resizeColumnsToContents();

@@ -49,6 +49,7 @@ private slots:
         QDoubleSpinBox* priceSpin;
         QLineEdit* tpEdit;
         QLineEdit* slEdit;
+        QPushButton* editBtn;
         void setupUi();
 		Client* client; // Pointer to the Client object for handling WebSocket communication
        
