@@ -21,7 +21,10 @@ using t4proto::v1::market::MarketDepthSubscribe;
 #include "t4/v1/orderrouting/orderrouting.pb.h"
 using t4proto::v1::orderrouting::OrderSubmit;
 using t4proto::v1::orderrouting::OrderSubmit_Order;
-
+using t4proto::v1::orderrouting::OrderPull_Pull;
+using t4proto::v1::orderrouting::OrderPull;
+using t4proto::v1::orderrouting::OrderRevise_Revise;
+using t4proto::v1::orderrouting::OrderRevise;
 #include "t4/v1/common/price.pb.h"
 using t4proto::v1::common::PriceType;
 using t4proto::v1::common::Price;
@@ -82,7 +85,9 @@ class Client : public QObject {
 		void handleOrderUpdateMulti(const t4proto::v1::orderrouting::OrderUpdateMulti& multiUpdate);
         void updateMarketHeader(const QString& contractId, QString& expiryDate);
         void submitOrder(const QString& side, double volume, const QString& price, const QString& priceType = "limit", std::optional<double> takeProfitDollars = std::nullopt, std::optional<double> stopLossDollars = std::nullopt);
-
+        void pullOrder(const QString& orderId);
+        void reviseOrder(const QString& orderId, int volume, double price, const QString& priceType);
+       /* void reviseOrder(*/
         void refreshToken();
         void load_exchanges();
         void load_contracts(const QString& exchangeId);

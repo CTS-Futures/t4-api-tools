@@ -673,6 +673,69 @@ Client::Client(QObject* parent)
         }
     }
 
+    void Client::pullOrder(const QString& orderId) {
+        // Check if the order exists
+        if (!orders.contains(orderId)) {
+            qDebug() << "Order ID not found:" << orderId;
+            return;
+        }
+        // Create the pull request
+        OrderPull pullRequest;
+        pullRequest.set_account_id(selectedAccount.toStdString());
+        pullRequest.set_market_id(currentMarketId.toStdString());
+        pullRequest.set_manual_order_indicator(true);
+
+        // Add a pull object to the request
+        auto* pull = pullRequest.add_pulls();
+        pull->set_unique_id(orderId.toStdString());
+
+        ClientMessage messagePull;
+        messagePull.mutable_order_pull()->CopyFrom(pullRequest);
+        std::string serializedMessage = messagePull.SerializeAsString();
+        // Send the pull request
+		sendMessage(serializedMessage);
+        qDebug() << "Pull request sent for order ID:" << orderId;
+            // Optionally, remove the order from local cache
+   
+            
+	}
+
+    void Client::reviseOrder(const QString& orderId, int volume, double price, const QString& priceType) {
+        if (selectedAccount.isEmpty()) {
+            qDebug() << "No selected account (revise order)";
+            return;
+        }
+
+        // Create the revision message
+        OrderRevise_Revise revise;
+        revise.set_unique_id(orderId.toStdString());
+        revise.set_volume(volume);
+
+        if (priceType.toLower() == "limit") {
+            Price* limitPrice = new Price();
+            limitPrice->set_value(QString::number(price, 'f', 2).toStdString());
+            revise.set_allocated_limit_price(limitPrice);
+        }
+
+        // Create the top-level OrderRevise message
+        OrderRevise reviseRequest;
+        reviseRequest.set_account_id(selectedAccount.toStdString());
+        reviseRequest.set_market_id(currentMarketId.toStdString());
+        reviseRequest.set_manual_order_indicator(true);
+        reviseRequest.add_revisions()->CopyFrom(revise);
+
+        // Wrap in ClientMessage
+        ClientMessage message;
+        message.mutable_order_revise()->CopyFrom(reviseRequest);
+
+        std::string serialized = message.SerializeAsString();
+        sendMessage(serialized);
+
+        qDebug() << "Order revised:" << orderId
+            << "- new vol:" << volume
+            << "- new price:" << price;
+    }
+
     void Client::updateMarketHeader(const QString& contractId, QString& expiryDate) {
         // Emit a signal to update the market header
         QString expiryShort;
