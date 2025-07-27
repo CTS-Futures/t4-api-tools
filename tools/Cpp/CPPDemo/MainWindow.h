@@ -28,6 +28,8 @@ class MainWindow : public QMainWindow {
         void onMarketHeaderUpdate(const QString& displayText);
 		void PositionTableUpdate(QJsonArray positions);
 		void OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders);
+        void showModifyOrderDialog(const QString& orderId);
+
 private slots:
         void handleSubmitOrder();
         void openExpiryPickerDialog();

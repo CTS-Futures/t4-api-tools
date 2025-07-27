@@ -439,7 +439,7 @@ Client::Client(QObject* parent)
     void Client::handleOrderUpdate(const t4proto::v1::orderrouting::OrderUpdate& update) {
         // Handle order updates
         
-        qDebug() << update.DebugString();
+        
 		orders[QString::fromStdString(update.unique_id())] = update;
 
         emit ordersUpdated(orders);
@@ -762,7 +762,6 @@ Client::Client(QObject* parent)
 	}
     void Client::onBinaryMessageReceived(const QByteArray& message) {
       //  qDebug() << "[binary] Received message, size:" << message.size();
-		qDebug() << marketDetails.value(currentMarketId).DebugString();
         // Attempt to decode the protobuf response
         t4proto::v1::service::ServerMessage msg;
         if (msg.ParseFromArray(message.data(), message.size())) {
@@ -822,11 +821,7 @@ Client::Client(QObject* parent)
             else if (msg.has_heartbeat()) {
                 qDebug() << "heart beat received";
             }
-             else {
-                qDebug() << "[unknown message type]";
-                qDebug() << "Full message dump:\n"
-                    << QString::fromStdString(msg.DebugString());
-            }
+
         }
         
     }  

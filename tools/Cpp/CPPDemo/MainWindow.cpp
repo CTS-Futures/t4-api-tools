@@ -390,6 +390,7 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
         QJsonObject obj;
 
         // Convert only required fields
+		obj["unique_id"] = QString::fromStdString(order.unique_id());
         obj["time"] = static_cast<qint64>(order.time().seconds());  // Just seconds
 
         obj["market_id"] = QString::fromStdString(order.market_id());
@@ -400,7 +401,7 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
         obj["working_volume"] = order.working_volume();
         obj["status"] = order.status();
         if (order.has_new_limit_price())
-            obj["new_limit_price"] = QString::fromStdString(order.new_limit_price().value());
+            obj["new_limit_price"] = QString::number(std::stod(order.new_limit_price().value()), 'f', 2);
 
         filteredOrders.append(obj);
     }
@@ -410,7 +411,6 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
     if (!ordersTable) return;
 
     ordersTable->setRowCount(0);  // Clear table
-    qDebug() << filteredOrders;
     for (const QJsonValue& val : filteredOrders) {
         QJsonObject order = val.toObject();
         int row = ordersTable->rowCount();
@@ -435,7 +435,6 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
 
         // Price (handle value safely)
         QJsonValue priceVal = order["new_limit_price"];
-        qDebug() << order["status"];
         QString price = (!priceVal.isUndefined() && !priceVal.isNull())
             ? priceVal.toString()
             : QString("—");
@@ -446,11 +445,9 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
         if (order["status"].toInt() == 1) {
             editBtn = new QPushButton("Edit");
 
-            //connect(editBtn, &QPushButton::clicked, this, [=]() {
-            //    QString orderId = order["market_id"].toString();  // Or however you track the order ID
-            //    qDebug() << "Cancel clicked for:" << orderId;
-            //    client->pullOrder(orderId);  // Replace with your actual cancel logic
-            //    });
+            connect(editBtn, &QPushButton::clicked, this, [=]() {
+                showModifyOrderDialog(order["unique_id"].toString());  // replace with actual ID
+                });
 
             ordersTable->setCellWidget(row, 6, editBtn);
         }
@@ -500,4 +497,61 @@ void MainWindow::handleSubmitOrder() {
         tpDollars,
         slDollars
     );
+}
+
+void MainWindow::showModifyOrderDialog(const QString& orderId) {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Modify Order");
+    dialog.setModal(true);
+    dialog.setFixedSize(300, 200);  // Optional sizing
+
+    QVBoxLayout* mainLayout = new QVBoxLayout(&dialog);
+
+    // Volume input
+    QLabel* volumeLabel = new QLabel("Volume:");
+    QSpinBox* volumeSpin = new QSpinBox();
+    volumeSpin->setRange(1, 10000);
+    mainLayout->addWidget(volumeLabel);
+    mainLayout->addWidget(volumeSpin);
+
+    // Price input
+    QLabel* priceLabel = new QLabel("Price:");
+    QDoubleSpinBox* priceSpin = new QDoubleSpinBox();
+    priceSpin->setRange(0.01, 100000);
+    priceSpin->setDecimals(2);
+    mainLayout->addWidget(priceLabel);
+    mainLayout->addWidget(priceSpin);
+
+    // Buttons
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+
+    QPushButton* pullBtn = new QPushButton("Pull");
+    pullBtn->setStyleSheet("background-color: red; color: white;");
+    buttonLayout->addWidget(pullBtn);
+
+    QPushButton* reviseBtn = new QPushButton("Revise");
+    reviseBtn->setStyleSheet("background-color: royalblue; color: white;");
+    buttonLayout->addWidget(reviseBtn);
+
+    QPushButton* cancelBtn = new QPushButton("Cancel");
+    buttonLayout->addWidget(cancelBtn);
+
+    mainLayout->addLayout(buttonLayout);
+
+    // Connect buttons
+    connect(pullBtn, &QPushButton::clicked, &dialog, [=, &dialog]() {
+        client->pullOrder(orderId);
+        dialog.accept();
+        });
+
+    connect(reviseBtn, &QPushButton::clicked, &dialog, [=, &dialog]() {
+        double price = priceSpin->value();
+        int volume = volumeSpin->value();
+        client->reviseOrder(orderId, volume, price, "limit");
+        dialog.accept();
+        });
+
+    connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+    dialog.exec();
 }
