@@ -459,11 +459,26 @@ Client::Client(QObject* parent)
         existingOrder.set_status(status.status());
         *existingOrder.mutable_time() = status.time();
         existingOrder.set_price_type(status.price_type());
+        existingOrder.set_time_type(status.time_type());
         existingOrder.set_current_volume(status.current_volume());
         existingOrder.set_working_volume(status.working_volume());
-        // existingOrder.set_instruction_extra(status.instruction_extra()); // Uncomment if needed
         existingOrder.set_exchange_order_id(status.exchange_order_id());
         existingOrder.set_status_detail(status.status_detail());
+
+        //  Add these fields if present
+        if (status.has_current_limit_price()) {
+            *existingOrder.mutable_current_limit_price() = status.current_limit_price();
+        }
+        if (status.has_new_limit_price()) {
+            *existingOrder.mutable_new_limit_price() = status.new_limit_price();
+        }
+        if (status.has_current_stop_price()) {
+            *existingOrder.mutable_current_stop_price() = status.current_stop_price();
+        }
+        if (status.has_new_stop_price()) {
+            *existingOrder.mutable_new_stop_price() = status.new_stop_price();
+        }
+      
 
         orders[uniqueId] = existingOrder;
         emit ordersUpdated(orders);
@@ -472,10 +487,24 @@ Client::Client(QObject* parent)
 
     //debug functions
     void Client::handleOrderUpdateTrade(const t4proto::v1::orderrouting::OrderUpdateTrade& tradeUpdate) {
-        qDebug() << "Trade update:"
-            << QString::fromStdString(tradeUpdate.unique_id())
-            << ", trade:"
-            << QString::fromStdString(tradeUpdate.exchange_trade_id());
+        QString uniqueId = QString::fromStdString(tradeUpdate.unique_id());
+   
+        if (!orders.contains(uniqueId)) {
+            qWarning() << "Order ID not found:" << uniqueId;
+            return;
+        }
+ 
+        
+        QString execPrice = QString::fromStdString(tradeUpdate.price().value());
+        int currVol = tradeUpdate.volume();     // default: 0
+        int workVol = tradeUpdate.working_volume();     // default: 0
+
+        emit orderRevised(
+            uniqueId,
+            currVol,
+            workVol,
+            execPrice
+        );
     }
 
     void Client::handleOrderUpdateTradeLeg(const t4proto::v1::orderrouting::OrderUpdateTradeLeg& legUpdate) {
@@ -706,16 +735,22 @@ Client::Client(QObject* parent)
             return;
         }
 
+
+
         // Create the revision message
         OrderRevise_Revise revise;
         revise.set_unique_id(orderId.toStdString());
         revise.set_volume(volume);
-
-        if (priceType.toLower() == "limit") {
-            Price* limitPrice = new Price();
-            limitPrice->set_value(QString::number(price, 'f', 2).toStdString());
+        if (priceType == "limit" && price >= 0) {
+            auto* limitPrice = new Price();
+            limitPrice->set_value(QString::number(price).toStdString());
             revise.set_allocated_limit_price(limitPrice);
         }
+        else {
+            revise.clear_limit_price();  // just in case
+        }
+
+
 
         // Create the top-level OrderRevise message
         OrderRevise reviseRequest;

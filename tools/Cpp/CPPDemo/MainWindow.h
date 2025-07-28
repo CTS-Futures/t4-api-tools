@@ -29,7 +29,7 @@ class MainWindow : public QMainWindow {
 		void PositionTableUpdate(QJsonArray positions);
 		void OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders);
         void showModifyOrderDialog(const QString& orderId);
-
+        void onOrderRevised(const QString& uniqueId, int currentVol, int workingVol, const QString& price);
 private slots:
         void handleSubmitOrder();
         void openExpiryPickerDialog();

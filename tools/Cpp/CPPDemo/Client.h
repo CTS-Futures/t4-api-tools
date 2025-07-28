@@ -100,6 +100,7 @@ class Client : public QObject {
         /*ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);*/
     signals: // can emit signals to notify other parts of the application 
         void connected();
+		void orderRevised(const QString& uniqueId, int currentVol, int workingVol, QString price);
         void disconnected();
         void authenticated();
         void accountsUpdated();

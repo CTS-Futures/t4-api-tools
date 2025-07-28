@@ -14,6 +14,7 @@ MainWindow::MainWindow(QWidget* parent)
 	connect(client, &Client::marketHeaderUpdate, this, &MainWindow::onMarketHeaderUpdate);
 	connect(client, &Client::accountsPositionsUpdated, this, &MainWindow::PositionTableUpdate);
     connect(client, &Client::ordersUpdated, this, &MainWindow::OrderTableUpdate);
+	connect(client, &Client::orderRevised, this, &MainWindow::onOrderRevised);
     
 
 }
@@ -388,7 +389,7 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
             continue;
 
         QJsonObject obj;
-
+       
         // Convert only required fields
 		obj["unique_id"] = QString::fromStdString(order.unique_id());
         obj["time"] = static_cast<qint64>(order.time().seconds());  // Just seconds
@@ -400,8 +401,22 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
         obj["current_volume"] = order.current_volume();
         obj["working_volume"] = order.working_volume();
         obj["status"] = order.status();
-        if (order.has_new_limit_price())
-            obj["new_limit_price"] = QString::number(std::stod(order.new_limit_price().value()), 'f', 2);
+        if (order.has_new_limit_price()) {
+            const std::string& priceStr = order.new_limit_price().value();
+            if (!priceStr.empty()) {
+                bool ok = false;
+                double priceVal = QString::fromStdString(priceStr).toDouble(&ok);
+                if (ok) {
+                    obj["new_limit_price"] = QString::number(priceVal, 'f', 2);
+                }
+                else {
+                    qWarning() << "Invalid price string:" << QString::fromStdString(priceStr);
+                }
+            }
+            else {
+                qWarning() << "Price value is empty despite has_new_limit_price()";
+            }
+        }
 
         filteredOrders.append(obj);
     }
@@ -454,6 +469,9 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
         else {
             ordersTable->setItem(row, 6, new QTableWidgetItem(""));  // Empty cell
         }
+        auto* timeItem = new QTableWidgetItem(timeStr);
+        timeItem->setData(Qt::UserRole, order["unique_id"].toString());  // embed unique ID
+        ordersTable->setItem(row, 0, timeItem);
         ordersTable->setItem(row, 0, new QTableWidgetItem(timeStr));
         ordersTable->setItem(row, 1, new QTableWidgetItem(market));
         ordersTable->setItem(row, 2, new QTableWidgetItem(side));
@@ -464,6 +482,35 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
     }
 
     ordersTable->resizeColumnsToContents();
+}
+void MainWindow::onOrderRevised(const QString& uniqueId, int filledVol, int workingVol, const QString& price) {
+    for (int row = 0; row < ordersTable->rowCount(); ++row) {
+        QTableWidgetItem* timeItem = ordersTable->item(row, 0);
+        if (!timeItem) continue;
+
+        QString id = timeItem->data(Qt::UserRole).toString();  // read hidden ID
+        if (id == uniqueId) {
+            //  This is the correct row!
+
+            // Update volume
+            if (filledVol >= 0 || workingVol >= 0) {
+                QString currentText = ordersTable->item(row, 3)->text();
+                QString newText = QString("%1/%2")
+                    .arg(filledVol >= 0 ? QString::number(filledVol) : currentText.section("/", 0, 0))
+                    .arg(workingVol >= 0 ? QString::number(workingVol) : currentText.section("/", 1, 1));
+
+                ordersTable->item(row, 3)->setText(newText);
+            }
+
+            // Update price
+            if (!price.isEmpty()) {
+                ordersTable->item(row, 4)->setText(price + " (fill)");
+                ordersTable->item(row, 4)->setForeground(QBrush(Qt::darkGreen));
+            }
+
+            break;
+        }
+    }
 }
 void MainWindow::onMarketHeaderUpdate(const QString& displayText) {
 	contractButton->setEnabled(true); 
