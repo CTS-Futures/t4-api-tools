@@ -1,0 +1,11 @@
+[package]
+name = "rust_demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+prost = "0.12"           # Protobuf encoding/decoding
+prost-types = "0.12"     # Common well-known types
+
+[build-dependencies]
+prost-build = "0.12"     # Code generator for Rust from proto
