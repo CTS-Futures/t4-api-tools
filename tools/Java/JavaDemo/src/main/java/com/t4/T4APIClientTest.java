@@ -43,6 +43,10 @@ import t4proto.v1.common.PriceOuterClass.Price;
 //market sybscriber
 import com.t4.helpers.MarketSubscriber;
 import com.t4.helpers.Callback;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 // WebSocket imports
 import javax.websocket.*;
@@ -112,6 +116,10 @@ import javafx.application.Platform;
         private Map<String, Auth.LoginResponse.Account> loginAccounts = new HashMap<>();
         private Map<String, AccountDetails> accountDetails = new HashMap<>();
         private boolean accountSubscribed = false;
+        private String pendingAccountId = null;
+        private boolean gotAccountPosition = false;
+        private boolean gotAccountUpdate = false;
+        private boolean gotOrderUpdateMulti = false;
 
         
         // JWT token management
@@ -264,14 +272,20 @@ import javafx.application.Platform;
 
                   case ACCOUNT_POSITION:
                      handleAccountPosition(serverMessage.getAccountPosition());
+                     gotAccountPosition = true;
+                     checkIfAccountReady();
                      break;
 
                   case ACCOUNT_UPDATE:
                      handleAccountUpdate(serverMessage.getAccountUpdate());
+                     gotAccountUpdate = true; 
+                     checkIfAccountReady();
                      break;
                
                   case ORDER_UPDATE_MULTI:
                      handleOrderUpdateMulti(serverMessage.getOrderUpdateMulti());
+                     gotOrderUpdateMulti = true; 
+                     checkIfAccountReady();
                      break;
 
                   case ACCOUNT_SNAPSHOT:
@@ -279,8 +293,10 @@ import javafx.application.Platform;
                      break;
                   
                   case ACCOUNT_SUBSCRIBE_RESPONSE:
-                      System.out.println("Successfully subscribed to account: " + serverMessage.getAccountSubscribeResponse());
-                      accountSubscribed = true;
+                     handleAccountSubscribeResponse(serverMessage.getAccountSubscribeResponse());
+                     System.out.println("Successfully subscribed to account: " + serverMessage.getAccountSubscribeResponse());
+                     break;
+
                default:
                    System.out.println("Received unknown payload: " + payloadCase);
          }
@@ -339,6 +355,14 @@ import javafx.application.Platform;
          return "Token has been handled";
       }
 
+
+      private void checkIfAccountReady() {
+    if (!isConnected && gotAccountPosition && gotAccountUpdate && gotOrderUpdateMulti) {
+        isConnected = true;
+        System.out.println("✅ Account is now ready to trade.");
+    }
+}
+
         public void handleLoginResponse(Auth.LoginResponse response) {
             if (response.getResult() == LoginResult.LOGIN_RESULT_SUCCESS) {
             System.out.println("Login successful");
@@ -389,18 +413,8 @@ import javafx.application.Platform;
       }
 
       private void handleAccountUpdate(Account.AccountUpdate update) {
+         isConnected = true;
          System.out.println("Account update for account: " + update.getAccountId());
-         // Optional: Display equity, margin, PnL if needed
-        /*  if (update.getAccountId().equals(selectedAccountId)) {
-        accountSubscribed = true;
-        System.out.println("✅ Account subscription confirmed for: " + update.getAccountId());
-
-        if (subscriptionListener != null) {
-            Platform.runLater(() -> subscriptionListener.onAccountSubscribed());
-        }
-    } else {
-        System.out.println("Ignoring update for non-selected account: " + update.getAccountId());
-    } */
       }
 
       private void handleAccountSnapshot(Account.AccountSnapshot snapshot) {
@@ -419,6 +433,15 @@ import javafx.application.Platform;
                         newOrders.add(update.getOrderUpdate());
                     }
                 }
+                break;
+
+             case ACCOUNT_DETAILS:
+                handleAccountDetails(msg.getAccountDetails());
+                break;
+
+            case ACCOUNT_UPDATE:
+                handleAccountUpdate(msg.getAccountUpdate());
+                gotAccountUpdate = true;
                 break;
 
             default:
@@ -441,10 +464,11 @@ import javafx.application.Platform;
     if (posOrdersUI != null) {
         Platform.runLater(() -> posOrdersUI.updatePositionsAndOrders(newPositions, newOrders));
     }
+    isConnected = true;
+    checkIfAccountReady();
 }
 
       private void handleConnectionStatusChanged(boolean connected) {
-         this.isConnected = connected;
          System.out.println("Connection status changed: " + (connected ? "Connected" : "Disconnected"));
          // optionally notify UI or trigger retry logic here
       }
@@ -479,26 +503,42 @@ public String getAuthToken() throws Exception {
     throw new IOException("JWT token is expired or not available.");
 }
 
-   private void subscribeToAccount(String accountId) {
-    Account.AccountSubscribe subscribe = Account.AccountSubscribe.newBuilder()
-        .addAccountId(accountId)
+
+    public void subscribeToAccount(String accountId) {
+    if (accountId == null || accountId.isEmpty()) {
+        System.err.println("Invalid account ID for subscription.");
+        return;
+    }
+
+    this.pendingAccountId = accountId;
+
+    Account.AccountSubscribe subscribeMsg = Account.AccountSubscribe.newBuilder()
         .setSubscribe(AccountSubscribeType.ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES)
         .setSubscribeAllAccounts(false)
+        .addAccountId(accountId)
         .build();
 
-    ClientMessage msg = ClientMessage.newBuilder()
-        .setAccountSubscribe(subscribe)
+    ClientMessage clientMessage = ClientMessage.newBuilder()
+        .setAccountSubscribe(subscribeMsg)
         .build();
 
-    sendMessageToServer(msg);
-    System.out.println("Subscribed to account: " + accountId);
+    sendMessageToServer(clientMessage);
+    System.out.println("Sent subscription request for account: " + accountId);
+    }
+
+    private void handleAccountSubscribeResponse(Account.AccountSubscribeResponse response) {
+    if (response.getSuccess()) {
+        this.selectedAccountId = pendingAccountId;
+        //this.accountSubscribed = true;
+        System.out.println("Account subscription confirmed for: " + selectedAccountId);
+    } else {
+        System.err.println("Account subscription failed: " + response.getErrorsList());
+    }
+
+    pendingAccountId = null;
 }
 
-
-   public void updatePositionsAndOrders(
-    List<AccountPosition> positions,
-    List<OrderUpdate> orders
-) {
+   public void updatePositionsAndOrders(List<AccountPosition> positions,List<OrderUpdate> orders) {
     // TODO: Implement table update logic here
     System.out.println("Positions: " + positions.size() + ", Orders: " + orders.size());
 }
@@ -725,13 +765,10 @@ public String getAuthToken() throws Exception {
          }
       }
 
-
-
       public List<MarketDetails> getAllMarkets() {
          return new ArrayList<>(marketDetailsMap.values());
       }
 
-      
 
       public void requestNewToken(String requestId) {
          Auth.AuthenticationTokenRequest request = Auth.AuthenticationTokenRequest.newBuilder()
@@ -796,7 +833,6 @@ public String getAuthToken() throws Exception {
                e.printStackTrace();
             }
          }
-
 
 
 
@@ -985,6 +1021,7 @@ private void handleAccountPosition(AccountPosition position) {
 
         Platform.runLater(() -> posOrdersUI.updatePosition(market, net, pnl, working));
     }
+    isConnected = true;
 }
 
 
@@ -1004,113 +1041,13 @@ public List<AccountPosition> getPositions() {
       this.posOrdersUI = ui;
    }
 
-/* public void submitOrder(String side, int volume, double price, String priceType, Double takeProfitDollars, Double stopLossDollars) {
-   System.out.println("\nSelected account: " + selectedAccountId);
-   System.out.println("\nCurrent market ID: " + currentMarketId +"\n");
-    if (selectedAccountId == null || currentMarketId == null || !accountSubscribed) {
-        throw new IllegalStateException("No account or market selected");
-    }
 
-    MarketDetails marketDetails = marketDetailsMap.get(currentMarketId);
-    if (marketDetails == null) {
-        System.err.println("Market details not found for marketId: " + currentMarketId);
-        return;
-    }
-
-    BuySell buySell = side.equalsIgnoreCase("buy") ? BuySell.BUY_SELL_BUY : BuySell.BUY_SELL_SELL;
-    PriceType priceTypeEnum = priceType.equalsIgnoreCase("market") ? 
-        PriceType.PRICE_TYPE_MARKET : PriceType.PRICE_TYPE_LIMIT;
-    OrderLink orderLink = (takeProfitDollars != null || stopLossDollars != null) ?
-        OrderLink.ORDER_LINK_AUTO_OCO : OrderLink.ORDER_LINK_NONE;
-
-    List<Order> orders = new ArrayList<>();
-
-    // Main order
-    Order.Builder mainOrder = Order.newBuilder()
-        .setBuySell(buySell)
-        .setPriceType(priceTypeEnum)
-        .setTimeType(TimeType.TIME_TYPE_NORMAL)
-        .setVolume(volume);
-
-    if (priceTypeEnum == PriceType.PRICE_TYPE_LIMIT) {
-        mainOrder.setLimitPrice(
-    Price.newBuilder()
-        .setValue(String.valueOf(price))
-        .build()
-);
-
-    }
-
-    orders.add(mainOrder.build());
-
-    // Calculate bracket orders
-    BuySell protectionSide = (buySell == BuySell.BUY_SELL_BUY) ? 
-        BuySell.BUY_SELL_SELL : BuySell.BUY_SELL_BUY;
-
-    if (takeProfitDollars != null) {
-        double pointValue = Double.parseDouble(marketDetails.getPointValue().getValue());
-        double minTick = Double.parseDouble(marketDetails.getMinPriceIncrement().getValue());
-        double tpPoints = takeProfitDollars / pointValue;
-        double tpPrice = tpPoints * minTick;
-
-        Order tpOrder = Order.newBuilder()
-            .setBuySell(protectionSide)
-            .setPriceType(PriceType.PRICE_TYPE_LIMIT)
-            .setTimeType(TimeType.TIME_TYPE_GOOD_TILL_CANCELLED)
-            .setVolume(0)
-            .setLimitPrice(
-    Price.newBuilder()
-        .setValue(String.valueOf(tpPrice))
-        .build()
-)
-            .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
-            .build();
-
-        orders.add(tpOrder);
-    }
-
-    if (stopLossDollars != null) {
-        double pointValue = Double.parseDouble(marketDetails.getPointValue().getValue());
-        double minTick = Double.parseDouble(marketDetails.getMinPriceIncrement().getValue());
-        double slPoints = stopLossDollars / pointValue;
-        double slPrice = slPoints * minTick;
-
-        Order slOrder = Order.newBuilder()
-            .setBuySell(protectionSide)
-            .setPriceType(PriceType.PRICE_TYPE_STOP_MARKET)
-            .setTimeType(TimeType.TIME_TYPE_GOOD_TILL_CANCELLED)
-            .setVolume(0)
-            .setStopPrice(
-    Price.newBuilder()
-        .setValue(String.valueOf(slPrice))
-        .build()
-)
-            .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
-            .build();
-
-        orders.add(slOrder);
-    }
-
-    OrderSubmit orderSubmit = OrderSubmit.newBuilder()
-        .setAccountId(selectedAccountId)
-        .setMarketId(currentMarketId)
-        .setManualOrderIndicator(true)
-        .setOrderLink(orderLink)
-        .addAllOrders(orders)
-        .build();
-
-    ClientMessage msg = ClientMessage.newBuilder()
-        .setOrderSubmit(orderSubmit)
-        .build();
-
-    sendMessageToServer(msg);
-} */
 
 
 public void submitOrder(String side, int volume, double price, String priceType,
                         Double takeProfitDollars, Double stopLossDollars) {
 
-    if (selectedAccountId == null || currentMarketId == null || !accountSubscribed) {
+    if (selectedAccountId == null || currentMarketId == null || !accountSubscribed || !isConnected) {
         throw new IllegalStateException("No account or market selected or account not subscribed");
     }
 
@@ -1221,8 +1158,6 @@ public void submitOrder(String side, int volume, double price, String priceType,
 }
 
 
-
-
    public void pullOrder(String orderId) {
     if (selectedAccountId == null || currentMarketId == null) {
         throw new IllegalStateException("No account or market selected");
@@ -1278,15 +1213,9 @@ public void reviseOrder(String orderId, int volume, Double price, String priceTy
     sendMessageToServer(msg);
 }
 
-   public boolean isAccountSubscribed() {
-    return accountSubscribed;
-}
 
 
-
-
-
-   public static void main(String[] args){
+   /* public static void main(String[] args){
          try{
             //T4APIClientTest client = T4APIClientTest.getInstance();
             //ConnectionUI pane = new ConnectionUI(client);
@@ -1298,8 +1227,131 @@ public void reviseOrder(String orderId, int volume, Double price, String priceTy
             e.printStackTrace();
          }
 
-      }
+      } */
 
+      /* public static void main(String[] args) throws Exception {
+         int x = 42;
+         System.out.println("Before connect");
+    T4APIClientTest client = new T4APIClientTest();
+
+    client.connect(() -> {
+        System.out.println("Connected, sleeping for 5 seconds...");
+        try {
+            
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        client.disconnect();
+        System.out.println("Disconnected.");
+    });
+
+    // Block main thread until disconnect completes
+    Thread.sleep(10000); // or use CountDownLatch to be more precise
+} */
+
+     /*  public static void main(String[] args) throws Exception {
+    CountDownLatch latch = new CountDownLatch(1);
+    T4APIClientTest client = T4APIClientTest.getInstance();
+
+    client.connect(() -> {
+        System.out.println("Connected callback triggered.");
+        // Wait until accountSubscribed is true
+        new Thread(() -> {
+            while (!client.accountSubscribed) {
+                try {
+                    Thread.sleep(100); // Polling
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            System.out.println("Account subscribed. Submitting order...");
+            client.submitOrder("buy", 1, 5298.00, "limit", 20.0, 10.0);
+            latch.countDown(); // signal main thread to continue
+        }).start();
+    });
+
+    latch.await(); // block main thread until signal from async task
+    client.disconnect();
+    System.out.println("All done. Disconnected.");
+} */
+
+
+     /*  public static void main(String[] args) throws Exception {
+    CountDownLatch latch = new CountDownLatch(1);
+    T4APIClientTest client = T4APIClientTest.getInstance();
+
+    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+
+    client.connect(() -> {
+        System.out.println("Connected callback triggered.");
+
+        // Wait until subscribed before submitting
+        new Thread(() -> {
+            while (!client.accountSubscribed) {
+                try {
+                    Thread.sleep(100); // Wait for subscription
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            System.out.println("Account subscribed. Submitting order...");
+            client.submitOrder("buy", 1, 5298.00, "limit", 20.0, 10.0);
+
+            // Wait 3 seconds to observe result
+            executor.schedule(() -> {
+                System.out.println("3 seconds passed. Now disconnecting...");
+                client.disconnect();
+                latch.countDown();
+            }, 3, TimeUnit.SECONDS);
+
+        }).start();
+    });
+
+    latch.await(); // Block main thread until everything is done
+    executor.shutdown();
+    System.out.println("All done.");
+}
+ */
+
+ public static void main(String[] args) throws Exception {
+    CountDownLatch doneLatch = new CountDownLatch(1);
+    T4APIClientTest client = T4APIClientTest.getInstance();
+
+    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+
+    client.connect(() -> {
+        System.out.println("Connected callback triggered.");
+
+        new Thread(() -> {
+            try {
+                System.out.println("Waiting for account to be fully ready...");
+
+                // Wait until all conditions are met
+                while (!(client.accountSubscribed && client.isConnected
+                         && client.selectedAccountId != null && client.currentMarketId != null)) {
+                    Thread.sleep(100);
+                }
+
+                System.out.println("✅ Account and market ready. Submitting order...");
+                client.submitOrder("buy", 1, 5298.00, "limit", 20.0, 10.0);
+
+                executor.schedule(() -> {
+                    System.out.println("✅ 3 seconds passed. Now disconnecting...");
+                    T4APIClientTest.disconnect();
+                    doneLatch.countDown();
+                }, 3, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }).start();
+    });
+
+    doneLatch.await();
+    executor.shutdown();
+    System.out.println("✅ All done.");
+}
 
 }
 

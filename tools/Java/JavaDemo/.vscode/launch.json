@@ -2,27 +2,37 @@
     // Use IntelliSense to learn about possible attributes.
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "type": "java",
-            "name": "Main",
-            "request": "launch",
-            "mainClass": "com.t4.Main",
-            "projectName": "t4-api-client"
-        },
-        {
-            "type": "java",
-            "name": "Current File",
-            "request": "launch",
-            "mainClass": "${file}"
-        },
-        {
-            "type": "java",
-            "name": "Run T4APIClient (Maven)",
-            "request": "launch",
-            "mainClass": "com.t4.T4APIClient",
-            "projectName": "t4-websocket"
-        }
-    ]
+   "version": "0.2.0",
+  "configurations": [
+    {
+        "type": "java",
+        "name": "T4APIClientTest",
+        "request": "launch",
+        "mainClass": "src.main.java.com.t4.T4APIClientTest",
+        "projectName": "t4-api-client"
+    },
+    {
+        "type": "java",
+        "name": "Debug T4APIClientTest",
+        "request": "launch",
+        "mainClass": "com.t4.T4APIClientTest",
+        "projectName": "t4-api-client",
+        "vmArgs": "--enable-preview -XX:+ShowCodeDetailsInExceptionMessages"
+    },
+    {
+        "type": "java",
+        "name": "Debug com.t4.Main (JavaFX)",
+        "request": "launch",
+        "mainClass": "com.t4.Main",
+        "projectName": "t4-api-client",
+        "vmArgs": "--enable-preview -XX:+ShowCodeDetailsInExceptionMessages"
+    },
+    {
+        "type": "java",
+        "name": "Attach to Remote JVM",
+        "request": "attach",
+        "hostName": "localhost",
+        "port": 5005
+    }
+]
 }
