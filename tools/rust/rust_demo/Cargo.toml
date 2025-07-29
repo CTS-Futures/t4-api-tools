@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 prost = "0.12"           # Protobuf encoding/decoding
 prost-types = "0.12"     # Common well-known types
+walkdir = "2.5.0"
 
 [build-dependencies]
 prost-build = "0.12"     # Code generator for Rust from proto
+walkdir = "2.5"

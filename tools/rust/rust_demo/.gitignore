@@ -8,3 +8,20 @@ Desktop.ini
 **/out/*.rs
 *.log
 *.tmp
+# Rust build artifacts
+target/
+
+# macOS Finder junk
+.DS_Store
+**/.DS_Store
+
+# Rustfmt backups
+**/*.rs.bk
+
+# VS Code settings
+.vscode/
+
+# Logs / temp files
+*.log
+*.tmp.DS_Store
+**/.DS_Store
