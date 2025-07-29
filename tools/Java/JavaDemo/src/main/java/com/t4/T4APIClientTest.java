@@ -111,6 +111,7 @@ import javafx.application.Platform;
         private boolean isLoggedIn = false; //starts heartbeats once loggedin and connncted
         private Map<String, Auth.LoginResponse.Account> loginAccounts = new HashMap<>();
         private Map<String, AccountDetails> accountDetails = new HashMap<>();
+        private boolean accountSubscribed = false;
 
         
         // JWT token management
@@ -276,6 +277,10 @@ import javafx.application.Platform;
                   case ACCOUNT_SNAPSHOT:
                      handleAccountSnapshot(serverMessage.getAccountSnapshot());
                      break;
+                  
+                  case ACCOUNT_SUBSCRIBE_RESPONSE:
+                      System.out.println("Successfully subscribed to account: " + serverMessage.getAccountSubscribeResponse());
+                      accountSubscribed = true;
                default:
                    System.out.println("Received unknown payload: " + payloadCase);
          }
@@ -386,6 +391,16 @@ import javafx.application.Platform;
       private void handleAccountUpdate(Account.AccountUpdate update) {
          System.out.println("Account update for account: " + update.getAccountId());
          // Optional: Display equity, margin, PnL if needed
+        /*  if (update.getAccountId().equals(selectedAccountId)) {
+        accountSubscribed = true;
+        System.out.println("✅ Account subscription confirmed for: " + update.getAccountId());
+
+        if (subscriptionListener != null) {
+            Platform.runLater(() -> subscriptionListener.onAccountSubscribed());
+        }
+    } else {
+        System.out.println("Ignoring update for non-selected account: " + update.getAccountId());
+    } */
       }
 
       private void handleAccountSnapshot(Account.AccountSnapshot snapshot) {
@@ -989,8 +1004,10 @@ public List<AccountPosition> getPositions() {
       this.posOrdersUI = ui;
    }
 
-public void submitOrder(String side, int volume, double price, String priceType, Double takeProfitDollars, Double stopLossDollars) {
-    if (selectedAccount == null || currentMarketId == null) {
+/* public void submitOrder(String side, int volume, double price, String priceType, Double takeProfitDollars, Double stopLossDollars) {
+   System.out.println("\nSelected account: " + selectedAccountId);
+   System.out.println("\nCurrent market ID: " + currentMarketId +"\n");
+    if (selectedAccountId == null || currentMarketId == null || !accountSubscribed) {
         throw new IllegalStateException("No account or market selected");
     }
 
@@ -1075,7 +1092,112 @@ public void submitOrder(String side, int volume, double price, String priceType,
     }
 
     OrderSubmit orderSubmit = OrderSubmit.newBuilder()
-        .setAccountId(selectedAccount)
+        .setAccountId(selectedAccountId)
+        .setMarketId(currentMarketId)
+        .setManualOrderIndicator(true)
+        .setOrderLink(orderLink)
+        .addAllOrders(orders)
+        .build();
+
+    ClientMessage msg = ClientMessage.newBuilder()
+        .setOrderSubmit(orderSubmit)
+        .build();
+
+    sendMessageToServer(msg);
+} */
+
+
+public void submitOrder(String side, int volume, double price, String priceType,
+                        Double takeProfitDollars, Double stopLossDollars) {
+
+    if (selectedAccountId == null || currentMarketId == null || !accountSubscribed) {
+        throw new IllegalStateException("No account or market selected or account not subscribed");
+    }
+
+    MarketDetails marketDetails = marketDetailsMap.get(currentMarketId);
+    if (marketDetails == null) {
+        System.err.println("Market details not found for marketId: " + currentMarketId);
+        return;
+    }
+
+    BuySell buySell = side.equalsIgnoreCase("buy") ? BuySell.BUY_SELL_BUY : BuySell.BUY_SELL_SELL;
+    PriceType priceTypeEnum = priceType.equalsIgnoreCase("market") ?
+        PriceType.PRICE_TYPE_MARKET : PriceType.PRICE_TYPE_LIMIT;
+
+    boolean hasBracketOrders = takeProfitDollars != null || stopLossDollars != null;
+    OrderLink orderLink = hasBracketOrders ? OrderLink.ORDER_LINK_AUTO_OCO : OrderLink.ORDER_LINK_NONE;
+
+    List<Order> orders = new ArrayList<>();
+
+    // Main order
+    Order.Builder mainOrder = Order.newBuilder()
+        .setBuySell(buySell)
+        .setPriceType(priceTypeEnum)
+        .setTimeType(TimeType.TIME_TYPE_NORMAL)
+        .setVolume(volume);
+
+    if (priceTypeEnum == PriceType.PRICE_TYPE_LIMIT) {
+        mainOrder.setLimitPrice(Price.newBuilder().setValue(String.valueOf(price)).build());
+    }
+
+    orders.add(mainOrder.build());
+
+    // Determine opposite side for bracket protection
+    BuySell protectionSide = (buySell == BuySell.BUY_SELL_BUY) ?
+        BuySell.BUY_SELL_SELL : BuySell.BUY_SELL_BUY;
+
+    // Logging: Order summary
+    System.out.printf("Order submitted: %s %d @ %s (Type: %s)%n",
+        buySellToString(buySell), volume,
+        priceTypeEnum == PriceType.PRICE_TYPE_MARKET ? "Market" : price,
+        priceType);
+
+    // Take Profit
+    if (takeProfitDollars != null) {
+        double pointValue = Double.parseDouble(marketDetails.getPointValue().getValue());
+        double minTick = Double.parseDouble(marketDetails.getMinPriceIncrement().getValue());
+        double tpPoints = takeProfitDollars / pointValue;
+        double tpPrice = tpPoints * minTick;
+
+        orders.add(Order.newBuilder()
+            .setBuySell(protectionSide)
+            .setPriceType(PriceType.PRICE_TYPE_LIMIT)
+            .setTimeType(TimeType.TIME_TYPE_GOOD_TILL_CANCELLED)
+            .setVolume(0)
+            .setLimitPrice(Price.newBuilder().setValue(String.valueOf(tpPrice)).build())
+            .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
+            .build());
+
+        System.out.printf("Take profit: $%.2f (%s) at approx price offset: %.4f%n",
+            takeProfitDollars, buySellToString(protectionSide), tpPrice);
+    }
+
+    // Stop Loss
+    if (stopLossDollars != null) {
+        double pointValue = Double.parseDouble(marketDetails.getPointValue().getValue());
+        double minTick = Double.parseDouble(marketDetails.getMinPriceIncrement().getValue());
+        double slPoints = stopLossDollars / pointValue;
+        double slPrice = slPoints * minTick;
+
+        orders.add(Order.newBuilder()
+            .setBuySell(protectionSide)
+            .setPriceType(PriceType.PRICE_TYPE_STOP_MARKET)
+            .setTimeType(TimeType.TIME_TYPE_GOOD_TILL_CANCELLED)
+            .setVolume(0)
+            .setStopPrice(Price.newBuilder().setValue(String.valueOf(slPrice)).build())
+            .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
+            .build());
+
+        System.out.printf("Stop loss: $%.2f (%s) at approx price offset: %.4f%n",
+            stopLossDollars, buySellToString(protectionSide), slPrice);
+    }
+
+    if (hasBracketOrders) {
+        System.out.println("OCO (One Cancels Other) bracket order applied.");
+    }
+
+    OrderSubmit orderSubmit = OrderSubmit.newBuilder()
+        .setAccountId(selectedAccountId)
         .setMarketId(currentMarketId)
         .setManualOrderIndicator(true)
         .setOrderLink(orderLink)
@@ -1090,9 +1212,19 @@ public void submitOrder(String side, int volume, double price, String priceType,
 }
 
 
+   private String buySellToString(BuySell bs) {
+    switch (bs) {
+        case BUY_SELL_BUY: return "Buy";
+        case BUY_SELL_SELL: return "Sell";
+        default: return "Unknown";
+    }
+}
+
+
+
 
    public void pullOrder(String orderId) {
-    if (selectedAccount == null || currentMarketId == null) {
+    if (selectedAccountId == null || currentMarketId == null) {
         throw new IllegalStateException("No account or market selected");
     }
 
@@ -1101,7 +1233,7 @@ public void submitOrder(String side, int volume, double price, String priceType,
         .build();
 
     OrderPull orderPull = OrderPull.newBuilder()
-        .setAccountId(selectedAccount)
+        .setAccountId(selectedAccountId)
         .setMarketId(currentMarketId)
         .setManualOrderIndicator(true)
         .addPulls(pull)
@@ -1116,7 +1248,7 @@ public void submitOrder(String side, int volume, double price, String priceType,
 
 
 public void reviseOrder(String orderId, int volume, Double price, String priceType) {
-    if (selectedAccount == null || currentMarketId == null) {
+    if (selectedAccountId == null || currentMarketId == null) {
         throw new IllegalStateException("No account or market selected");
     }
 
@@ -1133,7 +1265,7 @@ public void reviseOrder(String orderId, int volume, Double price, String priceTy
     }
 
     OrderRevise orderRevise = OrderRevise.newBuilder()
-        .setAccountId(selectedAccount)
+        .setAccountId(selectedAccountId)
         .setMarketId(currentMarketId)
         .setManualOrderIndicator(true)
         .addRevisions(reviseBuilder)
@@ -1145,6 +1277,11 @@ public void reviseOrder(String orderId, int volume, Double price, String priceTy
 
     sendMessageToServer(msg);
 }
+
+   public boolean isAccountSubscribed() {
+    return accountSubscribed;
+}
+
 
 
 

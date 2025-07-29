@@ -9,8 +9,13 @@ import org.json.*;
 import java.net.URI;
 import java.net.http.*;
 import java.util.*;
+<<<<<<< HEAD
 import java.util.function.Consumer;
 import javafx.geometry.Pos;
+=======
+//import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
+>>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
 
 public class ExpiryPicker {
 
@@ -42,6 +47,7 @@ public class ExpiryPicker {
         loadGroups();
     }
 
+<<<<<<< HEAD
 
     private void createDialog() {
     dialogStage = new Stage(StageStyle.UTILITY);
@@ -87,6 +93,38 @@ public class ExpiryPicker {
     dialogStage.setScene(scene);
     dialogStage.show();
 }
+=======
+    private void createDialog() {
+        dialogStage = new Stage(StageStyle.UTILITY);
+        dialogStage.initModality(Modality.APPLICATION_MODAL);
+        dialogStage.setTitle("Select Expiry");
+
+        VBox root = new VBox(10);
+        root.setStyle("-fx-padding: 15;");
+        Label header = new Label("Select Expiry");
+
+        groupsList = new VBox(10);
+        loadingIndicator = new ProgressIndicator();
+        loadingIndicator.setVisible(false);
+
+        selectButton = new Button("Select");
+        selectButton.setDisable(true);
+        selectButton.setOnAction(e -> {
+            if (selectedExpiry != null) close(selectedExpiry);
+        });
+
+        Button cancelButton = new Button("Cancel");
+        cancelButton.setOnAction(e -> close(null));
+
+        HBox footer = new HBox(10, cancelButton, selectButton);
+
+        root.getChildren().addAll(header, loadingIndicator, groupsList, footer);
+
+        Scene scene = new Scene(root, 400, 500);
+        dialogStage.setScene(scene);
+        dialogStage.show();
+    }
+>>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
 
     private void loadGroups() {
         showLoading(true);
@@ -108,6 +146,7 @@ public class ExpiryPicker {
                 .whenComplete((r, t) -> Platform.runLater(() -> showLoading(false)));
     }
 
+<<<<<<< HEAD
 
 
     private void renderGroups(JSONArray groups) {
@@ -153,6 +192,45 @@ public class ExpiryPicker {
 
     renderGroups(groupsCache.get("root"));
     }
+=======
+    private void renderGroups(JSONArray groups) {
+        groupsList.getChildren().clear();
+
+        for (int i = 0; i < groups.length(); i++) {
+            JSONObject group = groups.getJSONObject(i);
+            String strategyType = group.getString("strategyType");
+            String expiryDate = group.optString("expiryDate", "");
+
+            boolean isExpanded = expandedGroups.contains(strategyType);
+            VBox groupBox = new VBox();
+            Label groupHeader = new Label(getStrategyTypeDisplayName(strategyType));
+            groupHeader.setStyle("-fx-font-weight: bold; -fx-cursor: hand;");
+            groupHeader.setOnMouseClicked(e -> toggleGroup(group, groupBox));
+
+            groupBox.getChildren().add(groupHeader);
+
+            if (isExpanded) {
+                loadAndRenderMarkets(strategyType, expiryDate, groupBox);
+            }
+
+            groupsList.getChildren().add(groupBox);
+        }
+    }
+
+    private void toggleGroup(JSONObject group, VBox groupBox) {
+        String strategyType = group.getString("strategyType");
+        String expiryDate = group.optString("expiryDate", "");
+
+        if (expandedGroups.contains(strategyType)) {
+            expandedGroups.remove(strategyType);
+            groupBox.getChildren().removeIf(node -> node instanceof VBox && !((VBox) node).getChildren().isEmpty());
+        } else {
+            expandedGroups.add(strategyType);
+            loadAndRenderMarkets(strategyType, expiryDate, groupBox);
+        }
+    }
+
+>>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
     private void loadAndRenderMarkets(String strategyType, String expiryDate, VBox parentBox) {
         String cacheKey = strategyType + "_" + (expiryDate.isEmpty() ? "none" : expiryDate);
         if (marketsCache.containsKey(cacheKey)) {
