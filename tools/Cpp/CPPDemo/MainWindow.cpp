@@ -449,10 +449,32 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
 
         // Price (handle value safely)
         QJsonValue priceVal = order["new_limit_price"];
-        QString price = (!priceVal.isUndefined() && !priceVal.isNull())
-            ? priceVal.toString()
-            : QString("—");
+        qDebug() << priceVal;
+		qDebug() << "Price value type:" << priceVal.type();
+        QString price;
+        if (priceVal.type() == 0) {
+			price = "";  // No price set
+        }
+        else if (priceVal.isDouble()) {
+            price = QString::number(priceVal.toDouble(), 'f', 2);
+        }
+        // Handle JSON string
+        else if (priceVal.isString()) {
+            QString s = priceVal.toString();
 
+            // Remove any non-digit / non-decimal chars (protects against U+FFFD and others)
+            s.remove(QRegularExpression("[^0-9\\.-]"));
+
+            bool ok = false;
+            double val = s.toDouble(&ok);
+            price = ok ? QString::number(val, 'f', 2) : "—";
+        }
+        // Null / undefined / wrong type
+        else {
+            price = "—";
+        }
+        
+  
         // Status
         QString status = QString::number(order["status"].toInt());
         
@@ -563,12 +585,15 @@ void MainWindow::showModifyOrderDialog(const QString& orderId, QString volume, Q
 
     // Price input
     QLabel* priceLabel = new QLabel("Price:");
-    QDoubleSpinBox* priceSpin = new QDoubleSpinBox();
-    priceSpin->setRange(0.01, 100000);
-    priceSpin->setDecimals(2);
-	priceSpin->setValue(price.toDouble());
+    QLineEdit* priceEdit = new QLineEdit();
+
+   
+
+
+// Set initial value
+    priceEdit->setText(price);
     mainLayout->addWidget(priceLabel);
-    mainLayout->addWidget(priceSpin);
+    mainLayout->addWidget(priceEdit);
 
     // Buttons
     QHBoxLayout* buttonLayout = new QHBoxLayout();
@@ -593,9 +618,9 @@ void MainWindow::showModifyOrderDialog(const QString& orderId, QString volume, Q
         });
 
     connect(reviseBtn, &QPushButton::clicked, &dialog, [=, &dialog]() {
-        double price = priceSpin->value();
-        int volume = volumeSpin->value();
-        client->reviseOrder(orderId, volume, price, "limit");
+        double pri = priceEdit->text().toDouble();
+        int vol = volumeSpin->value();
+        client->reviseOrder(orderId, vol, pri, "limit");
         dialog.accept();
         });
 
