@@ -10,8 +10,26 @@ Before building the project, ensure you have the following installed:
 
 - **Visual Studio 2022**
   - Include the **Desktop development with C++** workload.
-- **vcpkg** (installed and bootstrapped)
-  - Follow installation instructions: https://github.com/microsoft/vcpkg#quick-start
+- **vcpkg** (installed and bootstrapped) (https://github.com/microsoft/vcpkg)
+  - For the purposes of this demo, you must:
+  - git clone https://github.com/microsoft/vcpkg.git
+  - run the .bat or .sh file
+    
+  PowerShell (Windows)
+  ```
+  cd vcpkg
+  .\bootstrap-vcpkg.bat
+  ```
+  CMD (Windows)
+  ```
+  cd vcpkg
+  bootstrap-vcpkg.bat
+  ```
+  Bash (Linux, macOS, WSL)
+  ```
+  cd vcpkg
+  ./bootstrap-vcpkg.sh
+  ```
 - **Qt**
   - Follow installation instructions: https://doc.qt.io/qt-6/get-and-install-qt.html
   
