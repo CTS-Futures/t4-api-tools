@@ -197,6 +197,41 @@ public class Main extends Application {
             dialog.show();
         });
 
+        marketPane.setOnOpenExpiryPicker(() -> {
+        try {
+            ExpiryPicker.Config config = new ExpiryPicker.Config(
+                "https://api-sim.t4login.com",
+                T4Config.API_KEY,
+                T4APIClientTest.getInstance().getAuthToken()
+            );
+
+        // You can hardcode these or pull from current state later
+            String exchangeId = "CME_Eq";
+            String contractId = "ES";
+
+            ExpiryPicker picker = new ExpiryPicker(config, exchangeId, contractId);
+            picker.show(expiry -> {
+                if (expiry != null) {
+                    String marketId = expiry.optString("marketId");
+                    System.out.println("Selected market from expiry picker: " + marketId);
+
+                    new Thread(() -> {
+                        try {
+                            client.selectMarket(marketId);
+                            Platform.runLater(() -> marketPane.updateSymbol(expiry.optString("description", marketId)));
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            Platform.runLater(() -> marketPane.updateSymbol("❌ Error selecting market"));
+                        }
+                    }).start();
+                }
+            });
+        } catch (Exception e) {
+            e.printStackTrace();
+            Platform.runLater(() -> marketPane.updateSymbol("❌ Token error"));
+        }
+    });
+
         // === MarketData + SubmitOrder (GridPane to lock alignment) ===
         GridPane topGrid = new GridPane();
         topGrid.setHgap(15);

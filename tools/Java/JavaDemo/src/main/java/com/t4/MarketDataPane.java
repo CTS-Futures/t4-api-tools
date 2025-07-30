@@ -1,5 +1,6 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 /* package com.t4;
 
 import javafx.application.Platform;
@@ -473,6 +474,9 @@ public class MarketDataPane extends VBox {
 >>>>>>> 5b236e0 (Working on UI)
 =======
  */
+=======
+
+>>>>>>> f41aaf7 (Expriy working, submit orders working)
 
  package com.t4;
 
@@ -492,6 +496,8 @@ public class MarketDataPane extends VBox {
     private final Button selectMarketButton = new Button("Select Market");
 
     private Runnable onSelectMarket = null;
+    private Runnable onOpenExpiryPicker = null;
+
 
     public MarketDataPane() {
         setSpacing(10);
@@ -501,6 +507,18 @@ public class MarketDataPane extends VBox {
         setFillWidth(true);
 
         Label titleLabel = new Label("Market Data");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        //New Icon for Expiry Picker
+        Label calendarIcon = new Label("\uD83D\uDCC5"); // 📅 emoji
+        calendarIcon.setStyle(
+            "-fx-cursor: hand; -fx-font-size: 18px; -fx-text-fill: #007bff; " +
+            "-fx-padding: 2 6 2 6; -fx-border-radius: 4; -fx-border-color: transparent;"
+        );
+
+        HBox titleBar = new HBox(titleLabel, spacer, calendarIcon);
+        titleBar.setAlignment(Pos.CENTER_LEFT);
         titleLabel.setFont(Font.font("Arial", 16));
         titleLabel.setStyle("-fx-font-weight: bold;");
 
@@ -508,6 +526,12 @@ public class MarketDataPane extends VBox {
             if (onSelectMarket != null) {
                 onSelectMarket.run();
             }
+        });
+
+
+        // Placeholder for action
+        calendarIcon.setOnMouseClicked(e -> {
+        if (onOpenExpiryPicker != null) onOpenExpiryPicker.run();
         });
 
         GridPane grid = new GridPane();
@@ -520,11 +544,16 @@ public class MarketDataPane extends VBox {
         grid.add(askLabel, 1, 1);
         grid.add(lastLabel, 0, 2);
 
-        getChildren().addAll(titleLabel, selectMarketButton, grid);
+        getChildren().addAll(titleBar, selectMarketButton, grid);
 
         setMaxWidth(Double.MAX_VALUE);
         setPrefWidth(Region.USE_COMPUTED_SIZE);
         HBox.setHgrow(this, Priority.ALWAYS);
+    }
+
+    
+    public void setOnOpenExpiryPicker(Runnable onOpen) {
+        this.onOpenExpiryPicker = onOpen;
     }
 
     public void setOnSelectMarket(Runnable onSelect) {
