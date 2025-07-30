@@ -123,7 +123,7 @@ Client::Client(QObject* parent)
 
 		//send the message to the server
 		sendMessage(serialized_message);
-		qDebug() << serialized_message;
+		
         
 
 	}
@@ -196,7 +196,7 @@ Client::Client(QObject* parent)
         // Handle the market details
         qDebug() << "[market_details] Received market details for market ID:"
                  << QString::fromStdString(detail.market_id());
-        qDebug() << QString::fromStdString(detail.contract_id());
+      
        // qDebug() << detail.expiry_date();
 		// store data
 		marketDetails[QString::fromStdString(detail.market_id())] = detail;
@@ -239,7 +239,7 @@ Client::Client(QObject* parent)
         QString bestBid = "-";
         if (depth.bids_size() > 0) {
             const auto& bid = depth.bids(0);
-            double bidPrice = QString::fromStdString(bid.price().value()).toDouble();
+            double bidPrice = QString::fromStdString(bid.price().value()).toDouble() / 100.0;
             int bidVolume =bid.volume();
 
             QString priceStr = QString::number(bidPrice, 'f', priceFormat);
@@ -250,7 +250,7 @@ Client::Client(QObject* parent)
         QString bestOffer = "-";
         if (depth.offers_size() > 0) {
             const auto& offer = depth.offers(0);
-            double offerPrice = QString::fromStdString(offer.price().value()).toDouble();
+            double offerPrice = QString::fromStdString(offer.price().value()).toDouble() /100.0;
             int offerVolume =offer.volume();
 
             QString priceStr = QString::number(offerPrice, 'f', priceFormat);
@@ -260,7 +260,7 @@ Client::Client(QObject* parent)
 
         QString lastTrade = "-";
         if (depth.has_trade_data() && depth.trade_data().has_last_trade_price()) {
-            double lastPrice = QString::fromStdString(depth.trade_data().last_trade_price().value()).toDouble();
+            double lastPrice = QString::fromStdString(depth.trade_data().last_trade_price().value()).toDouble() / 100.0;
             int lastVolume = depth.trade_data().last_trade_volume();
 
             QString priceStr = QString::number(lastPrice, 'f', priceFormat);
@@ -343,8 +343,8 @@ Client::Client(QObject* parent)
                 { "working_buys",  0 },
                 { "working_sells", 0 }
             };
-        }
 
+        }
         // Update P&L fields
         double upl = message.upl_trade();
         double rpl = message.rpl();
@@ -360,7 +360,14 @@ Client::Client(QObject* parent)
         // Optional: enrich log with market snapshot info
         QString marketId = QString::fromStdString(message.market_id());
         QString marketInfo;
-
+        auto insertDecimal = [](const std::string& raw) -> QString {
+            if (raw.size() <= 2) {
+                return QString::fromStdString("0." + std::string(2 - raw.size(), '0') + raw);
+            }
+            std::string formatted = raw;
+            formatted.insert(formatted.size() - 2, ".");
+            return QString::fromStdString(formatted);
+            };
         if (marketSnapshots.contains(marketId)) {
             const auto& snapshot = marketSnapshots[marketId];
 
@@ -369,32 +376,31 @@ Client::Client(QObject* parent)
                 const auto& bid = snapshot.bids(0);
                 bestBid = QString("%1@%2")
                     .arg(bid.volume())
-                    .arg(QString::fromStdString(bid.price().value()));
+                    .arg(QString::number(std::stod(bid.price().value()) / 100.0, 'f', 2));
+				qDebug() << "Best bid:" << bestBid;
             }
-
             QString bestOffer = "-";
             if (snapshot.offers_size() > 0) {
                 const auto& offer = snapshot.offers(0);
                 bestOffer = QString("%1@%2")
                     .arg(offer.volume())
-                    .arg(QString::fromStdString(offer.price().value()));
+                    .arg(insertDecimal(offer.price().value()));
             }
-
             QString lastTrade = "-";
             if (snapshot.has_trade_data() && snapshot.trade_data().has_last_trade_price()) {
                 lastTrade = QString("%1@%2")
                     .arg(snapshot.trade_data().last_trade_volume())
-                    .arg(QString::fromStdString(snapshot.trade_data().last_trade_price().value()));
+                    .arg(insertDecimal(snapshot.trade_data().last_trade_price().value()));
             }
 
             marketInfo = QString(" (Bid: %1, Offer: %2, Last: %3)").arg(bestBid, bestOffer, lastTrade);
         }
 
-        qDebug() << QString("[Position P&L update] Market: %1%2, UPL: %3, RPL: %4, Total P&L: %5")
-            .arg(marketId, marketInfo)
-            .arg(upl)
-            .arg(rpl)
-            .arg(totalPnl);
+        //qDebug() << QString("[Position P&L update] Market: %1%2, UPL: %3, RPL: %4, Total P&L: %5")
+        //    .arg(marketId, marketInfo)
+        //    .arg(upl)
+        //    .arg(rpl)
+        //    .arg(totalPnl);
 
         // Emit filtered positions for the selected account
         if (QString::fromStdString(message.account_id()) == selectedAccount) {
@@ -678,8 +684,9 @@ Client::Client(QObject* parent)
         ClientMessage orderMessage;
         orderMessage.mutable_order_submit()->CopyFrom(orderSubmit);
         std::string serializedOrder = orderMessage.SerializeAsString();
+        qDebug().noquote() << QString::fromStdString(orderMessage.DebugString());
         sendMessage(serializedOrder);
-
+        
 
        
         // Console logs
@@ -1361,7 +1368,7 @@ Client::Client(QObject* parent)
 
         //error checks
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "[market_exppirty] Network error:" << reply->errorString();
+            qWarning() << "[market_expiry] Network error:" << reply->errorString();
             reply->deleteLater();
             return QVector<QJsonObject>();
         }
