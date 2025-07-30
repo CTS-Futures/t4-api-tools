@@ -115,7 +115,7 @@ https://marketplace.visualstudio.com/items?itemName=TheQtCompany.QtVisualStudioT
 
 Once installed:
 
-- Go to: `Extensions → Qt VS Tools → Qt Options`
+- Go to: `Extensions → Qt VS Tools → Qt Version`
 - Click **Add...**
 - Set the following:
   - **Version name:** `Qt 6.9.1`
@@ -137,22 +137,24 @@ Right-click your project → **Properties**, then make these changes under **All
 
 
 ##### ➕ C/C++ → General → Additional Include Directories
+Make sure to include the following:
 ```
-C:\Qt\6.9.1\msvc2022_64\include
-C:\Qt\6.9.1\msvc2022_64\include\QtCore
-C:\Qt\6.9.1\msvc2022_64\include\QtGui
-C:\Qt\6.9.1\msvc2022_64\include\QtWidgets
-C:\Qt\6.9.1\msvc2022_64\include\QtNetwork
-C:\Qt\6.9.1\msvc2022_64\include\QtNetworkAuth
-C:\Qt\6.9.1\msvc2022_64\include\QtWebSockets
+C:\Qt\6.9.x\msvc2022_64\include
+C:\Qt\6.9.x\msvc2022_64\include\QtCore
+C:\Qt\6.9.x\msvc2022_64\include\QtGui
+C:\Qt\6.9.x\msvc2022_64\include\QtWidgets
+C:\Qt\6.9.x\msvc2022_64\include\QtNetwork
+C:\Qt\6.9.x\msvc2022_64\include\QtNetworkAuth
+C:\Qt\6.9.x\msvc2022_64\include\QtWebSockets
 ```
+Please note that your path may vary. Espeially in regards to version
 
 #### Config Files
 - Within the Cpp folder,
   ```
   mkdir config
   cd config
-  touch config.json
+  create this file: config.json
   ```
 - Use the following template and insert your info:
   ```json
