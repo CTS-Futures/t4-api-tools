@@ -36,17 +36,20 @@ Before building the project, ensure you have the following installed:
     1. **Launch the Qt Maintenance Tool**
   - Located in your Qt installation directory (e.g., `C:\Qt\MaintenanceTool.exe`)
 
-    2. **Add or Remove Components** → **Select your installed Qt version** (e.g., Qt 6.9.0)
+    2. **Add or Remove Components** → Qt → **Select your installed Qt version** (e.g., Qt 6.9.0)
+        - Ensure that the Qt compiler is using MSVC (this is compatible with visual studio). MinGW is not compatible with VS.
+        - check MSVC 2022 64 bit and uncheck MinGW.
     
-    3. Under your Qt version, make sure to check:
+    4. → **Additional Libraries**
+    
+    5. make sure to check:
     
        - `Qt WebSockets`
        - `Qt Network Authorization`
-       - `Qt Tools` (if using Designer or windeployqt)
        - `Qt Base` (should already be installed)
     
-    4. Also Ensure that the Qt compiler is using msvc (this is compatible with visual studio). MINGW is not compatible with VS.
-    5. Click **Next** and complete installation.
+   
+    7. Click **Next** and complete installation.
 ---
 
 ## 📦 Dependencies (via vcpkg)
@@ -56,9 +59,18 @@ For convenince all .proto files are compiled and in the repo.
 - `protobuf`
 - Note: protobuf is reliant on abseil but this should download automatically with the download of protobuf.
 
-Install them like so:
+Ensure you are inside the root of your local clone of the vcpkg repo. Install protobuf like so:
+Powershell
+```sh
+.\vcpkg install protobuf
+```
+CMD
 ```sh
 vcpkg install protobuf
+```
+Bash
+```sh
+./vcpkg install protobuf
 ```
 - Also, the protobuf installed on vcpkg is an earlier version. Thus, you must compile all .proto files using the install from vcpkg if they need to be recompiled.
 - "vcpkg\installed\x64-windows\tools\protobuf" - This should be the path to the protobuf compiler. Feel free to add this to your ENV for easier compilation.
@@ -69,11 +81,18 @@ vcpkg install protobuf
 If not already done:
 
 1. Run this in your vcpkg folder to integrate it with Visual Studio:
-
+Powershell
+```sh
+.\vcpkg integrate install
+```
+CMD
+```sh
+vcpkg integrate install
+```
+Bash
 ```sh
 ./vcpkg integrate install
 ```
-
 2. This allows Visual Studio to automatically detect and use libraries installed via vcpkg. Necessary for protobufs to access .dll and .lib files.
 
 ---
