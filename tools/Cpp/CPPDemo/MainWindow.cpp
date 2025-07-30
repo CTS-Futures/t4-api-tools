@@ -444,8 +444,7 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
         int newVol = order["new_volume"].toInt();
         int currVol = order["current_volume"].toInt();
         int workingVol = order["working_volume"].toInt();
-        QString volume = QString("%1/%2")
-            .arg(newVol > 0 ? newVol : currVol)
+        QString volume = QString("%1")
             .arg(workingVol);
 
         // Price (handle value safely)
@@ -461,7 +460,7 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
             editBtn = new QPushButton("Edit");
 
             connect(editBtn, &QPushButton::clicked, this, [=]() {
-                showModifyOrderDialog(order["unique_id"].toString());  // replace with actual ID
+                showModifyOrderDialog(order["unique_id"].toString(), volume, price);  // replace with actual ID
                 });
 
             ordersTable->setCellWidget(row, 6, editBtn);
@@ -546,7 +545,7 @@ void MainWindow::handleSubmitOrder() {
     );
 }
 
-void MainWindow::showModifyOrderDialog(const QString& orderId) {
+void MainWindow::showModifyOrderDialog(const QString& orderId, QString volume, QString price) {
     QDialog dialog(this);
     dialog.setWindowTitle("Modify Order");
     dialog.setModal(true);
@@ -558,6 +557,7 @@ void MainWindow::showModifyOrderDialog(const QString& orderId) {
     QLabel* volumeLabel = new QLabel("Volume:");
     QSpinBox* volumeSpin = new QSpinBox();
     volumeSpin->setRange(1, 10000);
+	volumeSpin->setValue(volume.toInt());
     mainLayout->addWidget(volumeLabel);
     mainLayout->addWidget(volumeSpin);
 
@@ -566,6 +566,7 @@ void MainWindow::showModifyOrderDialog(const QString& orderId) {
     QDoubleSpinBox* priceSpin = new QDoubleSpinBox();
     priceSpin->setRange(0.01, 100000);
     priceSpin->setDecimals(2);
+	priceSpin->setValue(price.toDouble());
     mainLayout->addWidget(priceLabel);
     mainLayout->addWidget(priceSpin);
 
