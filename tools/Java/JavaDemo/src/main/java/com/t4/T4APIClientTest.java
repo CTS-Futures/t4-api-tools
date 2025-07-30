@@ -357,6 +357,7 @@ import javafx.application.Platform;
 
 
       private void checkIfAccountReady() {
+         System.out.println("Checking if account is ready to trade "+ isConnected + " " + gotAccountPosition + " " + gotAccountUpdate + " " + gotOrderUpdateMulti);
     if (!isConnected && gotAccountPosition && gotAccountUpdate && gotOrderUpdateMulti) {
         isConnected = true;
         System.out.println("✅ Account is now ready to trade.");
@@ -413,7 +414,7 @@ import javafx.application.Platform;
       }
 
       private void handleAccountUpdate(Account.AccountUpdate update) {
-         isConnected = true;
+         //isConnected = true;
          System.out.println("Account update for account: " + update.getAccountId());
       }
 
@@ -428,6 +429,7 @@ import javafx.application.Platform;
                 break;
 
             case ORDER_UPDATE_MULTI:
+               gotOrderUpdateMulti = true;
                 for (Orderrouting.OrderUpdateMultiMessage update : msg.getOrderUpdateMulti().getUpdatesList()) {
                     if (update.getPayloadCase() == Orderrouting.OrderUpdateMultiMessage.PayloadCase.ORDER_UPDATE) {
                         newOrders.add(update.getOrderUpdate());
@@ -529,7 +531,7 @@ public String getAuthToken() throws Exception {
     private void handleAccountSubscribeResponse(Account.AccountSubscribeResponse response) {
     if (response.getSuccess()) {
         this.selectedAccountId = pendingAccountId;
-        //this.accountSubscribed = true;
+        this.accountSubscribed = true;
         System.out.println("Account subscription confirmed for: " + selectedAccountId);
     } else {
         System.err.println("Account subscription failed: " + response.getErrorsList());
@@ -1021,7 +1023,7 @@ private void handleAccountPosition(AccountPosition position) {
 
         Platform.runLater(() -> posOrdersUI.updatePosition(market, net, pnl, working));
     }
-    isConnected = true;
+    //isConnected = true;
 }
 
 
@@ -1046,6 +1048,7 @@ public List<AccountPosition> getPositions() {
 
 public void submitOrder(String side, int volume, double price, String priceType,
                         Double takeProfitDollars, Double stopLossDollars) {
+      System.out.println("Everything from Submit Orders: " + accountSubscribed + isConnected + selectedAccountId);                     
 
     if (selectedAccountId == null || currentMarketId == null || !accountSubscribed || !isConnected) {
         throw new IllegalStateException("No account or market selected or account not subscribed");
