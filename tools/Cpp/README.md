@@ -40,7 +40,7 @@ Before building the project, ensure you have the following installed:
         - Ensure that the Qt compiler is using MSVC (this is compatible with visual studio). MinGW is not compatible with VS.
         - check MSVC 2022 64 bit and uncheck MinGW.
     
-    4. → **Additional Libraries**
+    4. You should also see another dropdown under the version called → **Additional Libraries**
     
     5. make sure to check:
     
@@ -116,10 +116,9 @@ https://marketplace.visualstudio.com/items?itemName=TheQtCompany.QtVisualStudioT
 Once installed:
 
 - Go to: `Extensions → Qt VS Tools → Qt Version`
-- Click **Add...**
-- Set the following:
-  - **Version name:** `Qt 6.9.1`
-  - **Path:** `C:\Qt\6.9.1\msvc2022_64`
+- Click **...** next to "Location:"
+- Find your Qt install and set up the following:
+  - **Path:** `C:\Qt\6.9.1\msvc2022_64\bin\qtpaths.exe`
 
 Click **OK** to save.
 
@@ -147,7 +146,7 @@ C:\Qt\6.9.x\msvc2022_64\include\QtNetwork
 C:\Qt\6.9.x\msvc2022_64\include\QtNetworkAuth
 C:\Qt\6.9.x\msvc2022_64\include\QtWebSockets
 ```
-Please note that your path may vary. Espeially in regards to version
+Please note that your path may vary. Especially in regards to version
 
 #### Config Files
 - Within the Cpp folder,
@@ -158,6 +157,7 @@ Please note that your path may vary. Espeially in regards to version
   ```
 - Use the following template and insert your info:
   ```json
+{
   "websocket": {
     "url": "wss://wss-sim.t4login.com/v1",
     "api": "https://api-sim.t4login.com",
@@ -172,7 +172,7 @@ Please note that your path may vary. Espeially in regards to version
     "md_contract_id": "ES",
     "priceFormat": 2
   }
-
+}
 
 #### Finished
 - After linking the required properties and setting up VS to support Qt, the program should run.
