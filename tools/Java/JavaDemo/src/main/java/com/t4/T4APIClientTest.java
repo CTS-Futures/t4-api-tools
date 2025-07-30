@@ -159,6 +159,7 @@ import javafx.application.Platform;
         private int maxReconnectAttempts = 10;
         private int reconnectDelay = 1000;
         private Runnable onConnectedCallback;
+        private Runnable authTokenReadyCallback = null;
 
         private boolean isDisposed = false;
         private static Session session;
@@ -494,15 +495,29 @@ import javafx.application.Platform;
         pendingTokenRequest = null;
     }
 
+    if (authTokenReadyCallback != null) {
+        authTokenReadyCallback.run();
+        authTokenReadyCallback = null;
+    }
+
     System.out.println("Authentication token received");
 }
 
-public String getAuthToken() throws Exception {
+public String getAuthToken() {
     long now = System.currentTimeMillis();
     if (jwtToken != null && jwtExpiration != null && now < jwtExpiration - 30000) {
         return jwtToken;
     }
-    throw new IOException("JWT token is expired or not available.");
+    System.out.println("JWT token is expired or not available.");
+    return null;
+}
+
+public void waitForAuthToken(Runnable callback){
+    if (getAuthToken() != null && !getAuthToken().isEmpty()) {
+        callback.run(); // Token already available
+    } else {
+        this.authTokenReadyCallback = callback; // Wait until token is ready
+    }
 }
 
 

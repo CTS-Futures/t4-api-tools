@@ -478,7 +478,7 @@ public class MarketDataPane extends VBox {
 
 >>>>>>> f41aaf7 (Expriy working, submit orders working)
 
- package com.t4;
+ /* package com.t4;
 
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -580,4 +580,121 @@ public class MarketDataPane extends VBox {
         Platform.runLater(() -> selectMarketButton.setDisable(!enable));
     }
 }
+<<<<<<< HEAD
 >>>>>>> 3fa8ae3 (Correct Ui)
+=======
+ */
+
+ package com.t4;
+
+import javafx.application.Platform;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.control.*;
+import javafx.scene.layout.*;
+import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
+import javafx.scene.text.TextAlignment;
+
+public class MarketDataPane extends VBox {
+
+    private final Label symbolLabel = new Label("(--)");
+    private final Label bidLabel = new Label("Best Bid\n--");
+    private final Label askLabel = new Label("Best Offer\n--");
+    private final Label lastLabel = new Label("Last Trade\n--");
+    private final Button selectMarketButton = new Button("Select Market");
+
+    private Runnable onSelectMarket = null;
+    private Runnable onOpenExpiryPicker = null;
+
+    public MarketDataPane() {
+        setSpacing(15);
+        setPadding(new Insets(20));
+        setStyle("-fx-background-color: white; -fx-border-color: #cccccc; -fx-border-radius: 8; -fx-background-radius: 8;");
+        setAlignment(Pos.TOP_LEFT);
+
+        // === Title Bar ===
+        Label titleLabel = new Label("Market Data - ");
+        titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 22));
+
+        symbolLabel.setFont(Font.font("Arial", FontWeight.BOLD, 22));
+        symbolLabel.setTextFill(Color.web("#007bff")); // Blue
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Label calendarIcon = new Label("\uD83D\uDCC5"); // 📅 emoji
+        calendarIcon.setStyle("-fx-cursor: hand; -fx-font-size: 20px; -fx-text-fill: #007bff;");
+        calendarIcon.setOnMouseClicked(e -> {
+            if (onOpenExpiryPicker != null) onOpenExpiryPicker.run();
+        });
+
+        HBox titleBar = new HBox(titleLabel, symbolLabel, spacer, calendarIcon);
+        titleBar.setAlignment(Pos.CENTER_LEFT);
+
+        // === Quote Grid ===
+        bidLabel.setTextAlignment(TextAlignment.CENTER);
+        askLabel.setTextAlignment(TextAlignment.CENTER);
+        lastLabel.setTextAlignment(TextAlignment.CENTER);
+
+        styleQuoteBox(bidLabel, "#007bff");   // Blue
+        styleQuoteBox(askLabel, "#dc3545");   // Red
+        styleQuoteBox(lastLabel, "#28a745");  // Green
+
+        GridPane quoteGrid = new GridPane();
+        quoteGrid.setHgap(20);
+        quoteGrid.setVgap(10);
+        quoteGrid.setPadding(new Insets(15, 0, 15, 0));
+        quoteGrid.setAlignment(Pos.CENTER_LEFT);
+
+        quoteGrid.add(bidLabel, 0, 0);
+        quoteGrid.add(askLabel, 1, 0);
+        quoteGrid.add(lastLabel, 2, 0);
+
+        // === Select Market Button ===
+        selectMarketButton.setOnAction(e -> {
+            if (onSelectMarket != null) onSelectMarket.run();
+        });
+
+        getChildren().addAll(titleBar, selectMarketButton, quoteGrid);
+    }
+
+    private void styleQuoteBox(Label label, String colorHex) {
+        label.setStyle("-fx-border-color: #ccc; -fx-border-radius: 6; -fx-background-radius: 6;" +
+                "-fx-background-color: white; -fx-padding: 10 15 10 15; -fx-font-size: 16; -fx-text-fill: " + colorHex + ";");
+        label.setMinWidth(140);
+        label.setMaxWidth(140);
+        label.setWrapText(true);
+        label.setAlignment(Pos.CENTER);
+    }
+
+    public void setOnOpenExpiryPicker(Runnable onOpen) {
+        this.onOpenExpiryPicker = onOpen;
+    }
+
+    public void setOnSelectMarket(Runnable onSelect) {
+        this.onSelectMarket = onSelect;
+    }
+
+    public void updateSymbol(String symbol) {
+        Platform.runLater(() -> symbolLabel.setText("(" + symbol + ")"));
+    }
+
+    public void updateBid(String bid) {
+        Platform.runLater(() -> bidLabel.setText("Best Bid\n" + bid));
+    }
+
+    public void updateAsk(String ask) {
+        Platform.runLater(() -> askLabel.setText("Best Offer\n" + ask));
+    }
+
+    public void updateLast(String last) {
+        Platform.runLater(() -> lastLabel.setText("Last Trade\n" + last));
+    }
+
+    public void enableSelectMarket(boolean enable) {
+        Platform.runLater(() -> selectMarketButton.setDisable(!enable));
+    }
+}
+>>>>>>> 0e4f995 (Before changes to main to change naming conventions)
