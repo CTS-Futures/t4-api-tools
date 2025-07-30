@@ -25,3 +25,4 @@ target/
 *.log
 *.tmp.DS_Store
 **/.DS_Store
+config/config.toml
