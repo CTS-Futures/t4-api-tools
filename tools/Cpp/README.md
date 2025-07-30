@@ -105,7 +105,7 @@ Bash
 - Go to: `Extensions → Manage Extensions`.
 - Search for **Qt Visual Studio Tools**.
 - Click **Download**, then restart Visual Studio to complete installation.
-
+- Restart machine in case changes don't fully take effect. 
 Alternatively, download from the marketplace:  
 https://marketplace.visualstudio.com/items?itemName=TheQtCompany.QtVisualStudioTools
 
