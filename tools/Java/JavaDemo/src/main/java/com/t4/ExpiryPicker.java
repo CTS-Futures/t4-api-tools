@@ -11,14 +11,7 @@ import java.net.http.*;
 import java.util.*;
 import java.util.function.Consumer;
 import javafx.geometry.Pos;
-//=======
-//import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
-//>>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
-//=======
-import java.util.function.Consumer;
-import javafx.geometry.Pos;
-//>>>>>>> f41aaf7 (Expriy working, submit orders working)
+
 
 public class ExpiryPicker {
 
@@ -50,6 +43,9 @@ public class ExpiryPicker {
         loadGroups();
     }
 
+
+
+
     private void createDialog() {
     dialogStage = new Stage(StageStyle.UTILITY);
     dialogStage.initModality(Modality.APPLICATION_MODAL);
@@ -57,7 +53,7 @@ public class ExpiryPicker {
 
     VBox root = new VBox(10);
     root.setStyle("-fx-padding: 15; -fx-background-color: #f9f9f9;");
-    
+
     Label header = new Label("Select Expiry");
     header.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
 
@@ -74,7 +70,6 @@ public class ExpiryPicker {
     selectButton.setDisable(true);
     selectButton.setDefaultButton(true);
     selectButton.setStyle("-fx-background-color: #007bff; -fx-text-fill: white;");
-
     selectButton.setOnAction(e -> {
         if (selectedExpiry != null) close(selectedExpiry);
     });
@@ -82,11 +77,10 @@ public class ExpiryPicker {
     Button cancelButton = new Button("Cancel");
     cancelButton.setCancelButton(true);
     cancelButton.setStyle("-fx-border-color: #007bff; -fx-text-fill: #007bff;");
+    cancelButton.setOnAction(e -> close(null));
 
     HBox footer = new HBox(10, cancelButton, selectButton);
     footer.setAlignment(Pos.CENTER_RIGHT);
-
-    cancelButton.setOnAction(e -> close(null));
 
     root.getChildren().addAll(header, loadingIndicator, scrollPane, footer);
 
@@ -95,60 +89,6 @@ public class ExpiryPicker {
     dialogStage.show();
 }
 
-
-//>>>>>>> f41aaf7 (Expriy working, submit orders working)
-    private void createDialog() {
-    dialogStage = new Stage(StageStyle.UTILITY);
-    dialogStage.initModality(Modality.APPLICATION_MODAL);
-    dialogStage.setTitle("Select Expiry");
-
-    VBox root = new VBox(10);
-    root.setStyle("-fx-padding: 15; -fx-background-color: #f9f9f9;");
-    
-    Label header = new Label("Select Expiry");
-    header.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
-
-    groupsList = new VBox(10);
-    ScrollPane scrollPane = new ScrollPane(groupsList);
-    scrollPane.setFitToWidth(true);
-    scrollPane.setPrefHeight(400);
-    scrollPane.setStyle("-fx-background: white; -fx-border-color: #ccc;");
-
-    loadingIndicator = new ProgressIndicator();
-    loadingIndicator.setVisible(false);
-
-    selectButton = new Button("Select");
-    selectButton.setDisable(true);
-    selectButton.setDefaultButton(true);
-    selectButton.setStyle("-fx-background-color: #007bff; -fx-text-fill: white;");
-
-    selectButton.setOnAction(e -> {
-        if (selectedExpiry != null) close(selectedExpiry);
-    });
-
-    Button cancelButton = new Button("Cancel");
-    cancelButton.setCancelButton(true);
-    cancelButton.setStyle("-fx-border-color: #007bff; -fx-text-fill: #007bff;");
-
-
-        Scene scene = new Scene(root, 400, 500);
-        dialogStage.setScene(scene);
-        dialogStage.show();
-    }
-//>>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
-
-    HBox footer = new HBox(10, cancelButton, selectButton);
-    footer.setAlignment(Pos.CENTER_RIGHT);
-
-    cancelButton.setOnAction(e -> close(null));
-
-    root.getChildren().addAll(header, loadingIndicator, scrollPane, footer);
-
-    Scene scene = new Scene(root, 420, 500);
-    dialogStage.setScene(scene);
-    dialogStage.show();
-}
-//>>>>>>> f41aaf7 (Expriy working, submit orders working)
 
     private void loadGroups() {
         showLoading(true);
@@ -201,53 +141,6 @@ public class ExpiryPicker {
 }
 
 
-    private void toggleGroup(JSONObject group, VBox groupBox) {
-    String strategyType = group.getString("strategyType");
-    String expiryDate = group.optString("expiryDate", "");
-
-    boolean wasExpanded = expandedGroups.contains(strategyType);
-    expandedGroups.remove(strategyType);
-    groupsList.getChildren().remove(groupBox);
-
-    if (!wasExpanded) {
-        expandedGroups.add(strategyType);
-    }
-
-    renderGroups(groupsCache.get("root"));
-    }
-
-
-
-//>>>>>>> f41aaf7 (Expriy working, submit orders working)
-    private void renderGroups(JSONArray groups) {
-    groupsList.getChildren().clear();
-
-    for (int i = 0; i < groups.length(); i++) {
-        JSONObject group = groups.getJSONObject(i);
-        String strategyType = group.getString("strategyType");
-        String expiryDate = group.optString("expiryDate", "");
-
-        boolean isExpanded = expandedGroups.contains(strategyType);
-        VBox groupBox = new VBox(5);
-        groupBox.setStyle("-fx-padding: 5 0 0 0;");
-
-        Label groupHeader = new Label((isExpanded ? "▼ " : "▶ ") + getStrategyTypeDisplayName(strategyType));
-        groupHeader.setStyle("-fx-font-weight: bold; -fx-cursor: hand; -fx-padding: 5 0 5 0;");
-        groupHeader.setOnMouseClicked(e -> {
-            toggleGroup(group, groupBox);
-        });
-
-        groupBox.getChildren().add(groupHeader);
-
-        if (isExpanded) {
-            loadAndRenderMarkets(strategyType, expiryDate, groupBox);
-        }
-
-        groupsList.getChildren().add(groupBox);
-    }
-
-
-//>>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
 
     private void toggleGroup(JSONObject group, VBox groupBox) {
     String strategyType = group.getString("strategyType");

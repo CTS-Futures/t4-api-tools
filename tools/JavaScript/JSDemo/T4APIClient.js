@@ -8,38 +8,17 @@ class T4APIClient {
         this.config = {
             wsUrl: T4_CONFIG.wsUrl,
             apiUrl: T4_CONFIG.apiUrl,
-<<<<<<< HEAD
-<<<<<<< HEAD
             apiKey: T4_CONFIG.apiKey,
-=======
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-            apiKey: T4_CONFIG.apiKey,
->>>>>>> 424fd3c (Cleanup and improvement.)
             firm: T4_CONFIG.firm,
             userName: T4_CONFIG.userName,
             password: T4_CONFIG.password,
             appName: T4_CONFIG.appName,
             appLicense: T4_CONFIG.appLicense,
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> f06ebb3 (Added price format to the login message.)
             priceFormat: T4_CONFIG.priceFormat,
             heartbeatIntervalMs: 20000,
             messageTimeoutMs: 60000,
             mdExchangeId: T4_CONFIG.mdExchangeId,
             mdContractId: T4_CONFIG.mdContractId
-=======
-            heartbeatIntervalMs: 20000,
-<<<<<<< HEAD
-            messageTimeoutMs: 60000
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-            messageTimeoutMs: 60000,
-            mdExchangeId: T4_CONFIG.mdExchangeId,
-            mdContractId: T4_CONFIG.mdContractId
->>>>>>> 424fd3c (Cleanup and improvement.)
         };
 
         // Connection state
@@ -56,15 +35,7 @@ class T4APIClient {
 
         // Market data
         this.marketSnapshots = new Map();
-<<<<<<< HEAD
-<<<<<<< HEAD
         this.currentSubscription = null;
-=======
-        this.marketSubscriptions = new Set();
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-        this.currentSubscription = null;
->>>>>>> 3f5c049 (Added a contract picker.)
         this.marketDetails = new Map();
         this.currentMarketId = null;
 
@@ -99,19 +70,7 @@ class T4APIClient {
         if (this.isConnected) return;
 
         try {
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-            //where does connections status change?
->>>>>>> aa901d6 (Changed config and starting APIClient in Java)
             this.log(`Connecting to WebSocket (${this.config.wsUrl}) ...`, 'info');
-=======
-            this.log('Connecting to WebSocket...', 'info');
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-            this.log(`Connecting to WebSocket (${this.config.wsUrl}) ...`, 'info');
->>>>>>> 424fd3c (Cleanup and improvement.)
 
             this.ws = new WebSocket(this.config.wsUrl);
             this.ws.binaryType = 'arraybuffer';
@@ -144,19 +103,10 @@ class T4APIClient {
         this.log('Disconnected', 'info');
     }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 3f5c049 (Added a contract picker.)
     async getAuthTokenForAPI() {
         return await this.getAuthToken();
     }
 
-<<<<<<< HEAD
-=======
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
->>>>>>> 3f5c049 (Added a contract picker.)
     async subscribeAccount(accountId) {
         if (this.selectedAccount === accountId) return;
 
@@ -166,12 +116,8 @@ class T4APIClient {
                 accountSubscribe: {
                     subscribe: 0, // ACCOUNT_SUBSCRIBE_TYPE_NONE
                     subscribeAllAccounts: false,
-<<<<<<< HEAD
                     accountId: [this.selectedAccount],
                     uplMode: 0
-=======
-                    accountId: [this.selectedAccount]
->>>>>>> 462b3ae (Creating a JavaScript example.)
                 }
             });
         }
@@ -183,12 +129,8 @@ class T4APIClient {
                 accountSubscribe: {
                     subscribe: 2, // ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES
                     subscribeAllAccounts: false,
-<<<<<<< HEAD
                     accountId: [accountId],
                     uplMode: 1
-=======
-                    accountId: [accountId]
->>>>>>> 462b3ae (Creating a JavaScript example.)
                 }
             });
             this.log(`Subscribed to account: ${accountId}`, 'info');
@@ -197,8 +139,6 @@ class T4APIClient {
 
     async subscribeMarket(exchangeId, contractId, marketId) {
         const key = `${exchangeId}_${contractId}_${marketId}`;
-<<<<<<< HEAD
-<<<<<<< HEAD
 
         // Unsubscribe from existing market subscriptions first
         if (this.currentSubscription) {
@@ -219,44 +159,13 @@ class T4APIClient {
 
         this.currentSubscription = {exchangeId, contractId, marketId};
         this.currentMarketId = marketId;
-=======
-        if (this.marketSubscriptions.has(key)) return;
-
-        this.marketSubscriptions.add(key);
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-
-        // Unsubscribe from existing market subscriptions first
-        if (this.currentSubscription) {
-            await this.sendMessage({
-                marketDepthSubscribe: {
-                    exchangeId: this.currentSubscription.exchangeId,
-                    contractId: this.currentSubscription.contractId,
-                    marketId: this.currentSubscription.marketId,
-                    buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
-                    depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_UNDEFINED
-                }
-            });
-
-            this.log(`Unsubscribed from market: ${this.currentSubscription.marketId}`, 'info');
-
-            this.currentSubscription = null;
-        }
-
-        this.currentSubscription = {exchangeId, contractId, marketId};
-        this.currentMarketId = marketId;
->>>>>>> 3f5c049 (Added a contract picker.)
 
         await this.sendMessage({
             marketDepthSubscribe: {
                 exchangeId,
                 contractId,
                 marketId,
-<<<<<<< HEAD
                 buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART_TRADE,
-=======
-                buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART,
->>>>>>> 462b3ae (Creating a JavaScript example.)
                 depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_BEST_ONLY
             }
         });
@@ -264,12 +173,6 @@ class T4APIClient {
         this.log(`Subscribed to market: ${marketId}`, 'info');
     }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-    async submitOrder(side, volume, price) {
-=======
     // WebSocket Event Handlers
     handleOpen() {
         this.log('WebSocket connected', 'info');
@@ -277,12 +180,7 @@ class T4APIClient {
         this.startHeartbeat();
     }
 
-<<<<<<< HEAD
-    async submitOrder(side, volume, price, priceType = 'limit', takeProfit = null, stopLoss = null) {
->>>>>>> a97112a (Added support for market and bracket orders.)
-=======
     async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null) {
->>>>>>> 949f816 (Added support for market and bracket orders.)
         if (!this.selectedAccount || !this.currentMarketId) {
             throw new Error('No account or market selected');
         }
@@ -433,197 +331,6 @@ class T4APIClient {
         this.log(`Order revised: ${orderId} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
     }
 
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
->>>>>>> 3f5c049 (Added a contract picker.)
-    // WebSocket Event Handlers
-    handleOpen() {
-        this.log('WebSocket connected', 'info');
-        this.authenticate();
-        this.startHeartbeat();
-    }
-
-<<<<<<< HEAD
-<<<<<<< HEAD
-    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null) {
-=======
-    async submitOrder(side, volume, price) {
->>>>>>> f448971 (Added missing method.)
-        if (!this.selectedAccount || !this.currentMarketId) {
-            throw new Error('No account or market selected');
-        }
-
-<<<<<<< HEAD
-        const marketDetails = this.getMarketDetails(this.currentMarketId);
-
-        // Convert string price type to enum value
-        const priceTypeValue = priceType.toLowerCase() === 'market'
-            ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET  // 0
-            : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;  // 1
-
-        // Convert buy/sell string to enum value
-        const buySellValue = typeof side === 'string'
-            ? (side.toLowerCase() === 'buy'
-                ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY    // 1
-                : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL)  // -1
-            : side;
-
-        // Determine if we need OCO order linking
-        const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
-        const orderLinkValue = hasBracketOrders
-            ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO  // 2
-            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;     // 0
-
-        // Create orders array with main order first
-        const orders = [{
-            buySell: buySellValue,
-            priceType: priceTypeValue,
-            timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
-            volume: volume,
-            // Only set limit price if it's a limit order
-            limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
-                ? { value: price.toString() }
-                : null
-        }];
-
-        // For bracket orders, we need to use the opposite side
-        const protectionSide = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY
-            ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL
-            : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY;
-
-        // Add take profit order if specified
-        if (takeProfitDollars !== null) {
-
-            const takeProfitPoints = takeProfitDollars / marketDetails.pointValue.value;
-            const takeProfitPrice = takeProfitPoints * marketDetails.minPriceIncrement.value;
-
-            orders.push({
-                buySell: protectionSide,
-                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT, // Always limit for take profit
-                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
-                volume: 0, // Volume should be 0 for bracket orders
-                limitPrice: { value: takeProfitPrice.toString() },
-                // Hold activation means order is not active until parent order is filled
-                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
-            });
-        }
-
-        // Add stop loss order if specified
-        if (stopLossDollars !== null) {
-
-            const stopLossPoints = stopLossDollars / marketDetails.pointValue.value;
-            const stopLossPrice = stopLossPoints * marketDetails.minPriceIncrement.value;
-
-            orders.push({
-                buySell: protectionSide,
-                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
-                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
-                volume: 0, // Volume should be 0 for bracket orders
-                stopPrice: { value: stopLossPrice.toString() },
-                // Hold activation means order is not active until parent order is filled
-                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
-            });
-        }
-
-        // Create the order submit message
-=======
->>>>>>> f448971 (Added missing method.)
-        const orderSubmit = {
-            orderSubmit: {
-                accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
-<<<<<<< HEAD
-                orderLink: orderLinkValue,
-                manualOrderIndicator: true,
-                orders: orders
-            }
-        };
-
-        // Send the order
-        await this.sendMessage(orderSubmit);
-
-        // Log order details
-        const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
-        const priceText = priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET ? 'Market' : price;
-
-        this.log(`Order submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType})`, 'info');
-
-        if (takeProfitDollars !== null) {
-            this.log(`Take profit: $${takeProfitDollars} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
-        }
-
-        if (stopLossDollars !== null) {
-            this.log(`Stop loss: $${stopLossDollars} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
-        }
-
-        if (hasBracketOrders) {
-            this.log(`OCO (One Cancels Other) bracket order applied`, 'info');
-        }
-    }
-
-    async pullOrder(orderId) {
-        if (!this.selectedAccount) {
-            throw new Error('No account selected');
-        }
-
-        const orderPull = {
-            orderPull: {
-                accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
-                manualOrderIndicator: true,
-                pulls: [{
-                    uniqueId: orderId
-                }]
-            }
-        };
-
-        await this.sendMessage(orderPull);
-        this.log(`Order cancelled: ${orderId}`, 'info');
-    }
-
-    async reviseOrder(orderId, volume, price, priceType = 'limit') {
-        if (!this.selectedAccount) {
-            throw new Error('No account selected');
-        }
-
-        const orderRevise = {
-            orderRevise: {
-                accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
-                manualOrderIndicator: true,
-                revisions: [{
-                    uniqueId: orderId,
-                    volume: volume,
-                    limitPrice: priceType === 'limit' ? { value: price.toString() } : null
-=======
-                orderLink: 0, // ORDER_LINK_NONE
-                manualOrderIndicator: true,
-                orders: [{
-                    buySell: side, // 1 for BUY_SELL_BUY, -1 for BUY_SELL_SELL
-                    priceType: 1, // PRICE_TYPE_LIMIT
-                    timeType: 0, // TIME_TYPE_NORMAL
-                    volume: volume,
-                    limitPrice: {
-                        value: price.toString()
-                    }
->>>>>>> f448971 (Added missing method.)
-                }]
-            }
-        };
-
-<<<<<<< HEAD
-        await this.sendMessage(orderRevise);
-        this.log(`Order revised: ${orderId} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
-    }
-
-=======
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-        await this.sendMessage(orderSubmit);
-        this.log(`Order submitted: ${side === 1 ? 'Buy' : 'Sell'} ${volume} @ ${price}`, 'info');
-    }
-
->>>>>>> f448971 (Added missing method.)
     handleMessage(event) {
         this.lastMessageReceived = Date.now();
 
@@ -638,14 +345,10 @@ class T4APIClient {
             const messageType = Object.keys(message)[0];
             var shouldLog = !excludeFromLogging.includes(messageType);
 
-<<<<<<< HEAD
             // TEMP: Disable message logging.
             shouldLog = false;
 
             // Log message received.
-=======
-            shouldLog = false;
->>>>>>> 462b3ae (Creating a JavaScript example.)
             if (shouldLog) {
                 this.log(`RECEIVED: ${JSON.stringify(message, null, 2)}`, 'received');
             }
@@ -689,31 +392,14 @@ class T4APIClient {
     async authenticate() {
         const loginRequest = {
             loginRequest: this.config.apiKey ?
-<<<<<<< HEAD
-<<<<<<< HEAD
                 {apiKey: this.config.apiKey} :
-=======
-                { apiKey: this.config.apiKey } :
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-                {apiKey: this.config.apiKey} :
->>>>>>> 3f5c049 (Added a contract picker.)
                 {
                     firm: this.config.firm,
                     username: this.config.userName,
                     password: this.config.password,
                     appName: this.config.appName,
-<<<<<<< HEAD
-<<<<<<< HEAD
                     appLicense: this.config.appLicense,
                     priceFormat: this.config.priceFormat,
-=======
-                    appLicense: this.config.appLicense
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-                    appLicense: this.config.appLicense,
-                    priceFormat: this.config.priceFormat,
->>>>>>> f06ebb3 (Added price format to the login message.)
                 }
         };
 
@@ -726,36 +412,22 @@ class T4APIClient {
             this.handleLoginResponse(message.loginResponse);
         } else if (message.authenticationToken) {
             this.handleAuthenticationToken(message.authenticationToken);
-<<<<<<< HEAD
-<<<<<<< HEAD
         } else if (message.accountSubscribeResponse) {
             this.handleAccountSubscribeResponse(message.accountSubscribeResponse);
-=======
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-        } else if (message.accountSubscribeResponse) {
-            this.handleAccountSubscribeResponse(message.accountSubscribeResponse);
->>>>>>> 424fd3c (Cleanup and improvement.)
         } else if (message.accountDetails) {
             this.handleAccountDetails(message.accountDetails);
         } else if (message.accountPosition) {
             this.handleAccountPosition(message.accountPosition);
-<<<<<<< HEAD
         } else if (message.accountProfit) {
             this.handleAccountProfit(message.accountProfit);
         }else if (message.accountPositionProfit) {
             this.handleAccountPositionProfit(message.accountPositionProfit);
-=======
->>>>>>> 462b3ae (Creating a JavaScript example.)
         } else if (message.accountUpdate) {
             this.handleAccountUpdate(message.accountUpdate);
         } else if (message.marketDepth) {
             this.handleMarketDepth(message.marketDepth);
-<<<<<<< HEAD
         } else if (message.marketDepthTrade) {
             this.handleMarketDepthTrade(message.marketDepthTrade);
-=======
->>>>>>> 462b3ae (Creating a JavaScript example.)
         } else if (message.orderUpdate) {
             this.handleOrderUpdate(message.orderUpdate);
         } else if (message.accountSnapshot) {
@@ -852,15 +524,7 @@ class T4APIClient {
 
         // Resolve pending token request
         if (this.tokenResolvers && token.requestId && this.tokenResolvers.has(token.requestId)) {
-<<<<<<< HEAD
-<<<<<<< HEAD
             const {resolve} = this.tokenResolvers.get(token.requestId);
-=======
-            const { resolve } = this.tokenResolvers.get(token.requestId);
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-            const {resolve} = this.tokenResolvers.get(token.requestId);
->>>>>>> 3f5c049 (Added a contract picker.)
             this.tokenResolvers.delete(token.requestId);
             resolve(token.token);
         }
@@ -868,10 +532,6 @@ class T4APIClient {
         this.log('Authentication token received', 'info');
     }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 424fd3c (Cleanup and improvement.)
     handleAccountSubscribeResponse(response) {
         if (response.success) {
             this.log('Account subscribe: Success', 'info');
@@ -880,11 +540,6 @@ class T4APIClient {
         }
     }
 
-<<<<<<< HEAD
-=======
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
->>>>>>> 424fd3c (Cleanup and improvement.)
     handleAccountDetails(details) {
         this.log(`Account details received: ${details.accountId}`, 'info');
     }
@@ -902,7 +557,6 @@ class T4APIClient {
         }
     }
 
-<<<<<<< HEAD
     handleAccountProfit(accountProfit) {
         // Display the account profit, if wanted.
     }
@@ -962,8 +616,6 @@ class T4APIClient {
         }
     }
 
-=======
->>>>>>> 462b3ae (Creating a JavaScript example.)
     handleAccountUpdate(update) {
         // TODO: Display account information (balance, p&l, etc.)
         //this.log(`Account update received: ${update.accountId}`, 'info');
@@ -990,14 +642,11 @@ class T4APIClient {
         }
     }
 
-<<<<<<< HEAD
 
     handleMarketDepthTrade(trade) {
         this.log(`Market Trade: ${trade.marketId} : ${trade.lastTradeVolume} @ ${trade.lastTradePrice.value}, TTV: ${trade.totalTradedVolume}`, 'info');
     }
 
-=======
->>>>>>> 462b3ae (Creating a JavaScript example.)
     updateMarketHeader(contractId, expiryDate) {
         // Extract first 6 digits from expiryDate (YYYYMM format)
         const expiryShort = expiryDate ? expiryDate.toString().substring(0, 6) : '';
@@ -1020,22 +669,10 @@ class T4APIClient {
             displayText += monthCode + year;
         }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 3f5c049 (Added a contract picker.)
         // Update just the contract link span
         const contractLink = document.querySelector('.market-contract-link');
         if (contractLink) {
             contractLink.textContent = displayText;
-<<<<<<< HEAD
-=======
-        // Update the UI header
-        if (this.onMarketHeaderUpdate) {
-            this.onMarketHeaderUpdate(displayText);
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
->>>>>>> 3f5c049 (Added a contract picker.)
         }
     }
 
@@ -1179,7 +816,6 @@ class T4APIClient {
 
     handleOrderUpdateTrade(tradeUpdate) {
         this.log(`Order trade update: ${tradeUpdate.uniqueId}, exchange trade: ${tradeUpdate.exchangeTradeId}`, 'info');
-<<<<<<< HEAD
 
         // Get existing order or create a minimal one
         let existingOrder = this.orders.get(tradeUpdate.uniqueId);
@@ -1246,10 +882,6 @@ class T4APIClient {
 
         this.orders.set(tradeUpdate.uniqueId, updatedOrder);
         this.triggerOrdersUpdate();
-=======
-        //this.orders.set(tradeUpdate.uniqueId, tradeUpdate);
-        //this.triggerOrdersUpdate();
->>>>>>> 462b3ae (Creating a JavaScript example.)
     }
 
     handleOrderUpdateTradeLeg(tradeLegUpdate) {
@@ -1315,15 +947,7 @@ class T4APIClient {
 
         try {
             // Wrap the message in ClientMessage envelope
-<<<<<<< HEAD
-<<<<<<< HEAD
             const clientMessage = T4Proto.ClientMessageHelper.createClientMessage(messagePayload);
-=======
-            const clientMessage = this.createClientMessage(messagePayload);
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-            const clientMessage = T4Proto.ClientMessageHelper.createClientMessage(messagePayload);
->>>>>>> a97112a (Added support for market and bracket orders.)
             const encoded = this.encodeMessage(clientMessage);
             this.ws.send(encoded);
 
@@ -1339,37 +963,6 @@ class T4APIClient {
         }
     }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-    // Create ClientMessage wrapper (equivalent to ClientMessageHelper.CreateClientMessage)
-    createClientMessage(messagePayload) {
-
-        // TODO: Get rid of this.
-
-        const clientMessage = {payload: {}};
-
-        // Map message types to ClientMessage fields
-        if (messagePayload.heartbeat) {
-            clientMessage.heartbeat = messagePayload.heartbeat;
-        } else if (messagePayload.loginRequest) {
-            clientMessage.loginRequest = messagePayload.loginRequest;
-        } else if (messagePayload.marketDepthSubscribe) {
-            clientMessage.marketDepthSubscribe = messagePayload.marketDepthSubscribe;
-        } else if (messagePayload.accountSubscribe) {
-            clientMessage.accountSubscribe = messagePayload.accountSubscribe;
-        } else if (messagePayload.orderSubmit) {
-            clientMessage.orderSubmit = messagePayload.orderSubmit;
-        } else {
-            throw new Error(`Unsupported message type: ${Object.keys(messagePayload)[0]}`);
-        }
-
-        return clientMessage;
-    }
-
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
->>>>>>> a97112a (Added support for market and bracket orders.)
     // Heartbeat Management
     startHeartbeat() {
         if (this.heartbeatTimer) {
@@ -1446,8 +1039,6 @@ class T4APIClient {
 
     // Market Data API
     async getMarketId(exchangeId, contractId) {
-<<<<<<< HEAD
-<<<<<<< HEAD
         try {
             const headers = {'Content-Type': 'application/json'};
 
@@ -1478,74 +1069,6 @@ class T4APIClient {
             this.log(`Error getting market ID: ${error.message}`, 'error');
             throw error;
         }
-=======
-        // try {
-        //     const headers = { 'Content-Type': 'application/json' };
-        //
-        //     if (this.config.apiKey) {
-        //         headers['Authorization'] = `APIKey ${this.config.apiKey}`;
-        //     } else {
-        //         const token = await this.getAuthToken();
-        //         if (token) {
-        //             headers['Authorization'] = `Bearer ${token}`;
-        //         }
-        //     }
-        //
-        //     const response = await fetch(
-        //         `${this.config.apiUrl}/markets/picker/firstmarket?exchangeid=${exchangeId}&contractid=${contractId}`,
-        //         { headers }
-        //     );
-        //
-        //     if (!response.ok) {
-        //         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        //     }
-        //
-        //     const data = await response.json();
-        //     this.currentMarketId = data.marketID;
-        //     this.log(`Market ID retrieved: ${data.marketID}`, 'info');
-        //     return data;
-        //
-        // } catch (error) {
-        //     this.log(`Error getting market ID: ${error.message}`, 'error');
-        //     throw error;
-        // }
-
-        // TODO: Temp
-        this.currentMarketId = "XCME_Eq ES (M25)";
-        return this.currentMarketId;
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-        try {
-            const headers = {'Content-Type': 'application/json'};
-
-            if (this.config.apiKey) {
-                headers['Authorization'] = `APIKey ${this.config.apiKey}`;
-            } else {
-                const token = await this.getAuthToken();
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-            }
-
-            const response = await fetch(
-                `${this.config.apiUrl}/markets/picker/firstmarket?exchangeid=${exchangeId}&contractid=${contractId}`,
-                {headers}
-            );
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const data = await response.json();
-            this.currentMarketId = data.marketID;
-            this.log(`Market ID retrieved: ${data.marketID}`, 'info');
-            return data;
-
-        } catch (error) {
-            this.log(`Error getting market ID: ${error.message}`, 'error');
-            throw error;
-        }
->>>>>>> 424fd3c (Cleanup and improvement.)
     }
 
     // Utility Methods
@@ -1618,15 +1141,7 @@ class T4APIClient {
         // Wait for response (handled in processServerMessage)
         return new Promise((resolve, reject) => {
             this.tokenResolvers = this.tokenResolvers || new Map();
-<<<<<<< HEAD
-<<<<<<< HEAD
             this.tokenResolvers.set(requestId, {resolve, reject});
-=======
-            this.tokenResolvers.set(requestId, { resolve, reject });
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-            this.tokenResolvers.set(requestId, {resolve, reject});
->>>>>>> 3f5c049 (Added a contract picker.)
 
             // Timeout after 30 seconds
             setTimeout(() => {
@@ -1641,15 +1156,7 @@ class T4APIClient {
     generateUUID() {
 
         // *** TODO: Replace this. We don't need a UUID and can be simple for the demo app. ***
-<<<<<<< HEAD
-<<<<<<< HEAD
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-=======
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
->>>>>>> 3f5c049 (Added a contract picker.)
             const r = Math.random() * 16 | 0;
             const v = c == 'x' ? r : (r & 0x3 | 0x8);
             return v.toString(16);

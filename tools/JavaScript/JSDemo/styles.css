@@ -161,10 +161,7 @@ th {
     max-height: 500px;
 }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 449d1f1 (Added expiry picker.)
+
 .market-header-container {
     display: flex;
     justify-content: space-between;
@@ -398,27 +395,9 @@ th {
     color: #ccc;
     background: none;
     opacity: 0.6;
-<<<<<<< HEAD
-}
-
-/* P&L color coding */
-.positive-pnl {
-    color: green;
-}
-
-.negative-pnl {
-    color: red;
-}
-
-.neutral-pnl {
-    color: black;
-}
-=======
 .log-sent { color: #00ff00; }
 .log-received { color: #ffff00; }
 .log-error { color: #ff0000; }
 .log-info { color: #00ffff; }
->>>>>>> 462b3ae (Creating a JavaScript example.)
-=======
 }
->>>>>>> a97112a (Added support for market and bracket orders.)
+

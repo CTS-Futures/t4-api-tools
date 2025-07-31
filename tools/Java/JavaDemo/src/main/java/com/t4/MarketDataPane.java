@@ -1,7 +1,4 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
+
 /* package com.t4;
 
 import javafx.application.Platform;
@@ -114,15 +111,6 @@ public class MarketDataPane extends VBox {
 } */
 
 
-=======
->>>>>>> e7263a4 (Started on Market pane)
-package com.t4;
-
-import javafx.application.Platform;
-import javafx.geometry.Insets;
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
 /* package com.t4;
 
 import javafx.application.Platform;
@@ -475,9 +463,8 @@ public class MarketDataPane extends VBox {
 >>>>>>> 5b236e0 (Working on UI)
 =======
  */
-=======
 
->>>>>>> f41aaf7 (Expriy working, submit orders working)
+//>>>>>>> f41aaf7 (Expriy working, submit orders working)
 
  /* package com.t4;
 
@@ -586,8 +573,6 @@ public class MarketDataPane extends VBox {
 =======
  */
 
- package com.t4;
-=======
 /* package com.t4;
 >>>>>>> b4682bd (Comitting to access changes)
 
@@ -836,4 +821,5 @@ public class MarketDataPane extends VBox {
         Platform.runLater(() -> selectMarketButton.setDisable(!enable));
     }
 }
->>>>>>> b4682bd (Comitting to access changes)
+
+
