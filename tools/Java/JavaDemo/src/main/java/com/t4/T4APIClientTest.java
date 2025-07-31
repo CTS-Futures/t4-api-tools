@@ -590,7 +590,7 @@ public void waitForAuthToken(Runnable callback){
 
             MarketDetails details = getMarketDetails(snapshot.getMarketId());
             if (details != null && details.getContractId() != null && details.getExpiryDate() > 0) {
-               updateMarketHeader(details.getContractId(), details.getExpiryDate());
+               marketDataP.setMarketName(details.getContractId(), details.getExpiryDate());
             }
          
          }
@@ -600,7 +600,7 @@ public void waitForAuthToken(Runnable callback){
        System.out.printf("Market Snapshot [%s] | Bid: %s | Ask: %s | Last: %s%n", symbol, bid, ask, last);
 
        if (marketDataP != null) {
-         marketDataP.updateSymbol(symbol);
+         marketDataP.setMarketName(symbol, 0); // Assuming 0 means no expiry date
          marketDataP.updateBid(bid);
          marketDataP.updateAsk(ask);
          marketDataP.updateLast(last);
@@ -670,11 +670,10 @@ public void waitForAuthToken(Runnable callback){
 
          MarketDetails details = getMarketDetails(depth.getMarketId());
          if (details != null && details.getContractId() != null && details.getExpiryDate() > 0) {
-            updateMarketHeader(details.getContractId(), details.getExpiryDate());
+            marketDataP.setMarketName(details.getContractId(), details.getExpiryDate());
          }
 
          if (marketDataP != null) {
-            marketDataP.updateSymbol(symbol);
             marketDataP.updateBid(bid);
             marketDataP.updateAsk(ask);
             marketDataP.updateLast(last);
@@ -701,29 +700,6 @@ public void waitForAuthToken(Runnable callback){
       public boolean hasMarketDetails(String marketId) {
          return marketDetailsMap.containsKey(marketId);
       }  
-
-      public void updateMarketHeader(String contractId, int expiryDate) {
-         String expiryStr = String.valueOf(expiryDate);
-         if (expiryStr.length() < 6) {
-            return;
-         } 
-
-         String year = expiryStr.substring(2, 4);
-         String month = expiryStr.substring(4, 6);
-
-         Map<String, String> monthCodes = new HashMap<>();
-         monthCodes.put("01", "F"); monthCodes.put("02", "G"); monthCodes.put("03", "H");
-         monthCodes.put("04", "J"); monthCodes.put("05", "K"); monthCodes.put("06", "M");
-         monthCodes.put("07", "N"); monthCodes.put("08", "Q"); monthCodes.put("09", "U");
-         monthCodes.put("10", "V"); monthCodes.put("11", "X"); monthCodes.put("12", "Z");
-
-         String monthCode = monthCodes.getOrDefault(month, month);
-         String formatted = contractId + monthCode + year;
-
-         // Assuming a UI method (you can replace this with actual UI label logic)
-         System.out.println("Updated header: " + formatted);
-      }
-
 
       public String fetchMarketIdFromApi(String exchangeId, String contractId) throws IOException {
         String endpoint = String.format(
