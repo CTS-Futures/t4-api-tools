@@ -9,18 +9,16 @@ import org.json.*;
 import java.net.URI;
 import java.net.http.*;
 import java.util.*;
-<<<<<<< HEAD
-<<<<<<< HEAD
 import java.util.function.Consumer;
 import javafx.geometry.Pos;
-=======
+//=======
 //import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
->>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
-=======
+//>>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
+//=======
 import java.util.function.Consumer;
 import javafx.geometry.Pos;
->>>>>>> f41aaf7 (Expriy working, submit orders working)
+//>>>>>>> f41aaf7 (Expriy working, submit orders working)
 
 public class ExpiryPicker {
 
@@ -52,9 +50,6 @@ public class ExpiryPicker {
         loadGroups();
     }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-
     private void createDialog() {
     dialogStage = new Stage(StageStyle.UTILITY);
     dialogStage.initModality(Modality.APPLICATION_MODAL);
@@ -99,10 +94,9 @@ public class ExpiryPicker {
     dialogStage.setScene(scene);
     dialogStage.show();
 }
-=======
-=======
 
->>>>>>> f41aaf7 (Expriy working, submit orders working)
+
+//>>>>>>> f41aaf7 (Expriy working, submit orders working)
     private void createDialog() {
     dialogStage = new Stage(StageStyle.UTILITY);
     dialogStage.initModality(Modality.APPLICATION_MODAL);
@@ -136,13 +130,13 @@ public class ExpiryPicker {
     cancelButton.setCancelButton(true);
     cancelButton.setStyle("-fx-border-color: #007bff; -fx-text-fill: #007bff;");
 
-<<<<<<< HEAD
+
         Scene scene = new Scene(root, 400, 500);
         dialogStage.setScene(scene);
         dialogStage.show();
     }
->>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
-=======
+//>>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
+
     HBox footer = new HBox(10, cancelButton, selectButton);
     footer.setAlignment(Pos.CENTER_RIGHT);
 
@@ -154,7 +148,7 @@ public class ExpiryPicker {
     dialogStage.setScene(scene);
     dialogStage.show();
 }
->>>>>>> f41aaf7 (Expriy working, submit orders working)
+//>>>>>>> f41aaf7 (Expriy working, submit orders working)
 
     private void loadGroups() {
         showLoading(true);
@@ -176,8 +170,6 @@ public class ExpiryPicker {
                 .whenComplete((r, t) -> Platform.runLater(() -> showLoading(false)));
     }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 
 
     private void renderGroups(JSONArray groups) {
@@ -223,11 +215,10 @@ public class ExpiryPicker {
 
     renderGroups(groupsCache.get("root"));
     }
-=======
-=======
 
 
->>>>>>> f41aaf7 (Expriy working, submit orders working)
+
+//>>>>>>> f41aaf7 (Expriy working, submit orders working)
     private void renderGroups(JSONArray groups) {
     groupsList.getChildren().clear();
 
@@ -255,9 +246,8 @@ public class ExpiryPicker {
         groupsList.getChildren().add(groupBox);
     }
 
-<<<<<<< HEAD
->>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
-=======
+
+//>>>>>>> a3d168a (Expiry Piacker and fixing Account subscribe)
 
     private void toggleGroup(JSONObject group, VBox groupBox) {
     String strategyType = group.getString("strategyType");
@@ -273,7 +263,7 @@ public class ExpiryPicker {
 
     renderGroups(groupsCache.get("root"));
     }
->>>>>>> f41aaf7 (Expriy working, submit orders working)
+//>>>>>>> f41aaf7 (Expriy working, submit orders working)
     private void loadAndRenderMarkets(String strategyType, String expiryDate, VBox parentBox) {
         String cacheKey = strategyType + "_" + (expiryDate.isEmpty() ? "none" : expiryDate);
         if (marketsCache.containsKey(cacheKey)) {

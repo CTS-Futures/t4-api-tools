@@ -70,7 +70,6 @@ message ServerMessage {
         t4proto.v1.orderrouting.OrderUpdateTradeLeg order_update_trade_leg = 305;
 
         t4proto.v1.orderrouting.CreateUDSResponse create_uds_response = 340;
-
     }
 }
 
