@@ -13,6 +13,9 @@ use tokio::task;
 use crate::clientMessageHelper::{ClientPayload, create_client_message};
 use crate::client::t4proto::v1::service::{self, client_message::Payload, Heartbeat};
 use serde::Deserialize;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use std::borrow::Cow;
 pub mod t4proto {
     pub mod v1 {
         pub mod auth {
@@ -60,11 +63,12 @@ pub struct Config {
 pub struct Client {
     config: WebSocketConfig,
     running: bool,
+    write_handle: Option<Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>>>>,
 }
 
 impl Client {
     pub fn new(config: WebSocketConfig) -> Self {
-        Self { config, running: false}
+        Self { config, running: false, write_handle: None }
     }
 
     /// Connect to the WebSocket and return the stream halves
@@ -78,14 +82,13 @@ impl Client {
 
         println!("Connected to WebSocket!");
 
-        let (mut write, mut read) = ws_stream.split();
+        let (write, mut read) = ws_stream.split();
+        let write_arc = Arc::new(Mutex::new(write));
+        self.write_handle = Some(write_arc.clone());
 
-        //ability to make a pointer to write 
-        let write = Arc::new(Mutex::new(write));
-        // Immediately authenticate after connecting
-
-        self.authenticate(write.clone()).await;
-        self.start_heartbeat(write.clone());
+        self.authenticate(write_arc.clone()).await;
+        self.start_heartbeat(write_arc.clone());
+                self.running = true;
         // Listen for server messages (temporary debug)
         tokio::spawn(async move {
             while let Some(msg) = read.next().await {
@@ -107,6 +110,17 @@ impl Client {
         });
     }
 
+    //disconnects from websocket
+    pub async fn disconnect(&mut self) {
+    if let Some(handle) = self.write_handle.take() {
+        let mut w = handle.lock().await;
+        if let Err(e) = w.close().await {
+            println!("Error closing connection: {}", e);
+        }
+    }
+    self.running = false;
+    println!("Disconnected");
+}
     /// Send LoginRequest protobuf wrapped in ClientMessage
     async fn authenticate(
         &self,
