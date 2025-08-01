@@ -1,8 +1,9 @@
 mod gui;
 mod client;
+mod clientMessageHelper;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use prost::Message;
+
 use gui::T4WebTraderDemo;
 
 use client::{Client, Config};

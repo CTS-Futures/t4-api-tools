@@ -44,6 +44,7 @@ impl eframe::App for T4WebTraderDemo {
                                 let mut client = client_clone.lock().await;
                                 client.connect().await;
                             });
+                            self.connection_status = true;
                         }
                         if ui.button("Disconnect").clicked() {
                             self.connection_status = false;
@@ -183,15 +184,3 @@ impl eframe::App for T4WebTraderDemo {
     }
 }
 
-// fn main() -> eframe::Result<()> {
-//     let options = eframe::NativeOptions {
-//         viewport: egui::ViewportBuilder::default().with_inner_size([1200.0, 800.0]),
-//         ..Default::default()
-//     };
-
-//     eframe::run_native(
-//         "T4 WebTrader Demo",
-//         options,
-       
-//     )
-// }

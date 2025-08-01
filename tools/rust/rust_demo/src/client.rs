@@ -1,11 +1,17 @@
 use std::sync::{Arc};
-use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
+use tokio_tungstenite::{
+    tungstenite::protocol::Message as WsMessage,
+    MaybeTlsStream, WebSocketStream,
+};
+use tokio::time::{self, Duration};
 use prost::Message as ProstMessage; // For .encode()
 use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::connect_async;
+use futures_util::stream::SplitSink;
 use tokio::sync::Mutex;
 use tokio::task;
-
+use crate::clientMessageHelper::{ClientPayload, create_client_message};
+use crate::client::t4proto::v1::service::{self, client_message::Payload, Heartbeat};
 use serde::Deserialize;
 pub mod t4proto {
     pub mod v1 {
@@ -74,18 +80,18 @@ impl Client {
 
         let (mut write, mut read) = ws_stream.split();
 
+        //ability to make a pointer to write 
+        let write = Arc::new(Mutex::new(write));
         // Immediately authenticate after connecting
-        self.authenticate(&mut write).await;
 
+        self.authenticate(write.clone()).await;
+        self.start_heartbeat(write.clone());
         // Listen for server messages (temporary debug)
         tokio::spawn(async move {
             while let Some(msg) = read.next().await {
                 match msg {
                     Ok(WsMessage::Binary(bin)) => {
                         println!("Received binary: {} bytes", bin.len());
-                    }
-                    Ok(WsMessage::Text(txt)) => {
-                        println!("Received text: {}", txt);
                     }
                     Ok(WsMessage::Close(_)) => {
                         println!("Server closed connection");
@@ -102,7 +108,10 @@ impl Client {
     }
 
     /// Send LoginRequest protobuf wrapped in ClientMessage
-    async fn authenticate(&self, write: &mut futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>) {
+    async fn authenticate(
+        &self,
+        write: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>>>,
+    ) {
         println!("Authenticating...");
 
         let login_info = t4proto::v1::auth::LoginRequest {
@@ -115,20 +124,46 @@ impl Client {
             price_format: self.config.priceFormat.unwrap_or(0) as i32,
         };
 
-        let client_msg = t4proto::v1::service::ClientMessage {
-            payload: Some(
-                t4proto::v1::service::client_message::Payload::LoginRequest(login_info),
-            ),
-        };
+        let client_msg = create_client_message(ClientPayload::LoginRequest(login_info));
 
         let mut buf = Vec::new();
         client_msg.encode(&mut buf).unwrap();
 
-        write.send(WsMessage::Binary(buf))
+        let mut w = write.lock().await;
+        w.send(WsMessage::Binary(buf))
             .await
             .expect("Failed to send login request");
 
         println!("Login request sent!");
+    }
+
+     fn start_heartbeat(
+        &self,
+        write: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>>>,
+    ) {
+        tokio::spawn(async move {
+            let mut interval = time::interval(Duration::from_secs(20));
+            loop {
+                interval.tick().await;
+
+                let heartbeat_msg = ClientMessage {
+                    payload: Some(Payload::Heartbeat(Heartbeat {
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                    })),
+                };
+
+                let mut buf = Vec::new();
+                heartbeat_msg.encode(&mut buf).unwrap();
+
+                let mut w = write.lock().await;
+                if let Err(e) = w.send(WsMessage::Binary(buf)).await {
+                    println!("Failed to send heartbeat: {}", e);
+                    break;
+                }
+
+                println!("heartbeat sent");
+            }
+        });
     }
 }
 
