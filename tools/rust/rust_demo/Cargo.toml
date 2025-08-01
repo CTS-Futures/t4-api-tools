@@ -9,12 +9,9 @@ eframe = "0.28"
 egui = "0.28"
 # Async runtime
 tokio = { version = "1", features = ["full"] }
-
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] }
 # REST API
 reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate"] }
-
-# WebSockets
-tokio-tungstenite = "0.21"
 
 # Serialization 
 serde = { version = "1.0", features = ["derive"] }
@@ -23,6 +20,8 @@ serde_json = "1.0"
 prost = "0.12"           # Protobuf encoding/decoding
 prost-types = "0.12"     # Common well-known types
 walkdir = "2.5.0"
+toml = "0.8"
+futures-util = "0.3.31"
 
 [build-dependencies]
 prost-build = "0.12"     # Code generator for Rust from proto
