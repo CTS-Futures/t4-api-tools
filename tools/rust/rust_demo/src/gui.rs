@@ -40,19 +40,16 @@ impl eframe::App for T4WebTraderDemo {
 
                         if ui.button("Connect").clicked() {
                             let client_clone = self.client.clone();
-                            tokio::spawn(async move {
-                                let mut client = client_clone.lock().await;
-                                client.connect().await;
-                            });
+                                tokio::spawn(async move {
+                                    Client::connect(client_clone).await;
+                                });
                             self.connection_status = true;
                         }
                         if ui.button("Disconnect").clicked() {
                             let client_clone = self.client.clone();
-                            tokio::spawn(async move {
-                                let mut client = client_clone.lock().await;
-                                // You'll need to store the write handle in the Client struct to pass it here
-                                client.disconnect().await;
-                            });
+                                tokio::spawn(async move {
+                                    Client::disconnect(client_clone).await;
+                                });
                             self.connection_status = false;
                         }
                     });

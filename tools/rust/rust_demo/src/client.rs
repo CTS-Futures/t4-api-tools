@@ -95,57 +95,59 @@ impl Client {
 
     /// Connect to the WebSocket and return the stream halves
     /// Connect to WebSocket and authenticate
-pub async fn connect(&mut self) {
-    println!("Connecting to {}", self.config.url);
+pub async fn connect(client: Arc<Mutex<Client>>) {
+    let mut this = client.lock().await;
+    println!("Connecting to {}", this.config.url);
 
-    let (ws_stream, _) = connect_async(&self.config.url)
+    let (ws_stream, _) = connect_async(&this.config.url)
         .await
         .expect("Failed to connect to WebSocket");
 
     println!("Connected to WebSocket!");
 
-    //splits the webscoket into a write and a read side
     let (write, read) = ws_stream.split();
-
-    //we store the write side to use later
     let write_arc = Arc::new(Mutex::new(write));
-    self.write_handle = Some(write_arc.clone());
+    this.write_handle = Some(write_arc.clone());
 
-    //authentiction and heartbeats
-    self.authenticate(write_arc.clone()).await;
-    self.start_heartbeat(write_arc.clone());
-    self.running = true;
+    this.authenticate(write_arc.clone()).await;
+    this.start_heartbeat(write_arc.clone());
+    this.running = true;
 
-    //spawn a background task to read messages (no self capture)
+    drop(this); // release lock before spawning listen
+
     tokio::spawn(async move {
-        Client::listen(read).await;
+        Client::listen(client.clone(), read).await;
     });
 }
 
 
     //disconnects from websocket
-    pub async fn disconnect(&mut self) {
-        if let Some(handle) = self.write_handle.take() {
-            let mut w = handle.lock().await;
-            if let Err(e) = w.close().await {
-                println!("Error closing connection: {}", e);
-            }
+pub async fn disconnect(client: Arc<Mutex<Client>>) {
+    let mut this = client.lock().await;
+
+    if let Some(handle) = this.write_handle.take() {
+        let mut w = handle.lock().await;
+        if let Err(e) = w.close().await {
+            println!("Error closing connection: {}", e);
         }
-        self.running = false;
-        println!("Disconnected");
     }
+
+    this.running = false;
+    println!("Disconnected");
+}
 
 
  async fn listen(
+    client: Arc<Mutex<Client>>,
     mut read: futures_util::stream::SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>
 ) {
     while let Some(msg) = read.next().await {
         match msg {
             Ok(WsMessage::Binary(bin)) => {
-                println!("Received binary: {} bytes", bin.len());
                 match t4proto::v1::service::ServerMessage::decode(&*bin) {
                     Ok(server_msg) => {
-                        println!("Decoded ServerMessage: {:?}", server_msg);
+                        let mut client = client.lock().await;
+                        client.process_server_message(server_msg).await;
                     }
                     Err(e) => {
                         println!("Failed to decode ServerMessage: {}", e);
