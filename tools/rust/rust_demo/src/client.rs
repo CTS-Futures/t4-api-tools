@@ -9,6 +9,7 @@ use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::connect_async;
 use futures_util::stream::SplitSink;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 use tokio::task;
 use crate::clientMessageHelper::{ClientPayload, create_client_message};
 use crate::client::t4proto::v1::service::{self, client_message::Payload, Heartbeat};
@@ -16,6 +17,11 @@ use serde::Deserialize;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use std::borrow::Cow;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::collections::HashMap;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+use reqwest::Client as HttpClient;
 pub mod t4proto {
     pub mod v1 {
         pub mod auth {
@@ -63,12 +69,27 @@ pub struct Config {
 pub struct Client {
     config: WebSocketConfig,
     running: bool,
-    write_handle: Option<Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>>>>,
+    write_handle: Option<Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>>>>, //allows us to be able to write to the websocket even after connection starts
+
+
+    //token attributes
+    jw_token: Option<String>,
+    jw_expiration: Option<i64>,
+    pending_token_request: Option<JoinHandle<anyhow::Result<String>>>,
+    token_resolvers: HashMap<String, oneshot::Sender<String>>,
 }
 
 impl Client {
     pub fn new(config: WebSocketConfig) -> Self {
-        Self { config, running: false, write_handle: None }
+        Self { 
+            config, 
+            running: false, 
+            write_handle: None,
+            jw_token: None,
+            jw_expiration: None,
+            pending_token_request: None,
+            token_resolvers: HashMap::new(),
+        }
     }
 
     /// Connect to the WebSocket and return the stream halves
@@ -120,7 +141,52 @@ impl Client {
     }
     self.running = false;
     println!("Disconnected");
-}
+    }
+    pub async fn listen(
+        &mut self,
+        mut read: futures_util::stream::SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>
+    ) {
+        tokio::spawn(async move {
+            while let Some(msg) = read.next().await {
+                match msg {
+                    Ok(WsMessage::Binary(bin)) => {
+                        println!("Received binary: {} bytes", bin.len());
+
+                        //TODO: decode protobuf messages
+                        let server_msg = t4proto::v1::service::ServerMessage::decode(&*bin).unwrap();
+                        // self.process_server_message(server_msg).await;
+                    }
+                    Ok(WsMessage::Close(_)) => {
+                        println!("Server closed connection");
+                        break;
+                    }
+                    Err(e) => {
+                        println!("WebSocket error: {}", e);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        });
+    }
+    pub async fn process_server_message(&mut self, bin: Vec<u8>){
+        if let Ok(server_msg) = t4proto::v1::service::ServerMessage::decode(&*bin) {
+            match server_msg.payload {
+                Some(t4proto::v1::service::server_message::Payload::AuthenticationToken(resp)) => {
+                    println!("Got token: {:?}", resp);
+                }
+                Some(t4proto::v1::service::server_message::Payload::LoginResponse(resp)) => {
+                    println!("Got LoginResponse: {:?}", resp);
+                }
+                _ => {
+                    println!("Other server message: {:?}", server_msg);
+                }
+            }
+        } else {
+            println!("Failed to decode server message");
+        }
+    }
+
     /// Send LoginRequest protobuf wrapped in ClientMessage
     async fn authenticate(
         &self,
@@ -179,6 +245,83 @@ impl Client {
             }
         });
     }
+
+    //refreshes token 
+    pub async fn refresh_token(&mut self) -> anyhow::Result<String> {
+
+        //requires a uuid
+        let request_id = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+        self.token_resolvers.insert(request_id.clone(), tx);
+
+        //packs message
+        let token_req = t4proto::v1::auth::AuthenticationTokenRequest {
+            request_id: request_id.clone(),
+        };
+        let client_msg = create_client_message(ClientPayload::AuthenticationTokenRequest(token_req));
+
+        let mut buf = Vec::new();
+        client_msg.encode(&mut buf)?;
+        if let Some(write) = &self.write_handle {
+            let mut w = write.lock().await; //locks for an exclusive write
+            w.send(WsMessage::Binary(buf)).await?; //sends the message
+        }
+
+        //wait for 30seconds for a response
+        let token = tokio::time::timeout(std::time::Duration::from_secs(30), rx).await??;
+        Ok(token)//returns the token
+    }
+
+    pub async fn get_auth_token(&mut self) -> anyhow::Result<String> {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
+
+        // If token exists and is still valid, return it
+        if let (Some(token), Some(exp)) = (&self.jw_token, self.jw_expiration) {
+            if exp > now + 30 {
+                return Ok(token.clone());
+            }
+        }
+
+        // If a request is already pending, wait for it
+        if let Some(handle) = self.pending_token_request.take() {
+            let token = handle.await??;
+            return Ok(token);
+        }
+
+        // No pending request — refresh token directly (no tokio::spawn needed)
+        let token = self.refresh_token().await?;
+        Ok(token)
+    }
+
+    //gets the market id from the exchange and contract id
+    pub async fn get_market_id(&mut self, exchange_id: &str, contract_id: &str) -> anyhow::Result<Option<String>> {
+        let mut headers = reqwest::header::HeaderMap::new(); //user the headers map from the reqwest library
+        headers.insert("Content-Type", "application/json".parse()?);
+
+        //check whether or not to use an api key
+        if !self.config.api.is_empty(){
+            headers.insert("Authorization", format!("APIKey {}", self.config.api).parse()?);
+        } else {
+            let token = self.get_auth_token().await?;
+            headers.insert("Authorization", format!("Bearer {}", token).parse()?);
+        }
+        let client = HttpClient::new();
+        let url = format!(
+            "{}/markets/picker/firstmarket?exchangeid={}&contractid={}",
+            self.config.api, exchange_id, contract_id
+        );
+
+        let res = client.get(&url).headers(headers).send().await?;
+        if res.status() != 200 {
+            println!("Error inside: {:?}", res.status());
+            return Ok(None);
+        }
+
+        let json: serde_json::Value = res.json().await?;
+        Ok(json.get("marketID").and_then(|v| v.as_str()).map(|s| s.to_string()))
+    }
+
+
 }
 
 // Helper to share client in GUI

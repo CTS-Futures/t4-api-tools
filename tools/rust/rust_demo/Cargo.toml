@@ -23,7 +23,15 @@ walkdir = "2.5.0"
 toml = "0.8"
 futures-util = "0.3.31"
 chrono = "0.4.41"
+anyhow = "1.0.98"
 
 [build-dependencies]
 prost-build = "0.12"     # Code generator for Rust from proto
 walkdir = "2.5"
+
+[dependencies.uuid]
+version = "1.17.0"
+# Lets you generate random UUIDs
+features = [
+    "v4",
+]
