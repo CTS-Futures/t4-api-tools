@@ -10,13 +10,12 @@ use tokio_tungstenite::connect_async;
 use futures_util::stream::SplitSink;
 use tokio::sync::Mutex;
 use uuid::Uuid;
-use tokio::task;
+
 use crate::clientMessageHelper::{ClientPayload, create_client_message};
 use crate::client::t4proto::v1::service::{self, client_message::Payload, Heartbeat};
 use serde::Deserialize;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
-use std::borrow::Cow;
+
+
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
 use tokio::sync::oneshot;
@@ -77,6 +76,7 @@ pub struct Client {
     jw_expiration: Option<i64>,
     pending_token_request: Option<JoinHandle<anyhow::Result<String>>>,
     token_resolvers: HashMap<String, oneshot::Sender<String>>,
+    accounts: HashMap<String, t4proto::v1::auth::login_response::Account>, 
 }
 
 impl Client {
@@ -89,102 +89,125 @@ impl Client {
             jw_expiration: None,
             pending_token_request: None,
             token_resolvers: HashMap::new(),
+            accounts: HashMap::new(),
         }
     }
 
     /// Connect to the WebSocket and return the stream halves
     /// Connect to WebSocket and authenticate
-    pub async fn connect(&mut self) {
-        println!("Connecting to {}", self.config.url);
+pub async fn connect(&mut self) {
+    println!("Connecting to {}", self.config.url);
 
-        let (ws_stream, _) = connect_async(&self.config.url)
-            .await
-            .expect("Failed to connect to WebSocket");
+    let (ws_stream, _) = connect_async(&self.config.url)
+        .await
+        .expect("Failed to connect to WebSocket");
 
-        println!("Connected to WebSocket!");
+    println!("Connected to WebSocket!");
 
-        let (write, mut read) = ws_stream.split();
-        let write_arc = Arc::new(Mutex::new(write));
-        self.write_handle = Some(write_arc.clone());
+    //splits the webscoket into a write and a read side
+    let (write, read) = ws_stream.split();
 
-        self.authenticate(write_arc.clone()).await;
-        self.start_heartbeat(write_arc.clone());
-                self.running = true;
-        // Listen for server messages (temporary debug)
-        tokio::spawn(async move {
-            while let Some(msg) = read.next().await {
-                match msg {
-                    Ok(WsMessage::Binary(bin)) => {
-                        println!("Received binary: {} bytes", bin.len());
-                    }
-                    Ok(WsMessage::Close(_)) => {
-                        println!("Server closed connection");
-                        break;
-                    }
-                    Err(e) => {
-                        println!("WebSocket error: {}", e);
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-        });
-    }
+    //we store the write side to use later
+    let write_arc = Arc::new(Mutex::new(write));
+    self.write_handle = Some(write_arc.clone());
+
+    //authentiction and heartbeats
+    self.authenticate(write_arc.clone()).await;
+    self.start_heartbeat(write_arc.clone());
+    self.running = true;
+
+    //spawn a background task to read messages (no self capture)
+    tokio::spawn(async move {
+        Client::listen(read).await;
+    });
+}
+
 
     //disconnects from websocket
     pub async fn disconnect(&mut self) {
-    if let Some(handle) = self.write_handle.take() {
-        let mut w = handle.lock().await;
-        if let Err(e) = w.close().await {
-            println!("Error closing connection: {}", e);
+        if let Some(handle) = self.write_handle.take() {
+            let mut w = handle.lock().await;
+            if let Err(e) = w.close().await {
+                println!("Error closing connection: {}", e);
+            }
         }
+        self.running = false;
+        println!("Disconnected");
     }
-    self.running = false;
-    println!("Disconnected");
-    }
-    pub async fn listen(
-        &mut self,
-        mut read: futures_util::stream::SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>
-    ) {
-        tokio::spawn(async move {
-            while let Some(msg) = read.next().await {
-                match msg {
-                    Ok(WsMessage::Binary(bin)) => {
-                        println!("Received binary: {} bytes", bin.len());
 
-                        //TODO: decode protobuf messages
-                        let server_msg = t4proto::v1::service::ServerMessage::decode(&*bin).unwrap();
-                        // self.process_server_message(server_msg).await;
-                    }
-                    Ok(WsMessage::Close(_)) => {
-                        println!("Server closed connection");
-                        break;
+
+ async fn listen(
+    mut read: futures_util::stream::SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>
+) {
+    while let Some(msg) = read.next().await {
+        match msg {
+            Ok(WsMessage::Binary(bin)) => {
+                println!("Received binary: {} bytes", bin.len());
+                match t4proto::v1::service::ServerMessage::decode(&*bin) {
+                    Ok(server_msg) => {
+                        println!("Decoded ServerMessage: {:?}", server_msg);
                     }
                     Err(e) => {
-                        println!("WebSocket error: {}", e);
-                        break;
+                        println!("Failed to decode ServerMessage: {}", e);
                     }
-                    _ => {}
                 }
             }
-        });
-    }
-    pub async fn process_server_message(&mut self, bin: Vec<u8>){
-        if let Ok(server_msg) = t4proto::v1::service::ServerMessage::decode(&*bin) {
-            match server_msg.payload {
-                Some(t4proto::v1::service::server_message::Payload::AuthenticationToken(resp)) => {
-                    println!("Got token: {:?}", resp);
-                }
-                Some(t4proto::v1::service::server_message::Payload::LoginResponse(resp)) => {
-                    println!("Got LoginResponse: {:?}", resp);
-                }
-                _ => {
-                    println!("Other server message: {:?}", server_msg);
-                }
+            Ok(WsMessage::Close(_)) => {
+                println!("Server closed connection");
+                break;
             }
-        } else {
-            println!("Failed to decode server message");
+            Err(e) => {
+                println!("WebSocket error: {}", e);
+                break;
+            }
+            _ => {}
         }
+    }
+}
+
+    pub fn handle_login(&mut self, message: t4proto::v1::auth::LoginResponse) {
+        // Successful connection = 0
+        if message.result == 0 {
+            // Store login response if you want to keep it
+            // self.login_response = Some(message.clone()); // Requires adding login_response field
+
+            // Store token
+            if let Some(auth_token) = &message.authentication_token {
+                if let Some(token_str) = &auth_token.token {
+                    if !token_str.is_empty() {
+                        self.jw_token = Some(token_str.clone());
+
+                        if let Some(expire_time) = &auth_token.expire_time {
+                            self.jw_expiration = Some(expire_time.seconds * 1000);
+                            println!("Token expires at: {}", self.jw_expiration.unwrap());
+                        }
+                    }
+                }
+            // Store accounts
+            for acc in &message.accounts {
+                // Make sure you have a HashMap<String, AccountType> in your struct
+                self.accounts.insert(acc.account_id.clone(), acc.clone());
+            }
+
+            //TODO: update account info
+            }
+    }
+}
+    
+    pub async fn process_server_message(&mut self, server_msg: t4proto::v1::service::ServerMessage){
+        
+        match server_msg.payload {
+            Some(t4proto::v1::service::server_message::Payload::AuthenticationToken(resp)) => {
+                println!("Got token: {:?}", resp);
+            }
+            Some(t4proto::v1::service::server_message::Payload::LoginResponse(resp)) => {
+                self.handle_login(resp)
+            }
+            _ => {
+                println!("Other server message: {:?}", server_msg);
+            }
+        }
+        
     }
 
     /// Send LoginRequest protobuf wrapped in ClientMessage
