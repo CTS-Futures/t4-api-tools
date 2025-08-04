@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::clientMessageHelper::{ClientPayload, create_client_message};
-use crate::client::t4proto::v1::service::{self, client_message::Payload, Heartbeat};
+use crate::client::t4proto::v1::service::{client_message::Payload, Heartbeat};
 use serde::Deserialize;
 
 
@@ -65,6 +65,7 @@ pub struct Config {
    
 }
 
+
 pub struct Client {
     config: WebSocketConfig,
     running: bool,
@@ -77,6 +78,9 @@ pub struct Client {
     pending_token_request: Option<JoinHandle<anyhow::Result<String>>>,
     token_resolvers: HashMap<String, oneshot::Sender<String>>,
     accounts: HashMap<String, t4proto::v1::auth::login_response::Account>, 
+
+    pub on_account_update: Option<Box<dyn Fn(Vec<t4proto::v1::auth::login_response::Account>) + Send + Sync>>,
+
 }
 
 impl Client {
@@ -90,6 +94,8 @@ impl Client {
             pending_token_request: None,
             token_resolvers: HashMap::new(),
             accounts: HashMap::new(),
+            on_account_update: None,
+
         }
     }
 
@@ -185,17 +191,26 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
                         }
                     }
                 }
-            // Store accounts
-            for acc in &message.accounts {
-                // Make sure you have a HashMap<String, AccountType> in your struct
-                self.accounts.insert(acc.account_id.clone(), acc.clone());
-            }
+                // Store accounts
+                println!("handle_login called with {} accounts", message.accounts.len());
+                for acc in &message.accounts {
+                    // Make sure you have a HashMap<String, AccountType> in your struct
+                    self.accounts.insert(acc.account_id.clone(), acc.clone());
 
-            //TODO: update account info
+                }
+
+                //TODO: update account info
+               // Call the callback if set
+               
+                if let Some(callback) = &self.on_account_update {
+                    println!("Triggering on_account_update");
+                    callback(self.accounts.values().cloned().collect());
+                }
             }
+        }
     }
-}
     
+        
     pub async fn process_server_message(&mut self, server_msg: t4proto::v1::service::ServerMessage){
         
         match server_msg.payload {
@@ -203,6 +218,7 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
                 println!("Got token: {:?}", resp);
             }
             Some(t4proto::v1::service::server_message::Payload::LoginResponse(resp)) => {
+                
                 self.handle_login(resp)
             }
             _ => {

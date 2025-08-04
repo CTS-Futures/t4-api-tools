@@ -10,17 +10,38 @@ use tokio::sync::Mutex;
 pub struct T4WebTraderDemo {
     connection_status: bool,
     client: Arc<Mutex<Client>>,
+    account_names: Vec<String>,
+    selected_account: Option<String>,
+   pub ctx: Option<egui::Context>, // ✅ now public
+
 }
 impl T4WebTraderDemo {
     pub fn new(client: Arc<Mutex<Client>>) -> Self {
         Self {
             connection_status: false,
             client,
+            account_names: Vec::new(),
+                selected_account: None,
+            ctx: None,
+
+        }
+    }
+    pub fn set_accounts(&mut self, accounts: Vec<String>) {
+        println!("GUI set_accounts called with {} accounts", accounts.len());
+        self.account_names = accounts;
+        if let Some(first) = self.account_names.first() {
+            self.selected_account = Some(first.clone());
         }
     }
 }
 impl eframe::App for T4WebTraderDemo {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        println!(
+        "GUI rendering {} accounts: {:?}",
+        self.account_names.len(),
+        self.account_names
+    );
+        self.ctx = Some(ctx.clone());
         // ===== Top Connection Bar =====
         egui::TopBottomPanel::top("connection_panel").show(ctx, |ui| {
             ui.set_height(100.0); // make it taller
@@ -35,8 +56,14 @@ impl eframe::App for T4WebTraderDemo {
 
                         ui.label("Account:");
                         egui::ComboBox::from_id_source("account_select")
-                            .selected_text("-- Select Account --")
-                            .show_ui(ui, |_ui| {});
+                        .selected_text(
+                            self.selected_account.clone().unwrap_or_else(|| "-- Select Account --".to_string())
+                        )
+                        .show_ui(ui, |ui| {
+                            for name in &self.account_names {
+                                ui.selectable_value(&mut self.selected_account, Some(name.clone()), name);
+                            }
+                        });
 
                         if ui.button("Connect").clicked() {
                             let client_clone = self.client.clone();

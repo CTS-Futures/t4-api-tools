@@ -1,8 +1,8 @@
 
 
 use crate::client::t4proto::v1::{
-    auth, market, account, orderrouting, common,
-    service::{self,ClientMessage, client_message, Heartbeat},
+    auth, market, account, orderrouting,
+    service::{self,ClientMessage, client_message},
 };
 
 /// Enum representing all possible payloads you can wrap in a ClientMessage.
