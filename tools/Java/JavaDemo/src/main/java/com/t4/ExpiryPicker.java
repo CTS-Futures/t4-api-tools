@@ -23,7 +23,6 @@ public class ExpiryPicker {
     private final Map<String, JSONArray> marketsCache = new HashMap<>();
     private final Set<String> expandedGroups = new HashSet<>();
     private JSONObject selectedExpiry;
-    //private CompletableFuture<JSONObject> selectionFuture;
     private Consumer<JSONObject> onExpirySelected;
 
     private Stage dialogStage;

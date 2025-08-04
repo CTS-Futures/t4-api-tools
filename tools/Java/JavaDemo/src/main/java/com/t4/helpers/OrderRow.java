@@ -11,9 +11,11 @@ public class OrderRow {
     private final StringProperty side = new SimpleStringProperty();
     private final StringProperty status = new SimpleStringProperty();
     private final StringProperty action = new SimpleStringProperty();
+    private final IntegerProperty workingVolume = new SimpleIntegerProperty();
+    private final StringProperty time = new SimpleStringProperty();
 
     // Updated constructor with accountId
-    public OrderRow(String orderId, String accountId, String market, int volume, String price, String side, String status) {
+    public OrderRow(String orderId, String accountId, String market, int volume, String price, String side, String status, String time) {
         this.orderId.set(orderId);
         this.accountId.set(accountId);
         this.market.set(market);
@@ -21,11 +23,17 @@ public class OrderRow {
         this.price.set(price);
         this.side.set(side);
         this.status.set(status);
+        this.time.set(time);
+        this.workingVolume.set(volume);
     }
 
     // Constructor fallback (if no accountId needed)
     public OrderRow(String orderId, String market, int volume, String price, String side, String status) {
-        this(orderId, "", market, volume, price, side, status);
+        this(orderId, "", market, volume, price, side, status, "--");
+    }
+
+    public OrderRow(String orderId, String market, int volume, String price, String side, String status, String time) {
+        this(orderId, "", market, volume, price, side, status, time);
     }
 
     // Getters
@@ -57,8 +65,42 @@ public class OrderRow {
     }
 
     public void copyFrom(OrderRow other) {
-        this.volume.set(other.volume.get());
-        this.price.set(other.price.get());
-        this.status.set(other.status.get());
+    this.volume.set(other.volume.get());
+    this.price.set(other.price.get());
+    this.status.set(other.status.get());
+    this.market.set(other.market.get());
+    this.side.set(other.side.get());
+    this.time.set(other.time.get());
+    this.workingVolume.set(other.workingVolume.get());
+    this.accountId.set(other.accountId.get());
+    this.orderId.set(other.orderId.get());
+}
+
+    public int getWorkingVolume() {
+        return workingVolume.get();
+    }
+
+    public IntegerProperty workingVolumeProperty() {
+        return workingVolume;
+    }
+
+    public void setWorkingVolume(int volume) {
+        this.workingVolume.set(volume);
+    }
+
+    public boolean isWorking() {
+        return getWorkingVolume() > 0;
+    }
+
+    public String getTime() {
+        return time.get();
+    }
+
+    public StringProperty timeProperty() {
+        return time;
+    }
+
+    public void setTime(String value) {
+        this.time.set(value);
     }
 }

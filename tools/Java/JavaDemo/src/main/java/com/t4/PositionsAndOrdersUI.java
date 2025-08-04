@@ -37,6 +37,7 @@ public class PositionsAndOrdersUI {
 
         ordersTable.setItems(ordersList);
         ordersTable.getColumns().addAll(
+            createColumn("Time", "time"),
             createColumn("Market", "market"),
             createColumn("Side", "side"),
             createColumn("Volume", "volume"),
@@ -45,7 +46,7 @@ public class PositionsAndOrdersUI {
         );
 
         // Add Action column with ✎ icon
-        TableColumn<OrderRow, Void> actionCol = new TableColumn<>("Action");
+        /* TableColumn<OrderRow, Void> actionCol = new TableColumn<>("Action");
         actionCol.setPrefWidth(100);
         actionCol.setCellFactory(col -> new TableCell<>() {
             private final Button btn = new Button("✎");
@@ -55,9 +56,28 @@ public class PositionsAndOrdersUI {
                     OrderRow order = getTableView().getItems().get(getIndex());
                     showModifyOrderDialog(order);
                 });
-            }
+            } */
 
-            @Override
+            TableColumn<OrderRow, Void> actionCol = new TableColumn<>("Action");
+actionCol.setPrefWidth(100);
+actionCol.setCellFactory(col -> new TableCell<>() {
+    private final Button btn = new Button("✎");
+
+    {
+        btn.setStyle("-fx-background-color: #4285f4; -fx-text-fill: white; -fx-font-weight: bold;");
+        btn.setOnAction(event -> {
+            OrderRow order = getTableView().getItems().get(getIndex());
+            if (order.isWorking()) {
+                showModifyOrderDialog(order);
+            } else {
+                System.out.println("Order is not working. Cannot modify.");
+                showError("Unavailable", "This order is no longer working and cannot be modified.");
+            }
+        });
+    }
+
+
+            /* @Override
             protected void updateItem(Void item, boolean empty) {
                 super.updateItem(item, empty);
                 if (empty) {
@@ -66,7 +86,20 @@ public class PositionsAndOrdersUI {
                     setGraphic(btn);
                 }
             }
-        });
+        }); */
+
+         @Override
+    protected void updateItem(Void item, boolean empty) {
+        super.updateItem(item, empty);
+        if (empty) {
+            setGraphic(null);
+        } else {
+            OrderRow order = getTableView().getItems().get(getIndex());
+            btn.setDisable(!order.isWorking());
+            setGraphic(btn);
+        }
+    }
+});
 
         ordersTable.getColumns().add(actionCol);
 
@@ -117,7 +150,12 @@ public class PositionsAndOrdersUI {
                 String price = ord.hasCurrentLimitPrice() ? String.valueOf(ord.getCurrentLimitPrice().getValue()) : "--";
                 String status = ord.getStatus().name();
                 String action = ord.getChange().name();
-                ordersList.add(new OrderRow(ord.getUniqueId(), ord.getMarketId(), volume, price, side, status));
+                 String timeStr = ord.hasTime()
+        ? java.time.Instant.ofEpochSecond(ord.getTime().getSeconds())
+            .atZone(java.time.ZoneId.systemDefault())
+            .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+        : "--";
+                ordersList.add(new OrderRow(ord.getUniqueId(), ord.getMarketId(), volume, price, side, status, timeStr));
             }
         });
     }
@@ -207,6 +245,11 @@ public class PositionsAndOrdersUI {
     }
 
         private void showModifyOrderDialog(OrderRow order) {
+    if (!order.isWorking()) {
+        showError("Unavailable", "This order is no longer working and cannot be modified.");
+        return;
+    }
+
     Dialog<Void> dialog = new Dialog<>();
     dialog.setTitle("Modify Order");
 
@@ -234,24 +277,41 @@ public class PositionsAndOrdersUI {
     dialog.setResultConverter(dialogButton -> {
         if (dialogButton == reviseButton) {
             try {
-                int newVolume = Integer.parseInt(volumeField.getText());
-                double newPrice = Double.parseDouble(priceField.getText());
+                int newVol = Integer.parseInt(volumeField.getText().trim());
+                double newPrice = Double.parseDouble(priceField.getText().trim());
+
+                // Validation: must be greater than zero
+                if (newVol <= 0) {
+                    showError("Invalid Volume", "Volume must be greater than 0.");
+                    return null;
+                }
+                if (newPrice <= 0) {
+                    showError("Invalid Price", "Price must be greater than 0.");
+                    return null;
+                }
+
                 T4APIClientTest.getInstance().reviseOrder(
-                    order.getOrderId(),
-                    newVolume,
-                    newPrice,
-                    "limit"
+                    order.getOrderId(), newVol, newPrice, "limit"
                 );
-            } catch (Exception e) {
-                e.printStackTrace();
-                showError("Invalid input", "Volume and Price must be valid numbers.");
+
+            } catch (NumberFormatException ex) {
+                showError("Invalid Input", "Volume and Price must be valid numbers.");
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                showError("Error", "Failed to revise order.");
             }
+
         } else if (dialogButton == pullButton) {
-            T4APIClientTest.getInstance().pullOrder(order.getOrderId());
+            try {
+                T4APIClientTest.getInstance().pullOrder(order.getOrderId());
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                showError("Error", "Failed to pull order.");
+            }
         }
         return null;
     });
 
-        dialog.showAndWait();
-    }
+    dialog.showAndWait();
+}
 }
