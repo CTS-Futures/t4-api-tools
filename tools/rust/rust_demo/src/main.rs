@@ -1,6 +1,6 @@
 mod client;
 mod clientMessageHelper;
-
+use tokio::signal;
 use client::Client;
 use client::Config;
 use std::sync::Arc;
@@ -23,19 +23,37 @@ async fn main() -> anyhow::Result<()> {
     let cfg = load_config();
     let client = Arc::new(Mutex::new(Client::new(cfg.websocket)));
 
-    // Connect and start listening
-    Client::connect(client.clone()).await;
+    // Get read half from connect
+    let read = Client::connect(client.clone()).await?;
 
-    // Wait a bit for login
+        let client_clone = client.clone();
+    tokio::spawn(async move {
+        Client::listen(client_clone, read).await;
+    });
+   
+
+    // Main thread continues
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-
-    // Example API call
     let mut c = client.lock().await;
     let market_id = c.get_market_id("DL_12h", "ZN").await?;
     println!("Got Market ID: {:?}", market_id);
 
+    // Step 1: Get the account ID without holding lock for too long
+    
+    let account_id: String = c.get_first_account_id().unwrap();
+    println!("account_id: {:?}", account_id);
+    c.subscribe_account(&account_id).await?;
+
+    
+   
+// Spawn the listener
+    println!("Listening for messages. Press Ctrl+C to exit.");
+    signal::ctrl_c().await?;
+    println!("Shutting down.");
     Ok(())
 }
+
+
 
 // #[tokio::main]
 // async fn main() -> anyhow::Result<()> {

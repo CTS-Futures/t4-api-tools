@@ -3,6 +3,8 @@ use tokio_tungstenite::{
     tungstenite::protocol::Message as WsMessage,
     MaybeTlsStream, WebSocketStream,
 };
+use futures_util::stream::SplitStream;
+use tokio::net::TcpStream;
 use tokio::time::{self, Duration};
 use prost::Message as ProstMessage; // For .encode()
 use futures_util::{StreamExt, SinkExt};
@@ -80,6 +82,7 @@ pub struct Client {
     token_resolvers: HashMap<String, oneshot::Sender<String>>,
     accounts: HashMap<String, t4proto::v1::auth::login_response::Account>, 
 
+    selected_account: Option<String>, 
     pub on_account_update: Option<Box<dyn Fn(Vec<t4proto::v1::auth::login_response::Account>) + Send + Sync>>,
 
 }
@@ -96,7 +99,7 @@ impl Client {
             token_resolvers: HashMap::new(),
             accounts: HashMap::new(),
             on_account_update: None,
-
+            selected_account: None,
         }
     }
 
@@ -111,7 +114,9 @@ pub fn set_write_handle(
 ) {
     self.write_handle = Some(Arc::new(Mutex::new(write)));
 }
-    pub async fn connect(client: Arc<Mutex<Client>>) {
+    pub async fn connect(
+    client: Arc<Mutex<Client>>
+) -> anyhow::Result<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>> {
     let mut this = client.lock().await;
     println!("Connecting to {}", this.config.url);
 
@@ -130,10 +135,10 @@ pub fn set_write_handle(
     this.running = true;
 
     drop(this); // release lock before spawning listen
-
-    tokio::spawn(async move {
-        Client::listen(client.clone(), read).await;
-    });
+    Ok(read)
+    // tokio::spawn(async move {
+    //     Client::listen(client.clone(), read).await;
+    // });
 }
 
 
@@ -153,7 +158,7 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
 }
 
 
- async fn listen(
+pub async fn listen(
     client: Arc<Mutex<Client>>,
     mut read: futures_util::stream::SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>
 ) {
@@ -162,6 +167,7 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
             Ok(WsMessage::Binary(bin)) => {
                 match t4proto::v1::service::ServerMessage::decode(&*bin) {
                     Ok(server_msg) => {
+                      //  println!("{:?}", server_msg);
                         let mut client = client.lock().await;
                         client.process_server_message(server_msg).await;
                     }
@@ -219,7 +225,10 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
             }
         }
     }
+    pub fn get_first_account_id(&self) -> Option<String> {
     
+        self.accounts.keys().next().cloned()
+    }
         
     pub async fn process_server_message(&mut self, server_msg: t4proto::v1::service::ServerMessage){
         
@@ -372,7 +381,56 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
         Ok(json.get("marketID").and_then(|v| v.as_str()).map(|s| s.to_string()))
     }
 
+    pub async fn subscribe_account(&mut self, account_id: &str) -> anyhow::Result<()> {
+        // TODO: when gui is made, we check if it's the account the user selected
+        // if let Some(selected) = &self.selected_account {
+        // if selected == account_id {
+        //     return Ok(());
+        // }
 
+        // Unsubscribe from the previous account
+        let unsubscribe_msg = t4proto::v1::account::AccountSubscribe {
+            subscribe: 0, // ACCOUNT_SUBSCRIBE_TYPE_NONE
+            subscribe_all_accounts: false,
+            account_id: vec![account_id.to_string()],
+            upl_mode: Some(0),
+        };
+        let client_msg = create_client_message(ClientPayload::AccountSubscribe(unsubscribe_msg));
+
+        let mut buf = Vec::new();
+        client_msg.encode(&mut buf)?;
+        if let Some(write) = &self.write_handle {
+            let mut w = write.lock().await;
+            w.send(WsMessage::Binary(buf)).await?;
+        }
+    
+
+        //Update the selected account
+        self.selected_account = Some(account_id.to_string());
+
+        //subscribe to the new account
+        if !account_id.is_empty() {
+            let subscribe_msg = t4proto::v1::account::AccountSubscribe {
+                subscribe: 2, // ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES
+                subscribe_all_accounts: false,
+                account_id: vec![account_id.to_string()],
+                upl_mode: Some(1),
+            };
+            let client_msg = create_client_message(ClientPayload::AccountSubscribe(subscribe_msg));
+
+            let mut buf = Vec::new();
+            client_msg.encode(&mut buf)?;
+            if let Some(write) = &self.write_handle {
+                let mut w = write.lock().await;
+                w.send(WsMessage::Binary(buf)).await?;
+            }
+
+            println!("Subscribed to account: {}", account_id);
+        }
+
+        Ok(())
+
+}
 }
 
 // Helper to share client in GUI
