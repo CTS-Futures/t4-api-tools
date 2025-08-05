@@ -18,67 +18,85 @@ fn load_config() -> Config {
     toml::from_str::<Config>(&config_str)
         .expect("Failed to parse config.toml")
 }
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Load configuration
     let cfg = load_config();
-    let client = Arc::new(Mutex::new(Client::new(cfg.clone())));
+    let client = Arc::new(Mutex::new(Client::new(cfg.websocket)));
 
-    // Connect WebSocket
-    println!("Connecting to WebSocket...");
-    let (ws_stream, _) = connect_async(&cfg.websocket).await?;
-    println!("Connected!");
+    // Connect and start listening
+    Client::connect(client.clone()).await;
 
-    let (write, mut read) = ws_stream.split();
-    {
-        let mut c = client.lock().await;
-        c.set_write_handle(write); // You'll need to add a setter for write_handle in Client
-    }
-
-    // Spawn a task to read incoming messages
-    let client_clone = client.clone();
-    tokio::spawn(async move {
-        while let Some(msg) = read.next().await {
-            match msg {
-                Ok(WsMessage::Binary(bin)) => {
-                    let server_msg = t4proto::v1::service::ServerMessage::decode(&*bin)
-                        .expect("Failed to decode server message");
-                    let mut c = client_clone.lock().await;
-                    c.process_server_message(server_msg).await;
-                }
-                Ok(other) => {
-                    println!("Other WS message: {:?}", other);
-                }
-                Err(e) => {
-                    println!("WebSocket error: {:?}", e);
-                    break;
-                }
-            }
-        }
-    });
-
-    // Authenticate
-    {
-        let c = client.clone();
-        let write = {
-            let c = c.lock().await;
-            c.write_handle.clone().unwrap()
-        };
-        client.lock().await.authenticate(write).await;
-        client.lock().await.start_heartbeat(write);
-    }
-
-    // Example API call after authentication
+    // Wait a bit for login
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    {
-        let mut c = client.lock().await;
-        let market_id = c.get_market_id("EXAMPLE_EXCHANGE", "EXAMPLE_CONTRACT").await?;
-        println!("Got Market ID: {:?}", market_id);
-    }
+
+    // Example API call
+    let mut c = client.lock().await;
+    let market_id = c.get_market_id("DL_12h", "ZN").await?;
+    println!("Got Market ID: {:?}", market_id);
 
     Ok(())
 }
+
+// #[tokio::main]
+// async fn main() -> anyhow::Result<()> {
+//     // Load configuration
+//     let cfg = load_config();
+//     let client = Arc::new(Mutex::new(Client::new(cfg.clone())));
+
+//     // Connect WebSocket
+//     println!("Connecting to WebSocket...");
+//     let (ws_stream, _) = connect_async(&cfg.websocket).await?;
+//     println!("Connected!");
+
+//     let (write, mut read) = ws_stream.split();
+//     {
+//         let mut c = client.lock().await;
+//         c.set_write_handle(write); // You'll need to add a setter for write_handle in Client
+//     }
+
+//     // Spawn a task to read incoming messages
+//     let client_clone = client.clone();
+//     tokio::spawn(async move {
+//         while let Some(msg) = read.next().await {
+//             match msg {
+//                 Ok(WsMessage::Binary(bin)) => {
+//                     let server_msg = t4proto::v1::service::ServerMessage::decode(&*bin)
+//                         .expect("Failed to decode server message");
+//                     let mut c = client_clone.lock().await;
+//                     c.process_server_message(server_msg).await;
+//                 }
+//                 Ok(other) => {
+//                     println!("Other WS message: {:?}", other);
+//                 }
+//                 Err(e) => {
+//                     println!("WebSocket error: {:?}", e);
+//                     break;
+//                 }
+//             }
+//         }
+//     });
+
+//     // Authenticate
+//     {
+//         let c = client.clone();
+//         let write = {
+//             let c = c.lock().await;
+//             c.write_handle.clone().unwrap()
+//         };
+//         client.lock().await.authenticate(write).await;
+//         client.lock().await.start_heartbeat(write);
+//     }
+
+//     // Example API call after authentication
+//     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+//     {
+//         let mut c = client.lock().await;
+//         let market_id = c.get_market_id("EXAMPLE_EXCHANGE", "EXAMPLE_CONTRACT").await?;
+//         println!("Got Market ID: {:?}", market_id);
+//     }
+
+//     Ok(())
+// }
 
 // mod gui;
 // mod client;

@@ -50,6 +50,7 @@ pub struct WebSocketConfig {
     pub url: String,
     pub api: String,
     pub firm: String,
+    pub api_key: String,
     pub username: String,
     pub password: String,
     pub app_name: String,
@@ -101,7 +102,16 @@ impl Client {
 
     /// Connect to the WebSocket and return the stream halves
     /// Connect to WebSocket and authenticate
-pub async fn connect(client: Arc<Mutex<Client>>) {
+pub fn set_write_handle(
+    &mut self,
+    write: futures_util::stream::SplitSink<
+        WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+        WsMessage,
+    >,
+) {
+    self.write_handle = Some(Arc::new(Mutex::new(write)));
+}
+    pub async fn connect(client: Arc<Mutex<Client>>) {
     let mut this = client.lock().await;
     println!("Connecting to {}", this.config.url);
 
@@ -340,7 +350,7 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
         headers.insert("Content-Type", "application/json".parse()?);
 
         //check whether or not to use an api key
-        if !self.config.api.is_empty(){
+        if !self.config.api_key.is_empty(){
             headers.insert("Authorization", format!("APIKey {}", self.config.api).parse()?);
         } else {
             let token = self.get_auth_token().await?;
