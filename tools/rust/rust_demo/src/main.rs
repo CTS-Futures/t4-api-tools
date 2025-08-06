@@ -34,15 +34,42 @@ async fn main() -> anyhow::Result<()> {
 
     // Main thread continues
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    let mut c = client.lock().await;
-    let market_id = c.get_market_id("DL_12h", "ZN").await?;
+    // Get Market ID
+    let market_id_opt = {
+        let mut c = client.lock().await;
+        c.get_market_id("DL_12h", "ZN").await?
+    };
+
+    let market_id = match market_id_opt {
+        Some(id) => id,
+        None => {
+            println!("No market ID found for DL_12h / ZN");
+            return Ok(());
+        }
+    };
     println!("Got Market ID: {:?}", market_id);
 
-    // Step 1: Get the account ID without holding lock for too long
-    
-    let account_id: String = c.get_first_account_id().unwrap();
+    // Get account ID
+    let account_id = {
+        let c = client.lock().await;
+        c.get_first_account_id().unwrap()
+    };
     println!("account_id: {:?}", account_id);
-    c.subscribe_account(&account_id).await?;
+
+    // // Subscribe to account
+    // {
+    //     let mut c = client.lock().await;
+    //     c.subscribe_account(&account_id).await?;
+    // }
+
+    {
+        let mut c = client.lock().await;
+        c.subscribe_market("DL_12h", "ZN", &market_id).await?;
+    }
+    {
+        let mut c = client.lock().await;
+        c.load_exchanges().await?;
+    }
 
     
    

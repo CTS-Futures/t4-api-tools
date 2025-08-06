@@ -3,6 +3,7 @@ use tokio_tungstenite::{
     tungstenite::protocol::Message as WsMessage,
     MaybeTlsStream, WebSocketStream,
 };
+use serde_json::Value;
 use futures_util::stream::SplitStream;
 use tokio::net::TcpStream;
 use tokio::time::{self, Duration};
@@ -16,6 +17,17 @@ use uuid::Uuid;
 use crate::clientMessageHelper::{ClientPayload, create_client_message};
 use crate::client::t4proto::v1::service::{client_message::Payload, Heartbeat};
 use serde::Deserialize;
+
+
+use crate::client::t4proto::v1::common::{DepthBuffer, DepthLevels};
+use crate::client::t4proto::v1::market::MarketDepthSubscribe;
+
+use crate::client::t4proto::v1::common::{
+    ActivationType, BuySell, OrderLink, Price, PriceType, TimeType,
+};
+use crate::client::t4proto::v1::orderrouting::{OrderSubmit, order_submit::Order};
+
+use prost::Message;
 
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -84,9 +96,16 @@ pub struct Client {
 
     selected_account: Option<String>, 
     pub on_account_update: Option<Box<dyn Fn(Vec<t4proto::v1::auth::login_response::Account>) + Send + Sync>>,
+    current_subscription:  Option<MarketSubscription>,
+    current_market_id: Option<String>,
 
 }
-
+#[derive(Debug, Clone)]
+pub struct MarketSubscription {
+    pub exchange_id: String,
+    pub contract_id: String,
+    pub market_id: String,
+}
 impl Client {
     pub fn new(config: WebSocketConfig) -> Self {
         Self { 
@@ -100,6 +119,8 @@ impl Client {
             accounts: HashMap::new(),
             on_account_update: None,
             selected_account: None,
+            current_subscription: None,
+            current_market_id: None,
         }
     }
 
@@ -167,7 +188,7 @@ pub async fn listen(
             Ok(WsMessage::Binary(bin)) => {
                 match t4proto::v1::service::ServerMessage::decode(&*bin) {
                     Ok(server_msg) => {
-                      //  println!("{:?}", server_msg);
+                        println!("{:?}", server_msg);
                         let mut client = client.lock().await;
                         client.process_server_message(server_msg).await;
                     }
@@ -229,7 +250,7 @@ pub async fn listen(
     
         self.accounts.keys().next().cloned()
     }
-        
+
     pub async fn process_server_message(&mut self, server_msg: t4proto::v1::service::ServerMessage){
         
         match server_msg.payload {
@@ -433,9 +454,7 @@ pub async fn listen(
 }
     pub async fn subscribe_market(&mut self, exchange_id: &str, contract_id: &str, market_id: &str) -> anyhow::Result<()> {
 
-
         let _key = format!("{}_{}_{}", exchange_id, contract_id, market_id);
-
 
         // If already subscribed, unsubscribe first
         if let Some(current) = &self.current_subscription {
@@ -449,7 +468,6 @@ pub async fn listen(
             let client_msg =
                 create_client_message(ClientPayload::MarketDepthSubscribe(unsubscribe_msg));
 
-
             let mut buf = Vec::new();
             client_msg.encode(&mut buf)?;
             if let Some(write) = &self.write_handle {
@@ -457,16 +475,13 @@ pub async fn listen(
                 w.send(WsMessage::Binary(buf)).await?;
             }
 
-
             println!(
                 "Unsubscribed from market: {}",
                 current.market_id
             );
 
-
             self.current_subscription = None;
         }
-
 
         // Store new subscription info
         self.current_subscription = Some(MarketSubscription {
@@ -475,7 +490,6 @@ pub async fn listen(
             market_id: market_id.to_string(),
         });
        self.current_market_id = Some(market_id.to_string());
-
 
         // Send subscribe request
         let subscribe_msg = MarketDepthSubscribe {
@@ -488,7 +502,6 @@ pub async fn listen(
         let client_msg =
             create_client_message(ClientPayload::MarketDepthSubscribe(subscribe_msg));
 
-
         let mut buf = Vec::new();
         client_msg.encode(&mut buf)?;
         if let Some(write) = &self.write_handle {
@@ -496,17 +509,13 @@ pub async fn listen(
             w.send(WsMessage::Binary(buf)).await?;
         }
 
-
         println!("Subscribed to market: {}", market_id);
-
 
         Ok(())
     }
     pub async fn load_exchanges(&mut self) -> anyhow::Result<()> {
         let mut headers = reqwest::header::HeaderMap::new(); //user the headers map from the reqwest library
         headers.insert("Content-Type", "application/json".parse()?);
-
-
 
 
             // Set Authorization header
@@ -517,14 +526,12 @@ pub async fn listen(
             headers.insert("Authorization", format!("Bearer {}", token).parse()?);
         }
 
-
         let client = HttpClient::new();
-        let url = format!("{}/markets/picker/exchanges",self.config.api);
+        let url = format!("{}/markets/exchanges",self.config.api);
         let res = client.get(&url).headers(headers).send().await?;
         if res.status() != 200 {
             anyhow::bail!("HTTP {}: {}", res.status(), res.text().await?);
         }
-
 
         let mut exchanges: Vec<Value> = res.json().await?;
         println!("{:?}", exchanges);
@@ -533,10 +540,8 @@ pub async fn listen(
         // Store in the client struct (you should have a field for this)
         //self.exchanges = exchanges;
 
-
         Ok(())
     }
-
 
     // pub async fn submit_order(
     //     &mut self,
@@ -553,11 +558,9 @@ pub async fn listen(
     //     let market_id = self.current_market_id.clone()
     //         .ok_or_else(|| anyhow::anyhow!("No market selected"))?;
 
-
     //     // Get market details (must be implemented in Client)
     //     let market_details = self.get_market_details(&market_id)
     //         .ok_or_else(|| anyhow::anyhow!("No market details found"))?;
-
 
     //     // Convert to enum values
     //     let price_type_value = match price_type.to_lowercase().as_str() {
@@ -565,12 +568,10 @@ pub async fn listen(
     //         _ => PriceType::PriceTypeLimit as i32,
     //     };
 
-
     //     let buy_sell_value = match side.to_lowercase().as_str() {
     //         "buy" => BuySell::BuySellBuy as i32,
     //         _ => BuySell::BuySellSell as i32,
     //     };
-
 
     //     let has_brackets = take_profit_dollars.is_some() || stop_loss_dollars.is_some();
     //     let order_link_value = if has_brackets {
@@ -578,7 +579,6 @@ pub async fn listen(
     //     } else {
     //         OrderLink::OrderLinkNone as i32
     //     };
-
 
     //     // Main order
     //     let main_order = Order {
@@ -602,9 +602,7 @@ pub async fn listen(
     //         activation_data: None,
     //     };
 
-
     //     let mut orders = vec![main_order];
-
 
     //     let protection_side = if buy_sell_value == BuySell::BuySellBuy as i32 {
     //         BuySell::BuySellSell as i32
@@ -612,12 +610,10 @@ pub async fn listen(
     //         BuySell::BuySellBuy as i32
     //     };
 
-
     //     // Take profit
     //     if let Some(tp_dollars) = take_profit_dollars {
     //         let tp_points = tp_dollars / market_details.point_value.value;
     //         let tp_price = tp_points * market_details.min_price_increment.value;
-
 
     //         orders.push(Order {
     //             buy_sell: protection_side,
@@ -637,12 +633,10 @@ pub async fn listen(
     //         });
     //     }
 
-
     //     // Stop loss
     //     if let Some(sl_dollars) = stop_loss_dollars {
     //         let sl_points = sl_dollars / market_details.point_value.value;
     //         let sl_price = sl_points * market_details.min_price_increment.value;
-
 
     //         orders.push(Order {
     //             buy_sell: protection_side,
@@ -662,7 +656,6 @@ pub async fn listen(
     //         });
     //     }
 
-
     //     // Build OrderSubmit
     //     let submit_msg = OrderSubmit {
     //         user_id: None,
@@ -673,7 +666,6 @@ pub async fn listen(
     //         orders,
     //     };
 
-
     //     // Send WS message
     //     let client_msg = create_client_message(ClientPayload::OrderSubmit(submit_msg));
     //     let mut buf = Vec::new();
@@ -682,7 +674,6 @@ pub async fn listen(
     //         let mut w = write.lock().await;
     //         w.send(WsMessage::Binary(buf)).await?;
     //     }
-
 
     //     println!(
     //         "Order submitted: {} {} @ {} (Type: {})",
@@ -696,7 +687,6 @@ pub async fn listen(
     //         price_type
     //     );
 
-
     //     if let Some(tp) = take_profit_dollars {
     //         println!(
     //             "Take profit: ${} ({})",
@@ -704,7 +694,6 @@ pub async fn listen(
     //             if protection_side == BuySell::BuySellBuy as i32 { "Buy" } else { "Sell" }
     //         );
     //     }
-
 
     //     if let Some(sl) = stop_loss_dollars {
     //         println!(
@@ -714,11 +703,9 @@ pub async fn listen(
     //         );
     //     }
 
-
     //     if has_brackets {
     //         println!("OCO (One Cancels Other) bracket order applied");
     //     }
-
 
     //     Ok(())
     // }
