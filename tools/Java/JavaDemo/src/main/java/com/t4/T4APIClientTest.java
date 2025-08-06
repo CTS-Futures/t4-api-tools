@@ -23,7 +23,6 @@ import t4proto.v1.orderrouting.Orderrouting.OrderUpdateStatus;
 import t4proto.v1.account.Account.AccountPosition;
 import t4proto.v1.orderrouting.Orderrouting.OrderUpdateMultiMessage;
 import t4proto.v1.orderrouting.Orderrouting;
-import t4proto.v1.orderrouting.Orderrouting.OrderUpdate;
 import t4proto.v1.common.Enums.AccountSubscribeType;
 import t4proto.v1.common.Enums.BuySell;
 import t4proto.v1.common.Enums.PriceType;
@@ -31,35 +30,22 @@ import t4proto.v1.common.Enums.TimeType;
 import t4proto.v1.common.Enums.OrderLink;
 import t4proto.v1.common.Enums.ActivationType;
 import t4proto.v1.common.PriceOuterClass.Decimal;
-
-
 import t4proto.v1.orderrouting.Orderrouting.OrderSubmit.Order;
 import t4proto.v1.orderrouting.Orderrouting.OrderSubmit;
 import t4proto.v1.orderrouting.Orderrouting.OrderPull;
 import t4proto.v1.orderrouting.Orderrouting.OrderRevise;
 import t4proto.v1.orderrouting.Orderrouting.OrderRevise.Revise;
 import t4proto.v1.common.PriceOuterClass.Price;
-
-//market sybscriber
 import com.t4.helpers.MarketSubscriber;
 import com.t4.helpers.Callback;
+import com.t4.helpers.OrderRow;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-
-// WebSocket imports
 import javax.websocket.*;
-import com.auth0.jwt.JWT;
-import com.auth0.jwt.interfaces.DecodedJWT;
-import com.google.protobuf.ProtoSyntax;
-import com.google.protobuf.Descriptors.FieldDescriptor;
-// Helper class you’ve written
-import com.t4.helpers.ClientMessageHelper;
 import com.t4.T4Config;
 import com.t4.MarketDataPane;
-
-
 import java.io.IOException;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -67,7 +53,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.stream.Collectors;
 import org.json.JSONObject;
-// Java stdlib
 import java.util.concurrent.ConcurrentHashMap;
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -77,14 +62,8 @@ import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Timer;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
-
 import javafx.application.Platform;
-
- 
 
      @ClientEndpoint
      public class T4APIClientTest{
@@ -107,7 +86,6 @@ import javafx.application.Platform;
        private String appLicense;
       
       // Connection state
-        private Object ws = null; //placeholder for the WebSocket connection
         private boolean isConnected = false;
         private Auth.LoginResponse loginResponse = null;
         private Map<String, Auth.LoginResponse.Account> accounts = new HashMap<>();
@@ -120,7 +98,6 @@ import javafx.application.Platform;
         private boolean gotAccountPosition = false;
         private boolean gotAccountUpdate = false;
         private boolean gotOrderUpdateMulti = false;
-
         
         // JWT token management
         private String jwtToken = null;
@@ -141,7 +118,6 @@ import javafx.application.Platform;
         private PositionsAndOrdersUI posOrdersUI;
         //private PositionsAndOrdersUI positionsAndOrdersUI;
 
-
         // Heartbeat management
         private Object heartbeatTimer = null;
         private long lastMessageReceived = System.currentTimeMillis();
@@ -149,10 +125,6 @@ import javafx.application.Platform;
 
         // Event handlers
         private Object onAccountUpdate = null;
-        private Object onMarketUpdate = null;
-        private Object onMessageSent = null;
-        private Object onError = null;
-        private Object onLog = null;
 
         // Connection retry
         private int reconnectAttempts = 0;
@@ -189,7 +161,9 @@ import javafx.application.Platform;
             .setPriceFormat(PriceFormat.PRICE_FORMAT_DECIMAL)
             .build();
 
-            Service.ClientMessage clientMessage = ClientMessageHelper.wrapLoginRequest(loginRequest);
+            Service.ClientMessage clientMessage = Service.ClientMessage.newBuilder()
+                .setLoginRequest(loginRequest)
+                .build();
             sessionO.getAsyncRemote().sendBinary(ByteBuffer.wrap(clientMessage.toByteArray()));
             marketDetailsMap.clear();
             startClientHeartbeat(sessionO);
@@ -914,7 +888,7 @@ public void waitForAuthToken(Runnable callback){
     String status = update.getStatus().name();        // <- was `getOrderStatus()`
     String action = update.getChange().name();        // <- was `getOrderAction()`
 
-    Platform.runLater(() -> {
+   /*  Platform.runLater(() -> {
         posOrdersUI.addOrder(
             market,
             side,
@@ -923,7 +897,28 @@ public void waitForAuthToken(Runnable callback){
             status,
             action
         );
-    });
+    }); */
+
+    String timeStr = update.hasTime()
+    ? java.time.Instant.ofEpochSecond(update.getTime().getSeconds())
+        .atZone(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+    : "--";
+
+OrderRow orderRow = new OrderRow(
+    update.getUniqueId(),
+    update.getAccountId(),
+    update.getMarketId(),
+    volume,
+    price,
+    side,
+    status,
+    timeStr
+);
+
+Platform.runLater(() -> {
+    posOrdersUI.updateOrder(orderRow); // updates if exists, adds if new
+});
 }
 
 
@@ -1037,7 +1032,7 @@ public List<AccountPosition> getPositions() {
 
 
 
-public void submitOrder(String side, int volume, double price, String priceType,
+/* public void submitOrder(String side, int volume, double price, String priceType,
                         Double takeProfitDollars, Double stopLossDollars) {
       System.out.println("Everything from Submit Orders: " + accountSubscribed + isConnected + selectedAccountId);                     
 
@@ -1140,9 +1135,100 @@ public void submitOrder(String side, int volume, double price, String priceType,
         .build();
 
     sendMessageToServer(msg);
+} */
+
+
+
+public void submitOrder(String side, int volume, double price, String priceType,
+                        Double takeProfitDollars, Double stopLossDollars) {
+    if (selectedAccountId == null || currentMarketId == null || !accountSubscribed || !isConnected) {
+        throw new IllegalStateException("No account or market selected or account not subscribed");
+    }
+
+    MarketDetails marketDetails = marketDetailsMap.get(currentMarketId);
+    if (marketDetails == null) {
+        System.err.println("Market details not found for marketId: " + currentMarketId);
+        return;
+    }
+
+    BuySell buySell = side.equalsIgnoreCase("buy") ? BuySell.BUY_SELL_BUY : BuySell.BUY_SELL_SELL;
+    PriceType priceTypeEnum = priceType.equalsIgnoreCase("market") ? PriceType.PRICE_TYPE_MARKET : PriceType.PRICE_TYPE_LIMIT;
+    boolean hasBracketOrders = takeProfitDollars != null || stopLossDollars != null;
+
+    OrderLink orderLink = hasBracketOrders ? OrderLink.ORDER_LINK_AUTO_OCO : OrderLink.ORDER_LINK_NONE;
+    List<Order> orders = new ArrayList<>();
+
+    // -- Main order
+    Order.Builder mainOrder = Order.newBuilder()
+        .setBuySell(buySell)
+        .setPriceType(priceTypeEnum)
+        .setTimeType(TimeType.TIME_TYPE_NORMAL)
+        .setVolume(volume);
+
+    if (priceTypeEnum == PriceType.PRICE_TYPE_LIMIT) {
+        mainOrder.setLimitPrice(Price.newBuilder().setValue(String.valueOf(price)).build());
+    }
+
+    orders.add(mainOrder.build());
+
+    // Determine opposite side for protection orders
+    BuySell protectionSide = (buySell == BuySell.BUY_SELL_BUY) ? BuySell.BUY_SELL_SELL : BuySell.BUY_SELL_BUY;
+
+    // -- Market price math
+    double pointValue = Double.parseDouble(marketDetails.getPointValue().getValue());
+    double minTick = Double.parseDouble(marketDetails.getMinPriceIncrement().getValue());
+
+    // -- Take Profit
+    if (takeProfitDollars != null) {
+        double tpPoints = takeProfitDollars / pointValue;
+        double tpOffset = tpPoints * minTick;
+        double tpPrice = buySell == BuySell.BUY_SELL_BUY ? price + tpOffset : price - tpOffset;
+
+        orders.add(Order.newBuilder()
+            .setBuySell(protectionSide)
+            .setPriceType(PriceType.PRICE_TYPE_LIMIT)
+            .setTimeType(TimeType.TIME_TYPE_GOOD_TILL_CANCELLED)
+            .setVolume(0)
+            .setLimitPrice(Price.newBuilder().setValue(String.valueOf(tpPrice)).build())
+            .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
+            .build());
+
+        System.out.printf("Take Profit: $%.2f → %.4f (%s)%n", takeProfitDollars, tpPrice, protectionSide);
+    }
+
+    // -- Stop Loss
+    if (stopLossDollars != null) {
+        double slPoints = stopLossDollars / pointValue;
+        double slOffset = slPoints * minTick;
+        double slPrice = buySell == BuySell.BUY_SELL_BUY ? price - slOffset : price + slOffset;
+
+        orders.add(Order.newBuilder()
+            .setBuySell(protectionSide)
+            .setPriceType(PriceType.PRICE_TYPE_STOP_MARKET)
+            .setTimeType(TimeType.TIME_TYPE_GOOD_TILL_CANCELLED)
+            .setVolume(0)
+            .setStopPrice(Price.newBuilder().setValue(String.valueOf(slPrice)).build())
+            .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
+            .build());
+
+        System.out.printf("Stop Loss: $%.2f → %.4f (%s)%n", stopLossDollars, slPrice, protectionSide);
+    }
+
+    // -- Final message
+    OrderSubmit orderSubmit = OrderSubmit.newBuilder()
+        .setAccountId(selectedAccountId)
+        .setMarketId(currentMarketId)
+        .setManualOrderIndicator(true)
+        .setOrderLink(orderLink)
+        .addAllOrders(orders)
+        .build();
+
+    ClientMessage msg = ClientMessage.newBuilder()
+        .setOrderSubmit(orderSubmit)
+        .build();
+
+    sendMessageToServer(msg);
 }
-
-
    private String buySellToString(BuySell bs) {
     switch (bs) {
         case BUY_SELL_BUY: return "Buy";
@@ -1207,108 +1293,6 @@ public void reviseOrder(String orderId, int volume, Double price, String priceTy
     sendMessageToServer(msg);
 }
 
-
-
-   /* public static void main(String[] args){
-         try{
-            //T4APIClientTest client = T4APIClientTest.getInstance();
-            //ConnectionUI pane = new ConnectionUI(client);
-            T4APIClientTest.getInstance().connect(() -> {}); 
-            Thread.sleep(50000);
-            disconnect();
-         }
-         catch(Exception e){
-            e.printStackTrace();
-         }
-
-      } */
-
-      /* public static void main(String[] args) throws Exception {
-         int x = 42;
-         System.out.println("Before connect");
-    T4APIClientTest client = new T4APIClientTest();
-
-    client.connect(() -> {
-        System.out.println("Connected, sleeping for 5 seconds...");
-        try {
-            
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        client.disconnect();
-        System.out.println("Disconnected.");
-    });
-
-    // Block main thread until disconnect completes
-    Thread.sleep(10000); // or use CountDownLatch to be more precise
-} */
-
-     /*  public static void main(String[] args) throws Exception {
-    CountDownLatch latch = new CountDownLatch(1);
-    T4APIClientTest client = T4APIClientTest.getInstance();
-
-    client.connect(() -> {
-        System.out.println("Connected callback triggered.");
-        // Wait until accountSubscribed is true
-        new Thread(() -> {
-            while (!client.accountSubscribed) {
-                try {
-                    Thread.sleep(100); // Polling
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            System.out.println("Account subscribed. Submitting order...");
-            client.submitOrder("buy", 1, 5298.00, "limit", 20.0, 10.0);
-            latch.countDown(); // signal main thread to continue
-        }).start();
-    });
-
-    latch.await(); // block main thread until signal from async task
-    client.disconnect();
-    System.out.println("All done. Disconnected.");
-} */
-
-
-     /*  public static void main(String[] args) throws Exception {
-    CountDownLatch latch = new CountDownLatch(1);
-    T4APIClientTest client = T4APIClientTest.getInstance();
-
-    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
-
-    client.connect(() -> {
-        System.out.println("Connected callback triggered.");
-
-        // Wait until subscribed before submitting
-        new Thread(() -> {
-            while (!client.accountSubscribed) {
-                try {
-                    Thread.sleep(100); // Wait for subscription
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            System.out.println("Account subscribed. Submitting order...");
-            client.submitOrder("buy", 1, 5298.00, "limit", 20.0, 10.0);
-
-            // Wait 3 seconds to observe result
-            executor.schedule(() -> {
-                System.out.println("3 seconds passed. Now disconnecting...");
-                client.disconnect();
-                latch.countDown();
-            }, 3, TimeUnit.SECONDS);
-
-        }).start();
-    });
-
-    latch.await(); // Block main thread until everything is done
-    executor.shutdown();
-    System.out.println("All done.");
-}
- */
-
  public static void main(String[] args) throws Exception {
     CountDownLatch doneLatch = new CountDownLatch(1);
     T4APIClientTest client = T4APIClientTest.getInstance();
@@ -1348,7 +1332,4 @@ public void reviseOrder(String orderId, int volume, Double price, String priceTy
 }
 
 }
-
-     
-
 

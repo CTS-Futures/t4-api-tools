@@ -156,7 +156,6 @@ t4proto\v1\orderrouting\Orderrouting$OrderRevise$Revise$1.class
 t4proto\v1\market\Market$MarketSettlement$1.class
 t4proto\v1\auth\Auth$AuthenticationToken.class
 t4proto\v1\market\Market$MarketDepth$Builder.class
-com\t4\helpers\ClientMessageHelper.class
 t4proto\v1\orderrouting\Orderrouting$OrderRevise$Revise$Builder.class
 t4proto\v1\market\Market$MarketByOrderUpdate$Update$1.class
 t4proto\v1\auth\Auth$LoginResponse$ExchangeOrBuilder.class
@@ -170,8 +169,6 @@ t4proto\v1\account\Account$AccountSnapshotMessage.class
 t4proto\v1\common\Enums$MarketMode.class
 t4proto\v1\account\Account$AccountPosition$Builder.class
 t4proto\v1\market\Market$MarketDetails$LegItem.class
-com\t4\helpers\AuthTokenManager.class
-com\t4\helpers\TestDecoder.class
 t4proto\v1\common\Enums$PriceFormat$1.class
 t4proto\v1\common\Enums$ResponsePending$1.class
 t4proto\v1\common\Enums$UDSStatus.class
