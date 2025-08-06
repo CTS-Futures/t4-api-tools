@@ -431,7 +431,299 @@ pub async fn listen(
         Ok(())
 
 }
-}
+    pub async fn subscribe_market(&mut self, exchange_id: &str, contract_id: &str, market_id: &str) -> anyhow::Result<()> {
+
+
+        let _key = format!("{}_{}_{}", exchange_id, contract_id, market_id);
+
+
+        // If already subscribed, unsubscribe first
+        if let Some(current) = &self.current_subscription {
+            let unsubscribe_msg = MarketDepthSubscribe {
+                exchange_id: current.exchange_id.clone(),
+                contract_id: current.contract_id.clone(),
+                market_id: current.market_id.clone(),
+                buffer: DepthBuffer::NoSubscription as i32,
+                depth_levels: DepthLevels::Undefined as i32,
+            };
+            let client_msg =
+                create_client_message(ClientPayload::MarketDepthSubscribe(unsubscribe_msg));
+
+
+            let mut buf = Vec::new();
+            client_msg.encode(&mut buf)?;
+            if let Some(write) = &self.write_handle {
+                let mut w = write.lock().await;
+                w.send(WsMessage::Binary(buf)).await?;
+            }
+
+
+            println!(
+                "Unsubscribed from market: {}",
+                current.market_id
+            );
+
+
+            self.current_subscription = None;
+        }
+
+
+        // Store new subscription info
+        self.current_subscription = Some(MarketSubscription {
+            exchange_id: exchange_id.to_string(),
+            contract_id: contract_id.to_string(),
+            market_id: market_id.to_string(),
+        });
+       self.current_market_id = Some(market_id.to_string());
+
+
+        // Send subscribe request
+        let subscribe_msg = MarketDepthSubscribe {
+            exchange_id: exchange_id.to_string(),
+            contract_id: contract_id.to_string(),
+            market_id: market_id.to_string(),
+            buffer: DepthBuffer::SmartTrade as i32,
+            depth_levels: DepthLevels::BestOnly as i32,
+        };
+        let client_msg =
+            create_client_message(ClientPayload::MarketDepthSubscribe(subscribe_msg));
+
+
+        let mut buf = Vec::new();
+        client_msg.encode(&mut buf)?;
+        if let Some(write) = &self.write_handle {
+            let mut w = write.lock().await;
+            w.send(WsMessage::Binary(buf)).await?;
+        }
+
+
+        println!("Subscribed to market: {}", market_id);
+
+
+        Ok(())
+    }
+    pub async fn load_exchanges(&mut self) -> anyhow::Result<()> {
+        let mut headers = reqwest::header::HeaderMap::new(); //user the headers map from the reqwest library
+        headers.insert("Content-Type", "application/json".parse()?);
+
+
+
+
+            // Set Authorization header
+        if !self.config.api_key.is_empty(){
+            headers.insert("Authorization", format!("APIKey {}", self.config.api).parse()?);
+        } else {
+            let token = self.get_auth_token().await?;
+            headers.insert("Authorization", format!("Bearer {}", token).parse()?);
+        }
+
+
+        let client = HttpClient::new();
+        let url = format!("{}/markets/picker/exchanges",self.config.api);
+        let res = client.get(&url).headers(headers).send().await?;
+        if res.status() != 200 {
+            anyhow::bail!("HTTP {}: {}", res.status(), res.text().await?);
+        }
+
+
+        let mut exchanges: Vec<Value> = res.json().await?;
+        println!("{:?}", exchanges);
+     //   exchanges.sort_by(|a, b| a.description.cmp(&b.description));
+      //  println!("{}", exchanges);
+        // Store in the client struct (you should have a field for this)
+        //self.exchanges = exchanges;
+
+
+        Ok(())
+    }
+
+
+    // pub async fn submit_order(
+    //     &mut self,
+    //     side: &str,
+    //     volume: i32,
+    //     price: f64,
+    //     price_type: &str,
+    //     take_profit_dollars: Option<f64>,
+    //     stop_loss_dollars: Option<f64>,
+    // ) -> anyhow::Result<()> {
+    //     // Ensure account & market are set
+    //     let account_id = self.selected_account.clone()
+    //         .ok_or_else(|| anyhow::anyhow!("No account selected"))?;
+    //     let market_id = self.current_market_id.clone()
+    //         .ok_or_else(|| anyhow::anyhow!("No market selected"))?;
+
+
+    //     // Get market details (must be implemented in Client)
+    //     let market_details = self.get_market_details(&market_id)
+    //         .ok_or_else(|| anyhow::anyhow!("No market details found"))?;
+
+
+    //     // Convert to enum values
+    //     let price_type_value = match price_type.to_lowercase().as_str() {
+    //         "market" => PriceType::PriceTypeMarket as i32,
+    //         _ => PriceType::PriceTypeLimit as i32,
+    //     };
+
+
+    //     let buy_sell_value = match side.to_lowercase().as_str() {
+    //         "buy" => BuySell::BuySellBuy as i32,
+    //         _ => BuySell::BuySellSell as i32,
+    //     };
+
+
+    //     let has_brackets = take_profit_dollars.is_some() || stop_loss_dollars.is_some();
+    //     let order_link_value = if has_brackets {
+    //         OrderLink::OrderLinkAutoOco as i32
+    //     } else {
+    //         OrderLink::OrderLinkNone as i32
+    //     };
+
+
+    //     // Main order
+    //     let main_order = Order {
+    //         buy_sell: buy_sell_value,
+    //         price_type: price_type_value,
+    //         time_type: TimeType::TimeTypeNormal as i32,
+    //         volume,
+    //         max_show: None,
+    //         max_volume: None,
+    //         limit_price: if price_type_value == PriceType::PriceTypeLimit as i32 {
+    //             Some(Price {
+    //                 value: price.to_string(),
+    //             })
+    //         } else {
+    //             None
+    //         },
+    //         stop_price: None,
+    //         trail_distance: None,
+    //         tag: None,
+    //         activation_type: None,
+    //         activation_data: None,
+    //     };
+
+
+    //     let mut orders = vec![main_order];
+
+
+    //     let protection_side = if buy_sell_value == BuySell::BuySellBuy as i32 {
+    //         BuySell::BuySellSell as i32
+    //     } else {
+    //         BuySell::BuySellBuy as i32
+    //     };
+
+
+    //     // Take profit
+    //     if let Some(tp_dollars) = take_profit_dollars {
+    //         let tp_points = tp_dollars / market_details.point_value.value;
+    //         let tp_price = tp_points * market_details.min_price_increment.value;
+
+
+    //         orders.push(Order {
+    //             buy_sell: protection_side,
+    //             price_type: PriceType::PriceTypeLimit as i32,
+    //             time_type: TimeType::TimeTypeGoodTillCancelled as i32,
+    //             volume: 0,
+    //             max_show: None,
+    //             max_volume: None,
+    //             limit_price: Some(Price {
+    //                 value: tp_price.to_string(),
+    //             }),
+    //             stop_price: None,
+    //             trail_distance: None,
+    //             tag: None,
+    //             activation_type: Some(ActivationType::ActivationTypeHold as i32),
+    //             activation_data: None,
+    //         });
+    //     }
+
+
+    //     // Stop loss
+    //     if let Some(sl_dollars) = stop_loss_dollars {
+    //         let sl_points = sl_dollars / market_details.point_value.value;
+    //         let sl_price = sl_points * market_details.min_price_increment.value;
+
+
+    //         orders.push(Order {
+    //             buy_sell: protection_side,
+    //             price_type: PriceType::PriceTypeStopMarket as i32,
+    //             time_type: TimeType::TimeTypeGoodTillCancelled as i32,
+    //             volume: 0,
+    //             max_show: None,
+    //             max_volume: None,
+    //             limit_price: None,
+    //             stop_price: Some(Price {
+    //                 value: sl_price.to_string(),
+    //             }),
+    //             trail_distance: None,
+    //             tag: None,
+    //             activation_type: Some(ActivationType::ActivationTypeHold as i32),
+    //             activation_data: None,
+    //         });
+    //     }
+
+
+    //     // Build OrderSubmit
+    //     let submit_msg = OrderSubmit {
+    //         user_id: None,
+    //         account_id,
+    //         market_id,
+    //         order_link: order_link_value,
+    //         manual_order_indicator: true,
+    //         orders,
+    //     };
+
+
+    //     // Send WS message
+    //     let client_msg = create_client_message(ClientPayload::OrderSubmit(submit_msg));
+    //     let mut buf = Vec::new();
+    //     client_msg.encode(&mut buf)?;
+    //     if let Some(write) = &self.write_handle {
+    //         let mut w = write.lock().await;
+    //         w.send(WsMessage::Binary(buf)).await?;
+    //     }
+
+
+    //     println!(
+    //         "Order submitted: {} {} @ {} (Type: {})",
+    //         if buy_sell_value == BuySell::BuySellBuy as i32 { "Buy" } else { "Sell" },
+    //         volume,
+    //         if price_type_value == PriceType::PriceTypeMarket as i32 {
+    //             "Market".to_string()
+    //         } else {
+    //             price.to_string()
+    //         },
+    //         price_type
+    //     );
+
+
+    //     if let Some(tp) = take_profit_dollars {
+    //         println!(
+    //             "Take profit: ${} ({})",
+    //             tp,
+    //             if protection_side == BuySell::BuySellBuy as i32 { "Buy" } else { "Sell" }
+    //         );
+    //     }
+
+
+    //     if let Some(sl) = stop_loss_dollars {
+    //         println!(
+    //             "Stop loss: ${} ({})",
+    //             sl,
+    //             if protection_side == BuySell::BuySellBuy as i32 { "Buy" } else { "Sell" }
+    //         );
+    //     }
+
+
+    //     if has_brackets {
+    //         println!("OCO (One Cancels Other) bracket order applied");
+    //     }
+
+
+    //     Ok(())
+    // }
+    }
+
 
 // Helper to share client in GUI
 pub type SharedClient = Arc<Mutex<Client>>;
