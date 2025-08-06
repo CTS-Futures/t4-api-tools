@@ -17,6 +17,7 @@ public class ContractSelectorDialog {
     private final Map<String, List<ContractData>> contractsCache = new HashMap<>();
     private final Map<String, JPanel> exchangePanels = new HashMap<>();
     private ContractData selectedContract = null;
+    private JLabel selectedLabel = null;
 
     public ContractSelectorDialog(T4APIClientTest client) {
         this.client = client;
@@ -106,15 +107,30 @@ public class ContractSelectorDialog {
             for (ContractData data : contractsCache.get(exchangeId)) {
                 JLabel label = new JLabel(data.toString());
                 label.setBorder(BorderFactory.createEmptyBorder(2, 10, 2, 10));
-                label.addMouseListener(new MouseAdapter() {
-                    public void mouseClicked(MouseEvent e) {
-                        selectedContract = data;
-                        selectButton.setEnabled(true);
-                        if (e.getClickCount() == 2) {
-                            selectButton.doClick();
-                        }
-                    }
-                });
+              label.addMouseListener(new MouseAdapter() {
+    public void mouseClicked(MouseEvent e) {
+        selectedContract = data;
+        selectButton.setEnabled(true);
+
+        // Clear previous highlight
+        if (selectedLabel != null) {
+            selectedLabel.setOpaque(false);
+            selectedLabel.setBackground(null);
+            selectedLabel.repaint();
+        }
+
+        // Highlight this label
+        label.setOpaque(true);
+        label.setBackground(new Color(173, 216, 230)); // Light blue
+        label.repaint();
+
+        selectedLabel = label;
+
+        if (e.getClickCount() == 2) {
+            selectButton.doClick();
+        }
+    }
+});
                 contractsPanel.add(label);
             }
 
@@ -146,14 +162,29 @@ public class ContractSelectorDialog {
                     JLabel label = new JLabel(data.toString());
                     label.setBorder(BorderFactory.createEmptyBorder(2, 10, 2, 10));
                     label.addMouseListener(new MouseAdapter() {
-                        public void mouseClicked(MouseEvent e) {
-                            selectedContract = data;
-                            selectButton.setEnabled(true);
-                            if (e.getClickCount() == 2) {
-                                selectButton.doClick();
-                            }
-                        }
-                    });
+    public void mouseClicked(MouseEvent e) {
+        selectedContract = data;
+        selectButton.setEnabled(true);
+
+        // Clear previous highlight
+        if (selectedLabel != null) {
+            selectedLabel.setOpaque(false);
+            selectedLabel.setBackground(null);
+            selectedLabel.repaint();
+        }
+
+        // Highlight this label
+        label.setOpaque(true);
+        label.setBackground(new Color(173, 216, 230)); // Light blue
+        label.repaint();
+
+        selectedLabel = label;
+
+        if (e.getClickCount() == 2) {
+            selectButton.doClick();
+        }
+    }
+});
                     matchesPanel.add(label);
                 }
 

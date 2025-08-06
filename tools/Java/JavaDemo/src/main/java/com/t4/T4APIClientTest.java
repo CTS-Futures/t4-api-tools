@@ -176,7 +176,6 @@ import javafx.application.Platform;
                cb.onError(e);
             }
          });
-            System.out.println("Login message sent.");
          }
          catch(Exception e){
              e.printStackTrace();
@@ -203,9 +202,9 @@ import javafx.application.Platform;
 
                case LOGIN_RESPONSE:
                   handleLoginResponse(serverMessage.getLoginResponse());
-                  System.out.println("Login Response Recieved: \n" + serverMessage.getLoginResponse());
+         
                   AuthenticationToken token = serverMessage.getLoginResponse().getAuthenticationToken();
-                  System.out.println("Token from the response: " + tokenHandler(token));
+                  //System.out.println("Token from the response: " + tokenHandler(token));
                   isLoggedIn = true;
 
                   break;
@@ -226,10 +225,6 @@ import javafx.application.Platform;
                   && marketDetails.getLastTradingDate().getSeconds() * 1000 > System.currentTimeMillis();
 
                   if (isActive) {
-                  System.out.println(" ACTIVE Market: " + marketDetails.getMarketId()
-                  + " | Contract: " + marketDetails.getContractId()
-                  + " | Exchange: " + marketDetails.getExchangeId());
-        
                   // You can store it for later use if you want:
                      handleMarketDetails(marketDetails);
                   } else {
@@ -269,7 +264,6 @@ import javafx.application.Platform;
                   
                   case ACCOUNT_SUBSCRIBE_RESPONSE:
                      handleAccountSubscribeResponse(serverMessage.getAccountSubscribeResponse());
-                     System.out.println("Successfully subscribed to account: " + serverMessage.getAccountSubscribeResponse());
                      break;
 
                default:
@@ -314,8 +308,6 @@ import javafx.application.Platform;
          if (token.hasExpireTime()) {
             jwtExpiration = token.getExpireTime().getSeconds() * 1000;
          }
-
-         System.out.println("JWT Token Set: " + jwtToken);
     
          try {
             if(jwtToken != null && currentMarketId == null){
@@ -332,10 +324,8 @@ import javafx.application.Platform;
 
 
       private void checkIfAccountReady() {
-         System.out.println("Checking if account is ready to trade "+ isConnected + " " + gotAccountPosition + " " + gotAccountUpdate + " " + gotOrderUpdateMulti);
     if (!isConnected && gotAccountPosition && gotAccountUpdate && gotOrderUpdateMulti) {
         isConnected = true;
-        System.out.println("✅ Account is now ready to trade.");
     }
 }
 
@@ -360,7 +350,6 @@ import javafx.application.Platform;
             // Trigger account update if needed
             if (onAccountUpdate != null) {
                // Wrap in real update logic or class
-               System.out.println("Accounts updated");
             }
 
             if (!loginAccounts.isEmpty()) {
@@ -384,13 +373,12 @@ import javafx.application.Platform;
 
       public void handleAccountDetails(AccountDetails details) {
          accountDetails.put(details.getAccountId(), details);
-         System.out.println(accountDetails);
-         System.out.println("Updated account: " + details.getAccountId());
       }
 
       private void handleAccountUpdate(Account.AccountUpdate update) {
          //isConnected = true;
-         System.out.println("Account update for account: " + update.getAccountId());
+         //Add in the logic to update positions and orders
+        return;
       }
 
       private void handleAccountSnapshot(Account.AccountSnapshot snapshot) {
@@ -425,8 +413,6 @@ import javafx.application.Platform;
                 System.out.println("Unhandled snapshot message: " + msg.getPayloadCase());
         }
     }
-
-    System.out.printf("Received snapshot: %d positions, %d orders\n", newPositions.size(), newOrders.size());
 
     for (AccountPosition pos : newPositions) {
         String key = pos.getAccountId() + "_" + pos.getMarketId();
@@ -514,7 +500,6 @@ public void waitForAuthToken(Runnable callback){
         .build();
 
     sendMessageToServer(clientMessage);
-    System.out.println("Sent subscription request for account: " + accountId);
     }
 
     private void handleAccountSubscribeResponse(Account.AccountSubscribeResponse response) {
@@ -531,7 +516,7 @@ public void waitForAuthToken(Runnable callback){
 
    public void updatePositionsAndOrders(List<AccountPosition> positions,List<OrderUpdate> orders) {
     // TODO: Implement table update logic here
-    System.out.println("Positions: " + positions.size() + ", Orders: " + orders.size());
+    return;
 }
 
 
@@ -549,7 +534,6 @@ public void waitForAuthToken(Runnable callback){
        for (MarketSnapshotMessage message : snapshot.getMessagesList()) {
         if (message.hasMarketDepth()) {
             MarketDepth depth = message.getMarketDepth();
-            System.out.println("This is the market depth: \n"+ depth);
             if (!depth.getBidsList().isEmpty()) {
                 bid = String.valueOf(depth.getBids(0).getPrice().getValue());
             }
@@ -571,7 +555,6 @@ public void waitForAuthToken(Runnable callback){
         
        }
 
-       System.out.printf("Market Snapshot [%s] | Bid: %s | Ask: %s | Last: %s%n", symbol, bid, ask, last);
 
        if (marketDataP != null) {
          marketDataP.setMarketName(symbol, 0); // Assuming 0 means no expiry date
@@ -626,8 +609,6 @@ public void waitForAuthToken(Runnable callback){
          String ask = "";
          String last = "";
 
-         //System.out.println(depth.getLastTradePrice());
-
          if (!depth.getBidsList().isEmpty()) {
             bid = String.valueOf(depth.getBids(0).getVolume() +"@"+ depth.getBids(0).getPrice().getValue());
          }
@@ -639,8 +620,6 @@ public void waitForAuthToken(Runnable callback){
                last = trade.getLastTradeVolume() + "@" + trade.getLastTradePrice().getValue();    
          }
          
-
-         System.out.printf(" Market Depth [%s] | Bid: %s | Ask: %s%n", symbol, bid, ask);
 
          MarketDetails details = getMarketDetails(depth.getMarketId());
          if (details != null && details.getContractId() != null && details.getExpiryDate() > 0) {
@@ -655,8 +634,6 @@ public void waitForAuthToken(Runnable callback){
       }
 
       public void handleMarketDetails(MarketDetails details) {
-         System.out.println("Received market details: " + details.getMarketId());
-
          if (!details.getDisabled()) {
         marketDetailsMap.put(details.getMarketId(), details);
 
@@ -681,7 +658,6 @@ public void waitForAuthToken(Runnable callback){
             exchangeId, contractId
         );
 
-        System.out.println("Fetching marketId for exchange=" + exchangeId + ", contract=" + contractId);
 
         HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
         conn.setRequestMethod("GET");
@@ -702,7 +678,6 @@ public void waitForAuthToken(Runnable callback){
                 String marketId = obj.getString("marketID");
 
                 // Optional: auto-subscribe using this marketId
-                System.out.println("Fetched market ID: " + marketId);
                 subscribeToMarket(exchangeId, contractId, marketId);
 
                 return marketId;
@@ -812,7 +787,7 @@ public void waitForAuthToken(Runnable callback){
       //start heartbeats 
    private void startClientHeartbeat(Session session) {
       if (heartbeatTask != null && !heartbeatTask.isCancelled()) {
-         System.out.println("Heartbeat already running — skipping duplicate start.");
+        //in case heartbeat is already running
          return;
       }
 
@@ -935,10 +910,8 @@ Platform.runLater(() -> {
                 System.out.println("Order update failed: " + message.getOrderUpdateFailed());
                 break;
             case ORDER_UPDATE_TRADE:
-                System.out.println("Order trade: " + message.getOrderUpdateTrade());
                 break;
             case ORDER_UPDATE_TRADE_LEG:
-                System.out.println("Order trade leg: " + message.getOrderUpdateTradeLeg());
                 break;
             case PAYLOAD_NOT_SET:
             default:
@@ -1030,115 +1003,6 @@ public List<AccountPosition> getPositions() {
    }
 
 
-
-
-/* public void submitOrder(String side, int volume, double price, String priceType,
-                        Double takeProfitDollars, Double stopLossDollars) {
-      System.out.println("Everything from Submit Orders: " + accountSubscribed + isConnected + selectedAccountId);                     
-
-    if (selectedAccountId == null || currentMarketId == null || !accountSubscribed || !isConnected) {
-        throw new IllegalStateException("No account or market selected or account not subscribed");
-    }
-
-    MarketDetails marketDetails = marketDetailsMap.get(currentMarketId);
-    if (marketDetails == null) {
-        System.err.println("Market details not found for marketId: " + currentMarketId);
-        return;
-    }
-
-    BuySell buySell = side.equalsIgnoreCase("buy") ? BuySell.BUY_SELL_BUY : BuySell.BUY_SELL_SELL;
-    PriceType priceTypeEnum = priceType.equalsIgnoreCase("market") ?
-        PriceType.PRICE_TYPE_MARKET : PriceType.PRICE_TYPE_LIMIT;
-
-    boolean hasBracketOrders = takeProfitDollars != null || stopLossDollars != null;
-    OrderLink orderLink = hasBracketOrders ? OrderLink.ORDER_LINK_AUTO_OCO : OrderLink.ORDER_LINK_NONE;
-
-    List<Order> orders = new ArrayList<>();
-
-    // Main order
-    Order.Builder mainOrder = Order.newBuilder()
-        .setBuySell(buySell)
-        .setPriceType(priceTypeEnum)
-        .setTimeType(TimeType.TIME_TYPE_NORMAL)
-        .setVolume(volume);
-
-    if (priceTypeEnum == PriceType.PRICE_TYPE_LIMIT) {
-        mainOrder.setLimitPrice(Price.newBuilder().setValue(String.valueOf(price)).build());
-    }
-
-    orders.add(mainOrder.build());
-
-    // Determine opposite side for bracket protection
-    BuySell protectionSide = (buySell == BuySell.BUY_SELL_BUY) ?
-        BuySell.BUY_SELL_SELL : BuySell.BUY_SELL_BUY;
-
-    // Logging: Order summary
-    System.out.printf("Order submitted: %s %d @ %s (Type: %s)%n",
-        buySellToString(buySell), volume,
-        priceTypeEnum == PriceType.PRICE_TYPE_MARKET ? "Market" : price,
-        priceType);
-
-    // Take Profit
-    if (takeProfitDollars != null) {
-        double pointValue = Double.parseDouble(marketDetails.getPointValue().getValue());
-        double minTick = Double.parseDouble(marketDetails.getMinPriceIncrement().getValue());
-        double tpPoints = takeProfitDollars / pointValue;
-        double tpPrice = tpPoints * minTick;
-
-        orders.add(Order.newBuilder()
-            .setBuySell(protectionSide)
-            .setPriceType(PriceType.PRICE_TYPE_LIMIT)
-            .setTimeType(TimeType.TIME_TYPE_GOOD_TILL_CANCELLED)
-            .setVolume(0)
-            .setLimitPrice(Price.newBuilder().setValue(String.valueOf(tpPrice)).build())
-            .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
-            .build());
-
-        System.out.printf("Take profit: $%.2f (%s) at approx price offset: %.4f%n",
-            takeProfitDollars, buySellToString(protectionSide), tpPrice);
-    }
-
-    // Stop Loss
-    if (stopLossDollars != null) {
-        double pointValue = Double.parseDouble(marketDetails.getPointValue().getValue());
-        double minTick = Double.parseDouble(marketDetails.getMinPriceIncrement().getValue());
-        double slPoints = stopLossDollars / pointValue;
-        double slPrice = slPoints * minTick;
-
-        orders.add(Order.newBuilder()
-            .setBuySell(protectionSide)
-            .setPriceType(PriceType.PRICE_TYPE_STOP_MARKET)
-            .setTimeType(TimeType.TIME_TYPE_GOOD_TILL_CANCELLED)
-            .setVolume(0)
-            .setStopPrice(Price.newBuilder().setValue(String.valueOf(slPrice)).build())
-            .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
-            .build());
-
-        System.out.printf("Stop loss: $%.2f (%s) at approx price offset: %.4f%n",
-            stopLossDollars, buySellToString(protectionSide), slPrice);
-    }
-
-    if (hasBracketOrders) {
-        System.out.println("OCO (One Cancels Other) bracket order applied.");
-    }
-
-    OrderSubmit orderSubmit = OrderSubmit.newBuilder()
-        .setAccountId(selectedAccountId)
-        .setMarketId(currentMarketId)
-        .setManualOrderIndicator(true)
-        .setOrderLink(orderLink)
-        .addAllOrders(orders)
-        .build();
-
-    ClientMessage msg = ClientMessage.newBuilder()
-        .setOrderSubmit(orderSubmit)
-        .build();
-
-    sendMessageToServer(msg);
-} */
-
-
-
 public void submitOrder(String side, int volume, double price, String priceType,
                         Double takeProfitDollars, Double stopLossDollars) {
     if (selectedAccountId == null || currentMarketId == null || !accountSubscribed || !isConnected) {
@@ -1193,7 +1057,6 @@ public void submitOrder(String side, int volume, double price, String priceType,
             .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
             .build());
 
-        System.out.printf("Take Profit: $%.2f → %.4f (%s)%n", takeProfitDollars, tpPrice, protectionSide);
     }
 
     // -- Stop Loss
@@ -1211,7 +1074,6 @@ public void submitOrder(String side, int volume, double price, String priceType,
             .setActivationType(ActivationType.ACTIVATION_TYPE_HOLD)
             .build());
 
-        System.out.printf("Stop Loss: $%.2f → %.4f (%s)%n", stopLossDollars, slPrice, protectionSide);
     }
 
     // -- Final message
