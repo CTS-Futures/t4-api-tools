@@ -191,7 +191,7 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
                 Ok(WsMessage::Binary(bin)) => {
                     match t4proto::v1::service::ServerMessage::decode(&*bin) {
                         Ok(server_msg) => {
-                            println!("{:?}", server_msg);
+                         //   println!("{:?}", server_msg);
                             let mut client = client.lock().await;
                             client.process_server_message(server_msg).await;
                         }
@@ -264,9 +264,10 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
                 
                 self.handle_login(resp)
             }
-            _ => {
-                println!("Other server message: {:?}", server_msg);
-            }
+             _ => {
+            //     println!("Other server message: {:?}", server_msg);
+                    println!("-");
+             }
         }
         
     }
@@ -393,7 +394,7 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
         }
         let client = HttpClient::new();
         let url = format!(
-            "{}/markets/picker/firstmarket?exchangeid={}&contractid={}",
+            "{}/markets/picker/firstmarket?exchangeID={}&contractID={}",
             self.config.api, exchange_id, contract_id
         );
 
@@ -568,7 +569,7 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
 
         let res = client.get(&url).headers(headers).send().await?;
 
-        println!("test");
+
         if res.status() != 200 {
             anyhow::bail!("HTTP {}: {}", res.status(), res.text().await?);
         }
@@ -595,11 +596,11 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
         }
 
         let client = HttpClient::new();
-        let url = format!("{}//markets/contracts/search?search={}",self.config.api, search_term);
+        let url = format!("{}/markets/contracts/search?search={}",self.config.api, search_term);
 
         let res = client.get(&url).headers(headers).send().await?;
 
-        println!("test");
+
         if res.status() != 200 {
             anyhow::bail!("HTTP {}: {}", res.status(), res.text().await?);
         }
@@ -611,6 +612,38 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
 
     }
     
+    
+    //loads all the groups given a exchange id and contract id (rest api call)
+    pub async fn load_groups(&mut self, exchange_id: &str, contract_id: &str) -> Result<()>{
+        let mut headers = reqwest::header::HeaderMap::new(); //user the headers map from the reqwest library
+        headers.insert("Content-Type", "application/json".parse()?);
+
+
+        // Set Authorization header
+        if !self.config.api_key.is_empty(){ //format for api key
+            headers.insert("Authorization", format!("APIKey {}", self.config.api).parse()?);
+        } else {
+            let token = self.get_auth_token().await?; //format for account token
+            headers.insert("Authorization", format!("Bearer {}", token).parse()?);
+        }
+
+        let client = HttpClient::new();
+        let url = format!("{}/markets/picker/groups?exchangeID={}&contractID={}",self.config.api, exchange_id, contract_id);
+
+        let res = client.get(&url).headers(headers).send().await?;
+
+        if res.status() != 200 {
+            let body = res.text().await?;
+            anyhow::bail!("HTTP: {}", body);
+        }
+
+        let groups: Vec<Value> = res.json().await?;
+        println!("groups-> {:?}", groups);
+
+        Ok(())        
+
+    }
+
     // pub async fn submit_order(
     //     &mut self,
     //     side: &str,

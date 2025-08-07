@@ -82,6 +82,11 @@ async fn main() -> anyhow::Result<()> {
         c.search_contracts("ZC").await?; //search result api test - (corn/ZC)
    }
 
+    {
+        let mut c = client.lock().await;
+        c.load_groups("DL_12h", "ZN").await?; //search result api test - (corn/ZC)
+   }
+
     //spawn the listener
     println!("Listening for messages. Press Ctrl+C to exit.");
     signal::ctrl_c().await?;
