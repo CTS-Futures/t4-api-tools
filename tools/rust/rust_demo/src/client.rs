@@ -579,6 +579,38 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
         Ok(())
 
     }
+    
+    //Rest api call to search through the contracts
+    pub async fn search_contracts(&mut self, search_term: &str) -> Result<()>{
+        let mut headers = reqwest::header::HeaderMap::new(); //user the headers map from the reqwest library
+        headers.insert("Content-Type", "application/json".parse()?);
+
+
+        // Set Authorization header
+        if !self.config.api_key.is_empty(){ //format for api key
+            headers.insert("Authorization", format!("APIKey {}", self.config.api).parse()?);
+        } else {
+            let token = self.get_auth_token().await?; //format for account token
+            headers.insert("Authorization", format!("Bearer {}", token).parse()?);
+        }
+
+        let client = HttpClient::new();
+        let url = format!("{}//markets/contracts/search?search={}",self.config.api, search_term);
+
+        let res = client.get(&url).headers(headers).send().await?;
+
+        println!("test");
+        if res.status() != 200 {
+            anyhow::bail!("HTTP {}: {}", res.status(), res.text().await?);
+        }
+
+        let contracts: Vec<Value> = res.json().await?;
+        println!("search results-> {:?}", contracts);
+
+        Ok(())        
+
+    }
+    
     // pub async fn submit_order(
     //     &mut self,
     //     side: &str,
