@@ -13,6 +13,7 @@ use tokio_tungstenite::connect_async;
 use futures_util::stream::SplitSink;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+use anyhow::Result;
 
 use crate::clientMessageHelper::{ClientPayload, create_client_message};
 use crate::client::t4proto::v1::service::{client_message::Payload, Heartbeat};
@@ -71,7 +72,7 @@ pub struct WebSocketConfig {
     pub app_license: String,
     pub md_exchange_id: String,
     pub md_contract_id: String,
-    pub priceFormat: Option<u32>,
+    pub price_format: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,44 +127,46 @@ impl Client {
 
     /// Connect to the WebSocket and return the stream halves
     /// Connect to WebSocket and authenticate
-pub fn set_write_handle(
-    &mut self,
-    write: futures_util::stream::SplitSink<
-        WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
-        WsMessage,
-    >,
-) {
-    self.write_handle = Some(Arc::new(Mutex::new(write)));
-}
+    pub fn set_write_handle(
+        &mut self,
+        write: futures_util::stream::SplitSink<
+            WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+            WsMessage,
+        >,
+    ) {
+        self.write_handle = Some(Arc::new(Mutex::new(write)));
+    }
+
+    //connects to the websocket
     pub async fn connect(
-    client: Arc<Mutex<Client>>
-) -> anyhow::Result<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>> {
-    let mut this = client.lock().await;
-    println!("Connecting to {}", this.config.url);
+        client: Arc<Mutex<Client>>
+    ) -> anyhow::Result<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>> {
+        let mut this = client.lock().await;
+        println!("Connecting to {}", this.config.url);
 
-    let (ws_stream, _) = connect_async(&this.config.url)
-        .await
-        .expect("Failed to connect to WebSocket");
+        let (ws_stream, _) = connect_async(&this.config.url)
+            .await
+            .expect("Failed to connect to WebSocket");
 
-    println!("Connected to WebSocket!");
+        println!("Connected to WebSocket!");
 
-    let (write, read) = ws_stream.split();
-    let write_arc = Arc::new(Mutex::new(write));
-    this.write_handle = Some(write_arc.clone());
+        let (write, read) = ws_stream.split();
+        let write_arc = Arc::new(Mutex::new(write));
+        this.write_handle = Some(write_arc.clone());
 
-    this.authenticate(write_arc.clone()).await;
-    this.start_heartbeat(write_arc.clone());
-    this.running = true;
+        this.authenticate(write_arc.clone()).await;
+        this.start_heartbeat(write_arc.clone());
+        this.running = true;
 
-    drop(this); // release lock before spawning listen
-    Ok(read)
-    // tokio::spawn(async move {
-    //     Client::listen(client.clone(), read).await;
-    // });
-}
+        drop(this); // release lock before spawning listen
+        Ok(read)
+        // tokio::spawn(async move {
+        //     Client::listen(client.clone(), read).await;
+        // });
+    }
 
 
-    //disconnects from websocket
+//disconnects from websocket
 pub async fn disconnect(client: Arc<Mutex<Client>>) {
     let mut this = client.lock().await;
 
@@ -178,37 +181,37 @@ pub async fn disconnect(client: Arc<Mutex<Client>>) {
     println!("Disconnected");
 }
 
-
-pub async fn listen(
-    client: Arc<Mutex<Client>>,
-    mut read: futures_util::stream::SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>
-) {
-    while let Some(msg) = read.next().await {
-        match msg {
-            Ok(WsMessage::Binary(bin)) => {
-                match t4proto::v1::service::ServerMessage::decode(&*bin) {
-                    Ok(server_msg) => {
-                        println!("{:?}", server_msg);
-                        let mut client = client.lock().await;
-                        client.process_server_message(server_msg).await;
-                    }
-                    Err(e) => {
-                        println!("Failed to decode ServerMessage: {}", e);
+    // decodes all of the messages from the websocket
+    pub async fn listen(
+        client: Arc<Mutex<Client>>,
+        mut read: futures_util::stream::SplitStream<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>
+    ) {
+        while let Some(msg) = read.next().await {
+            match msg {
+                Ok(WsMessage::Binary(bin)) => {
+                    match t4proto::v1::service::ServerMessage::decode(&*bin) {
+                        Ok(server_msg) => {
+                            println!("{:?}", server_msg);
+                            let mut client = client.lock().await;
+                            client.process_server_message(server_msg).await;
+                        }
+                        Err(e) => {
+                            println!("Failed to decode ServerMessage: {}", e);
+                        }
                     }
                 }
+                Ok(WsMessage::Close(_)) => {
+                    println!("Server closed connection");
+                    break;
+                }
+                Err(e) => {
+                    println!("WebSocket error: {}", e);
+                    break;
+                }
+                _ => {}
             }
-            Ok(WsMessage::Close(_)) => {
-                println!("Server closed connection");
-                break;
-            }
-            Err(e) => {
-                println!("WebSocket error: {}", e);
-                break;
-            }
-            _ => {}
         }
     }
-}
 
     pub fn handle_login(&mut self, message: t4proto::v1::auth::LoginResponse) {
         // Successful connection = 0
@@ -269,6 +272,7 @@ pub async fn listen(
     }
 
     /// Send LoginRequest protobuf wrapped in ClientMessage
+    /// necessary for websocket connection
     async fn authenticate(
         &self,
         write: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>>>,
@@ -282,7 +286,7 @@ pub async fn listen(
             app_name: self.config.app_name.clone(),
             app_license: self.config.app_license.clone(),
             api_key: String::new(),
-            price_format: self.config.priceFormat.unwrap_or(0) as i32,
+            price_format: self.config.price_format.unwrap_or(0) as i32,
         };
 
         let client_msg = create_client_message(ClientPayload::LoginRequest(login_info));
@@ -298,6 +302,7 @@ pub async fn listen(
         println!("Login request sent!");
     }
 
+    //sends a heartbeat every 20 seconds. 
      fn start_heartbeat(
         &self,
         write: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WsMessage>>>,
@@ -402,6 +407,7 @@ pub async fn listen(
         Ok(json.get("marketID").and_then(|v| v.as_str()).map(|s| s.to_string()))
     }
 
+    
     pub async fn subscribe_account(&mut self, account_id: &str) -> anyhow::Result<()> {
         // TODO: when gui is made, we check if it's the account the user selected
         // if let Some(selected) = &self.selected_account {
@@ -452,6 +458,8 @@ pub async fn listen(
         Ok(())
 
 }
+
+    //subscribes to a given market given an exchange id, contract id, and market id (websocket message)
     pub async fn subscribe_market(&mut self, exchange_id: &str, contract_id: &str, market_id: &str) -> anyhow::Result<()> {
 
         let _key = format!("{}_{}_{}", exchange_id, contract_id, market_id);
@@ -513,6 +521,8 @@ pub async fn listen(
 
         Ok(())
     }
+
+    //loads all of the available exchanges with the T4 api (rest api call)
     pub async fn load_exchanges(&mut self) -> anyhow::Result<()> {
         let mut headers = reqwest::header::HeaderMap::new(); //user the headers map from the reqwest library
         headers.insert("Content-Type", "application/json".parse()?);
@@ -533,16 +543,42 @@ pub async fn listen(
             anyhow::bail!("HTTP {}: {}", res.status(), res.text().await?);
         }
 
-        let mut exchanges: Vec<Value> = res.json().await?;
+        let exchanges: Vec<Value> = res.json().await?;
         println!("{:?}", exchanges);
-     //   exchanges.sort_by(|a, b| a.description.cmp(&b.description));
-      //  println!("{}", exchanges);
-        // Store in the client struct (you should have a field for this)
-        //self.exchanges = exchanges;
 
         Ok(())
     }
+    
+    //loads all contracts given the exchange id (rest api call)
+    pub async fn load_contracts_for_exchange(&mut self, exchange_id: &str) -> Result<()> {
+        let mut headers = reqwest::header::HeaderMap::new(); //user the headers map from the reqwest library
+        headers.insert("Content-Type", "application/json".parse()?);
 
+
+            // Set Authorization header
+        if !self.config.api_key.is_empty(){
+            headers.insert("Authorization", format!("APIKey {}", self.config.api).parse()?);
+        } else {
+            let token = self.get_auth_token().await?;
+            headers.insert("Authorization", format!("Bearer {}", token).parse()?);
+        }
+
+        let client = HttpClient::new();
+        let url = format!("{}/markets/contracts?exchangeID={}",self.config.api, exchange_id);
+
+        let res = client.get(&url).headers(headers).send().await?;
+
+        println!("test");
+        if res.status() != 200 {
+            anyhow::bail!("HTTP {}: {}", res.status(), res.text().await?);
+        }
+
+        let contracts: Vec<Value> = res.json().await?;
+        println!("contracts-> {:?}", contracts);
+
+        Ok(())
+
+    }
     // pub async fn submit_order(
     //     &mut self,
     //     side: &str,

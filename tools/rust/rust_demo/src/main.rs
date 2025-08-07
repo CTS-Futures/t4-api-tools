@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Main thread continues
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // Get Market ID
+    // Get Market ID of 12 hour delayed Futures: 10 year note(ZN)
     let market_id_opt = {
         let mut c = client.lock().await;
         c.get_market_id("DL_12h", "ZN").await?
@@ -49,18 +49,18 @@ async fn main() -> anyhow::Result<()> {
     };
     println!("Got Market ID: {:?}", market_id);
 
-    // Get account ID
+    // Get account ID -> parse it out of the login response and store in variable
     let account_id = {
         let c = client.lock().await;
         c.get_first_account_id().unwrap()
     };
     println!("account_id: {:?}", account_id);
 
-    // // Subscribe to account
-    // {
-    //     let mut c = client.lock().await;
-    //     c.subscribe_account(&account_id).await?;
-    // }
+    // Subscribe to account
+    {
+        let mut c = client.lock().await;
+        c.subscribe_account(&account_id).await?;
+    }
 
     {
         let mut c = client.lock().await;
@@ -71,6 +71,10 @@ async fn main() -> anyhow::Result<()> {
         c.load_exchanges().await?;
     }
 
+    {
+        let mut c = client.lock().await;
+        c.load_contracts_for_exchange("CME_CL").await?; //loads all the contracts for the NYMEX CRUDE OIL FUTURES
+    }
     
    
 // Spawn the listener
