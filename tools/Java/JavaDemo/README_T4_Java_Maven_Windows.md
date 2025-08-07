@@ -23,6 +23,14 @@ This Java project is a GUI-based trading client for the T4 API, using JavaFX and
 - JavaFX SDK downloaded
 - Protobuf-generated Java files from the T4 API (`.proto` → `.java`)
 
+### 📦 How to Install Java 17 (JDK)
+
+1. Go to the official [Oracle JDK Downloads](https://www.oracle.com/java/technologies/javase/jdk17-archive-downloads.html) or [Adoptium](https://adoptium.net/).
+2. Download the Windows `.msi` or `.zip` installer for Java 17+.
+3. Run the installer or extract and set `JAVA_HOME` manually.
+4. Add Java to your `PATH`:
+   - Open PowerShell or CMD and run: `java -version` and `javac -version` to confirm installation.
+
 ---
 
 ## ⚙️ Configuration
@@ -83,7 +91,7 @@ Your `pom.xml` should include:
 </dependencies>
 ```
 
-You also need this plugin to run JavaFX apps:
+And this plugin to launch your app:
 
 ```xml
 <build>
@@ -100,8 +108,6 @@ You also need this plugin to run JavaFX apps:
 </build>
 ```
 
-> If you get errors about missing `javafx.graphics` or modules, configure `--module-path` and `--add-modules` in the `exec` plugin.
-
 ---
 
 ## 🖥️ GUI Features
@@ -117,15 +123,16 @@ You also need this plugin to run JavaFX apps:
 
 ## 📌 Notes
 
-- Fully real-time via WebSocket; REST used for metadata
-- GUI built entirely in JavaFX
-- Requires working T4 API credentials and a valid trading account
+- Realized/unrealized **P&L values** are not calculated using the latest method yet.
+- Every **order leg** is shown when submitting a bracket order (including TP/SL).
+- Market prices (best bid, best ask, last trade) are currently displayed **without decimal formatting**.
+- Order prices are not yet **snapped to the closest valid tick increment** (e.g., bid price granularity).
 
 ---
 
 ## 📞 Contact
 
-For support or access, contact **Plus500 US R&D**:
+For support or API credentials, contact **Plus500 US R&D**:
 
 - 📧 Email: support@plus500.com
 - 🌐 Website: [https://www.plus500.com](https://www.plus500.com)
@@ -134,4 +141,4 @@ For support or access, contact **Plus500 US R&D**:
 
 ## 📦 License
 
-This project is proprietary and intended for internal use within **Plus500 US R&D**. Unauthorized distribution is prohibited.
+This project is proprietary and intended for internal use within **Plus500 US R&D**. Unauthorized distribution is prohibited.a
