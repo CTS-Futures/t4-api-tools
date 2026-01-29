@@ -161,6 +161,7 @@ th {
     max-height: 500px;
 }
 
+
 .market-header-container {
     display: flex;
     justify-content: space-between;
@@ -394,17 +395,9 @@ th {
     color: #ccc;
     background: none;
     opacity: 0.6;
+.log-sent { color: #00ff00; }
+.log-received { color: #ffff00; }
+.log-error { color: #ff0000; }
+.log-info { color: #00ffff; }
 }
 
-/* P&L color coding */
-.positive-pnl {
-    color: green;
-}
-
-.negative-pnl {
-    color: red;
-}
-
-.neutral-pnl {
-    color: black;
-}
