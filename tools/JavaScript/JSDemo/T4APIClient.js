@@ -18,7 +18,8 @@ class T4APIClient {
             heartbeatIntervalMs: 20000,
             messageTimeoutMs: 60000,
             mdExchangeId: T4_CONFIG.mdExchangeId,
-            mdContractId: T4_CONFIG.mdContractId
+            mdContractId: T4_CONFIG.mdContractId,
+            autoSubscribeAccounts: T4_CONFIG.autoSubscribeAccounts === true
         };
 
         // Connection state
@@ -109,6 +110,28 @@ class T4APIClient {
 
     async subscribeAccount(accountId) {
         if (this.selectedAccount === accountId) return;
+
+        if (this.config.autoSubscribeAccounts) {
+            // Subscription is managed at login; dropdown only controls which account orders are submitted to.
+            this.selectedAccount = accountId;
+            this.log(`Account selected: ${accountId}`, 'info');
+
+            // Immediately push updated positions and orders for the new account
+            if (this.onAccountUpdate) {
+                this.onAccountUpdate({
+                    type: 'positions',
+                    positions: Array.from(this.positions.values())
+                });
+                this.onAccountUpdate({
+                    type: 'orders',
+                    orders: Array.from(this.orders.values())
+                        .filter(o => o.accountId === this.selectedAccount)
+                });
+            }
+            return;
+        }
+
+        // Per-account subscription (autoSubscribeAccounts is false)
 
         // Unsubscribe from previous account
         if (this.selectedAccount) {
@@ -214,6 +237,19 @@ class T4APIClient {
             ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO  // 2
             : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;     // 0
 
+        // Get current time in CST
+        const now = new Date();
+        const cstOffset = -6 * 60; // CST is UTC-6 (or -5 for CDT, adjust as needed)
+        const localOffset = now.getTimezoneOffset();
+        const cstTime = new Date(now.getTime() + (localOffset - cstOffset) * 60000);
+
+        // Add 10 seconds
+        const submitTime = new Date(cstTime.getTime() + 10000);
+
+        // Convert to protobuf Timestamp format
+        const seconds = Math.floor(submitTime.getTime() / 1000);
+        const nanos = (submitTime.getTime() % 1000) * 1000000;
+
         // Create orders array with main order first
         const orders = [{
             buySell: buySellValue,
@@ -223,7 +259,14 @@ class T4APIClient {
             // Only set limit price if it's a limit order
             limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
                 ? { value: price.toString() }
-                : null
+                : null,
+            // activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_AT_OR_AFTER_TIME,
+            // activationData: {
+            //     submitTime: {
+            //         seconds: seconds,
+            //         nanos: nanos
+            //     }
+            // }
         }];
 
         // For bracket orders, we need to use the opposite side
@@ -234,8 +277,9 @@ class T4APIClient {
         // Add take profit order if specified
         if (takeProfitDollars !== null) {
 
-            const takeProfitPoints = takeProfitDollars / marketDetails.pointValue.value;
-            const takeProfitPrice = takeProfitPoints * marketDetails.minPriceIncrement.value;
+            //const takeProfitPoints = takeProfitDollars / marketDetails.pointValue.value;
+            // const takeProfitPrice = takeProfitPoints * marketDetails.minPriceIncrement.value;
+            const takeProfitPrice = takeProfitDollars * marketDetails.minPriceIncrement.value;
 
             orders.push({
                 buySell: protectionSide,
@@ -244,16 +288,16 @@ class T4APIClient {
                 volume: 0, // Volume should be 0 for bracket orders
                 limitPrice: { value: takeProfitPrice.toString() },
                 // Hold activation means order is not active until parent order is filled
-                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
-                activationData: "TP"
+                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
             });
         }
 
         // Add stop loss order if specified
         if (stopLossDollars !== null) {
 
-            const stopLossPoints = stopLossDollars / marketDetails.pointValue.value;
-            const stopLossPrice = stopLossPoints * marketDetails.minPriceIncrement.value;
+            // const stopLossPoints = stopLossDollars / marketDetails.pointValue.value;
+            // const stopLossPrice = stopLossPoints * marketDetails.minPriceIncrement.value;
+            const stopLossPrice = stopLossDollars * marketDetails.minPriceIncrement.value;
 
             orders.push({
                 buySell: protectionSide,
@@ -262,8 +306,7 @@ class T4APIClient {
                 volume: 0, // Volume should be 0 for bracket orders
                 stopPrice: { value: stopLossPrice.toString() },
                 // Hold activation means order is not active until parent order is filled
-                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
-                actiavationData: "SL"
+                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
             });
         }
 
@@ -340,6 +383,44 @@ class T4APIClient {
 
         await this.sendMessage(orderRevise);
         this.log(`Order revised: ${orderId} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
+    }
+
+    async flattenPosition(marketId, netPosition) {
+        if (!this.selectedAccount) {
+            throw new Error('No account selected');
+        }
+
+        if (netPosition === 0) {
+            this.log('Flatten: net position is already zero', 'warning');
+            return;
+        }
+
+        // To flatten: sell if long (net > 0), buy if short (net < 0)
+        const buySellValue = netPosition > 0
+            ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL   // -1
+            : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY;   //  1
+
+        const volume = Math.abs(netPosition);
+
+        const orderSubmit = {
+            orderSubmit: {
+                accountId: this.selectedAccount,
+                marketId: marketId,
+                orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE,
+                manualOrderIndicator: true,
+                orders: [{
+                    buySell: buySellValue,
+                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_FLATTEN, // 16
+                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL,
+                    volume: volume
+                }]
+            }
+        };
+
+        await this.sendMessage(orderSubmit);
+
+        const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+        this.log(`Flatten submitted: ${sideText} ${volume} @ Flatten (Market: ${marketId})`, 'info');
     }
 
     handleMessage(event) {
@@ -485,6 +566,20 @@ class T4APIClient {
                 });
             }
 
+            // If autoSubscribeAccounts, subscribe to all accounts immediately upon login
+            if (this.config.autoSubscribeAccounts) {
+
+                this.log('Auto-subscribing to all accounts', 'info');
+
+                this.sendMessage({
+                    accountSubscribe: {
+                        subscribe: 2, // ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES
+                        subscribeAllAccounts: true,
+                        uplMode: 1
+                    }
+                });
+            }
+
             if (this.onAccountUpdate) {
                 this.onAccountUpdate({
                     type: 'accounts',
@@ -561,13 +656,22 @@ class T4APIClient {
 
     handleAccountPosition(position) {
         const key = `${position.accountId}_${position.marketId}`;
+        // Preserve any profit fields already received from AccountPositionProfit
+        const existing = this.positions.get(key);
+        if (existing) {
+            position = {
+                ...position,
+                upl: existing.upl,
+                rpl: existing.rpl,
+                totalPnl: existing.totalPnl
+            };
+        }
         this.positions.set(key, position);
 
         if (this.onAccountUpdate) {
             this.onAccountUpdate({
                 type: 'positions',
                 positions: Array.from(this.positions.values())
-                    .filter(p => p.accountId === this.selectedAccount)
             });
         }
     }
@@ -597,7 +701,7 @@ class T4APIClient {
         // Update with profit data
         position.upl = positionProfit.uplTrade;
         position.rpl = positionProfit.rpl;
-        position.totalPnl = (position.upl || 0) + (position.rpl || 0);
+        position.totalPnl = position.upl + position.rpl;
 
         // Store updated position
         this.positions.set(key, position);
@@ -615,18 +719,14 @@ class T4APIClient {
             marketInfo = ` (Bid: ${bestBid}, Offer: ${bestOffer}, Last: ${lastTrade})`;
         }
 
-        // Log P&L values with market ID and market info - fixed property access
-        this.log(`Position P&L update - Market: ${positionProfit.marketId}${marketInfo}, 
-        UPL: ${positionProfit.upl}, 
-        RPL: ${positionProfit.rpl}, 
-        Total P&L: ${positionProfit.upl + positionProfit.rpl}`,
+        // Log P&L values with market ID and market info
+        this.log(`Position P&L update - Market: ${positionProfit.marketId}${marketInfo}, UPL: ${positionProfit.uplTrade}, RPL: ${positionProfit.rpl}, Total P&L: ${positionProfit.uplTrade + positionProfit.rpl}`,
             'info');
 
         if (this.onAccountUpdate) {
             this.onAccountUpdate({
                 type: 'positions',
                 positions: Array.from(this.positions.values())
-                    .filter(p => p.accountId === this.selectedAccount)
             });
         }
     }
@@ -753,7 +853,7 @@ class T4APIClient {
             });
         }
 
-        if (updatesProcessed != updateMulti.updates.length) {
+        if (updatesProcessed !== updateMulti.updates.length) {
             this.log(`Order update multi received: ${updateMulti.uniqueId}, updates: ${updateMulti.updates.length}, processed: ${updatesProcessed}`, 'error');
         } else {
             this.log(`Order update multi received: ${updateMulti.uniqueId}, updates: ${updateMulti.updates.length}, processed: ${updatesProcessed}`, 'info');
@@ -1049,6 +1149,10 @@ class T4APIClient {
     handleConnectionStatusChanged(connected) {
         this.isConnected = connected;
 
+        if (!connected) {
+            this.selectedAccount = null;
+        }
+
         if (this.onConnectionStatusChanged) {
             this.onConnectionStatusChanged({
                 isConnected: connected,
@@ -1124,8 +1228,7 @@ class T4APIClient {
     }
 
     getPositions() {
-        return Array.from(this.positions.values())
-            .filter(p => p.accountId === this.selectedAccount);
+        return Array.from(this.positions.values());
     }
 
     getOrders() {

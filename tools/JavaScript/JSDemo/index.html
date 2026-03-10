@@ -100,10 +100,13 @@
             <table id="positionsTable">
                 <thead>
                 <tr>
+                    <th>Account</th>
                     <th>Market</th>
                     <th>Net</th>
                     <th>P&L</th>
+                    <th>UP&L</th>
                     <th>Working</th>
+                    <th>Action</th>
                 </tr>
                 </thead>
                 <tbody></tbody>
@@ -275,28 +278,41 @@
             elements.positionsTable.innerHTML = '';
             positions.forEach(position => {
                 const row = document.createElement('tr');
-                const net = position.buys - position.sells;
-                const pnl = position.totalPnl !== undefined ? position.totalPnl.toFixed(2) :
-                    (position.rpl ? position.rpl.toFixed(2) : '0.00');
+                const buys = position.buys ?? 0;
+                const sells = position.sells ?? 0;
+                const net = buys - sells;
+                const workingBuys = position.workingBuys ?? 0;
+                const workingSells = position.workingSells ?? 0;
 
-                // Determine the color class based on P&L value
-                let pnlColor = '';
-                const pnlValue = parseFloat(pnl);
-                if (pnlValue < 0) {
-                    pnlColor = 'negative-pnl';
-                } else if (pnlValue > 0) {
-                    pnlColor = 'positive-pnl';
-                } else {
-                    pnlColor = 'neutral-pnl';
-                }
+                const pnlValue = position.totalPnl ?? 0;
+                const pnl = pnlValue.toFixed(2);
+                const pnlColor = pnlValue < 0 ? 'negative-pnl' : pnlValue > 0 ? 'positive-pnl' : 'neutral-pnl';
+
+                const uplValue = position.upl ?? 0;
+                const uplColor = uplValue < 0 ? 'negative-pnl' : uplValue > 0 ? 'positive-pnl' : 'neutral-pnl';
+
+                const accountInfo = client.accounts.get(position.accountId);
+                const accountDisplay = accountInfo ? (accountInfo.accountName || accountInfo.displayName || position.accountId) : position.accountId;
 
                 row.innerHTML = `
+                    <td>${accountDisplay}</td>
                     <td>${position.marketId}</td>
                     <td>${net}</td>
                     <td class="${pnlColor}">$${pnl}</td>
-                    <td>${position.workingBuys}/${position.workingSells}</td>
+                    <td class="${uplColor}">$${uplValue.toFixed(2)}</td>
+                    <td>${workingBuys}/${workingSells}</td>
+                    <td>
+                        <button class="action-btn flatten-btn" ${net === 0 ? 'disabled' : ''} data-market-id="${position.marketId}" data-net="${net}">
+                            <i class="fas fa-compress-arrows-alt"></i>
+                        </button>
+                    </td>
                 `;
                 elements.positionsTable.appendChild(row);
+
+                if (net !== 0) {
+                    const flattenBtn = row.querySelector('.flatten-btn');
+                    flattenBtn.addEventListener('click', () => client.flattenPosition(position.marketId, net));
+                }
             });
         }
 
