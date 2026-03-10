@@ -43,6 +43,8 @@ class T4APIClient {
         // Order/Position tracking
         this.positions = new Map();
         this.orders = new Map();
+        this.accountProfits = new Map();
+        this.accountUpdates = new Map();
 
         // Heartbeat management
         this.heartbeatTimer = null;
@@ -100,6 +102,8 @@ class T4APIClient {
             this.ws = null;
         }
 
+        this.accountProfits.clear();
+        this.accountUpdates.clear();
         this.handleConnectionStatusChanged(false);
         this.log('Disconnected', 'info');
     }
@@ -385,9 +389,9 @@ class T4APIClient {
         this.log(`Order revised: ${orderId} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
     }
 
-    async flattenPosition(marketId, netPosition) {
-        if (!this.selectedAccount) {
-            throw new Error('No account selected');
+    async flattenPosition(accountId, marketId, netPosition) {
+        if (!accountId) {
+            throw new Error('No account specified for flatten');
         }
 
         if (netPosition === 0) {
@@ -404,7 +408,7 @@ class T4APIClient {
 
         const orderSubmit = {
             orderSubmit: {
-                accountId: this.selectedAccount,
+                accountId: accountId,
                 marketId: marketId,
                 orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE,
                 manualOrderIndicator: true,
@@ -652,6 +656,18 @@ class T4APIClient {
 
     handleAccountDetails(details) {
         this.log(`Account details received: ${details.accountId}`, 'info');
+
+        // Store or update the account in the accounts map
+        const existing = this.accounts.get(details.accountId);
+        this.accounts.set(details.accountId, { ...existing, ...details });
+
+        // Notify UI so accounts table and positions table are refreshed
+        if (this.onAccountUpdate) {
+            this.onAccountUpdate({
+                type: 'accounts',
+                accounts: Array.from(this.accounts.values())
+            });
+        }
     }
 
     handleAccountPosition(position) {
@@ -677,7 +693,20 @@ class T4APIClient {
     }
 
     handleAccountProfit(accountProfit) {
-        // Display the account profit, if wanted.
+        // Store account profit data for display in the accounts table
+        const existing = this.accountProfits.get(accountProfit.accountId) || {};
+        this.accountProfits.set(accountProfit.accountId, {
+            ...existing,
+            accountId: accountProfit.accountId,
+            balance: accountProfit.balance ?? existing.balance ?? 0,
+            rpl: accountProfit.rpl ?? existing.rpl ?? 0,
+            upl: accountProfit.uplTrade ?? accountProfit.upl ?? existing.upl ?? 0,
+            totalPnl: (accountProfit.rpl ?? existing.rpl ?? 0) + (accountProfit.uplTrade ?? accountProfit.upl ?? existing.upl ?? 0)
+        });
+
+        if (this.onAccountUpdate) {
+            this.onAccountUpdate({ type: 'accountProfit', accountId: accountProfit.accountId });
+        }
     }
 
     handleAccountPositionProfit(positionProfit) {
@@ -732,8 +761,13 @@ class T4APIClient {
     }
 
     handleAccountUpdate(update) {
-        // TODO: Display account information (balance, p&l, etc.)
-        //this.log(`Account update received: ${update.accountId}`, 'info');
+        if (update.accountId) {
+            this.accountUpdates.set(update.accountId, update);
+            this.log(`Account update received: ${update.accountId}`, 'info');
+        }
+        if (this.onAccountUpdate) {
+            this.onAccountUpdate({ type: 'accountUpdate', accountId: update.accountId });
+        }
     }
 
     handleMarketDepth(depth) {
@@ -759,12 +793,10 @@ class T4APIClient {
 
 
     handleMarketDepthTrade(trade) {
-        this.log(`Market Trade: ${trade.marketId} : ${trade.lastTradeVolume} @ ${trade.lastTradePrice.value}, TTV: ${trade.totalTradedVolume}`, 'info');
-    }
-
-    handleMarketDepthTrade(trade) {
-
-        this.log(`Market Trade: ${trade.marketId} : ${trade.LastTradeVolume} @ ${trade.LastTradePrice}, TTV: ${trade.TotalTradedVolume}`, 'info');
+        const price = trade.lastTradePrice ? trade.lastTradePrice.value : '-';
+        const volume = trade.lastTradeVolume ?? '-';
+        const ttv = trade.totalTradedVolume ?? '-';
+        this.log(`Market Trade: ${trade.marketId} : ${volume} @ ${price}, TTV: ${ttv}`, 'info');
     }
 
     handleMarketByOrderSnapshot(snashot) {
@@ -1161,10 +1193,9 @@ class T4APIClient {
         }
     }
 
-    // Message Encoding/Decoding (Simplified - needs proper protobuf implementation)
+    // Message Encoding/Decoding
     encodeMessage(message) {
-        const clientMessage = T4Proto.ClientMessageHelper.createClientMessage(message);
-        return T4Proto.encodeMessage(clientMessage);
+        return T4Proto.encodeMessage(message);
     }
 
     decodeMessage(data) {
@@ -1287,13 +1318,8 @@ class T4APIClient {
     }
 
     generateUUID() {
-
-        // *** TODO: Replace this. We don't need a UUID and can be simple for the demo app. ***
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-            const r = Math.random() * 16 | 0;
-            const v = c == 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-        });
+        // Simple unique ID for the demo app using timestamp + random suffix
+        return `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     }
 }
 
