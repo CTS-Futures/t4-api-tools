@@ -3,13 +3,13 @@ import time
 import websockets
 from tools.ClientMessageHelper import ClientMessageHelper
 from tools.ProtoUtils import encode_message, decode_message
-from proto.t4.v1.auth import auth_pb2
-from proto.t4.v1 import service_pb2
-from proto.t4.v1.market import market_pb2
-from proto.t4.v1.common.enums_pb2 import DepthBuffer, DepthLevels, PriceType, BuySell, OrderLink, TimeType, ActivationType
-from proto.t4.v1.common.price_pb2 import Price
-from proto.t4.v1.account import account_pb2
-from proto.t4.v1.orderrouting import orderrouting_pb2
+from proto.t4.v2.auth import auth_pb2
+from proto.t4.v2 import service_pb2
+from proto.t4.v2.market import market_pb2
+from proto.t4.v2.common.enums_pb2 import DepthBuffer, DepthLevels, PriceType, BuySell, OrderLink, TimeType, ActivationType
+from proto.t4.v2.common.price_pb2 import Price
+from proto.t4.v2.account import account_pb2
+from proto.t4.v2.orderrouting import orderrouting_pb2
 from google.protobuf.json_format import MessageToDict
 import uuid
 import httpx
@@ -375,6 +375,7 @@ class Client:
     #this sends each message to its corresponding handler
     def handle_order_update_multi(self, update_multi):
         updates_processed = 0
+        print(update_multi)
         if update_multi.updates:
             for update in update_multi.updates:
                 if update.HasField("order_update"):
@@ -468,7 +469,7 @@ class Client:
     def process_server_message(self, msg):
         
         msg = decode_message(msg)
-       
+        
         if not hasattr(msg, 'WhichOneof'):
             print("[process_server_message] msg has no WhichOneof: ", msg)
             return
@@ -499,10 +500,16 @@ class Client:
             case "market_depth":
                 self.handle_market_depth(msg.market_depth)
             case "order_update_multi":
-                self.handle_order_update_multi(msg.order_update_multi)
+                print(msg)
+            #    self.handle_order_update_multi(msg.order_update_multi)
             case "order_update":
-                self.handle_order_update(msg.order_update)
+                print("this is the new orde update")
+                print("\n")
+                print(msg.order_update)
+                print("\n  ")
+              #  self.handle_order_update(msg.order_update)
             case _:
+                print(msg)
                 print("unknown message type")
 
     #will continuously send heartbeats until connection breaks

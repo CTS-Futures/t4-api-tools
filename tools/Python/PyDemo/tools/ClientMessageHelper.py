@@ -1,17 +1,20 @@
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'proto'))) #line subject to change. due to this file not being in the same folder as "proto"
-from proto.t4.v1 import service_pb2 #utilizes service.proto
+
+from proto.t4.v2 import service_pb2 as service_pb2_v2  # v2 for everything else
 
 class ClientMessageHelper:
     @staticmethod
-    def create_client_message(message_dict: dict) -> service_pb2.ClientMessage: #returns a protobuf readable by the websocket api (client message)
-        client_message = service_pb2.ClientMessage()
-
+    def create_client_message(message_dict: dict):  #returns a protobuf readable by the websocket api (client message)
         if not message_dict:
             raise ValueError("Empty message dictionary")
 
         key = next(iter(message_dict))
+
+        # Use v1 for authentication messages, v2 for everything else
+       
+        client_message = service_pb2_v2.ClientMessage()
 
         match key:
             case "login_request":
