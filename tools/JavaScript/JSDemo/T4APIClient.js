@@ -165,10 +165,19 @@ class T4APIClient {
                 exchangeId,
                 contractId,
                 marketId,
-                buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART_TRADE,
+                buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART,
                 depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_BEST_ONLY
             }
         });
+
+        // await this.sendMessage({
+        //     marketByOrderSubscribe: {
+        //         exchangeId,
+        //         contractId,
+        //         marketId,
+        //         subscribe: true
+        //     }
+        // });
 
         this.log(`Subscribed to market: ${marketId}`, 'info');
     }
@@ -255,6 +264,7 @@ class T4APIClient {
                 limitPrice: { value: takeProfitLimitPrice.toString() }, // AOCO = distance in ticks, AOCO_P = actual price
                 // Hold activation means order is not active until parent order is filled
                 activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
+                activationData: "TP"
             });
         }
 
@@ -288,20 +298,21 @@ class T4APIClient {
                     stopPrice: { value: stopLossStopPrice.toString() }, // Price at which the stop order will trigger. For a trailing stop, this price will adjust as the market moves in your favor.
                     trailDistance: { value: Math.abs(stopLossPoints).toFixed(priceDecimals) }, // Trail distance in the correct price format                 
                     activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD,    // Hold activation means order is not active until parent order is filled
+                    activationData: "SL-TRAIL"
                 });
 
             } else {
 
-                orders.push({
-                    buySell: protectionSide,
-                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
-                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
-                    volume: 0, // Volume should be 0 for bracket orders
-                    stopPrice: { value: stopLossStopPrice.toString() }, // AOCO = distance in ticks, AOCO_P = actual price
-                    // Hold activation means order is not active until parent order is filled
-                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
-                });
-            }
+            orders.push({
+                buySell: protectionSide,
+                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
+                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                volume: 0, // Volume should be 0 for bracket orders
+                stopPrice: { value: stopLossPrice.toString() },
+                // Hold activation means order is not active until parent order is filled
+                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
+                activationData: "SL"
+            });
         }
 
         // Create the order submit message
@@ -476,6 +487,10 @@ class T4APIClient {
             this.handleMarketDepth(message.marketDepth);
         } else if (message.marketDepthTrade) {
             this.handleMarketDepthTrade(message.marketDepthTrade);
+        } else if (message.marketByOrderSnapshot) {
+            this.handleMarketByOrderSnapshot(message.marketByOrderSnapshot);
+        } else if (message.marketByOrderUpdate) {
+            this.handleMarketByOrderUpdate(message.marketByOrderUpdate);
         } else if (message.orderUpdate) {
             this.handleOrderUpdate(message.orderUpdate);
         } else if (message.accountSnapshot) {
@@ -693,6 +708,21 @@ class T4APIClient {
 
     handleMarketDepthTrade(trade) {
         this.log(`Market Trade: ${trade.marketId} : ${trade.lastTradeVolume} @ ${trade.lastTradePrice.value}, TTV: ${trade.totalTradedVolume}`, 'info');
+    }
+
+    handleMarketDepthTrade(trade) {
+
+        this.log(`Market Trade: ${trade.marketId} : ${trade.LastTradeVolume} @ ${trade.LastTradePrice}, TTV: ${trade.TotalTradedVolume}`, 'info');
+    }
+
+    handleMarketByOrderSnapshot(snashot) {
+
+        this.log(`MBO Snapshot: ${snashot.marketId}`, 'info');
+    }
+
+    handleMarketByOrderUpdate(update) {
+
+        this.log(`MBO Update: ${update.marketId}`, 'info');
     }
 
     updateMarketHeader(contractId, expiryDate) {
