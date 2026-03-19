@@ -251,7 +251,7 @@ class T4APIClient {
             // TP in absolute price terms for AOCO_P or display purposes
             const takeProfitAbsolutePrice = price + takeProfitPoints;
 
-            // AOCO uses distance in ticks, AOCO_P uses the actual price
+            // AOCO uses distance in price, AOCO_P uses the actual price
             const takeProfitLimitPrice = (orderLinkValue === T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)
                 ? takeProfitPoints
                 : takeProfitAbsolutePrice;
@@ -261,7 +261,7 @@ class T4APIClient {
                 priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT, // Limit for take profit. Could also use other orders types depending on strategy e.g. Market if touched.
                 timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
                 volume: 0, // Volume should be 0 for bracket orders
-                limitPrice: { value: takeProfitLimitPrice.toString() }, // AOCO = distance in ticks, AOCO_P = actual price
+                limitPrice: { value: takeProfitLimitPrice.toString() }, // AOCO = distance in price, AOCO_P = actual price
                 // Hold activation means order is not active until parent order is filled
                 activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
                 activationData: "TP"
@@ -282,7 +282,7 @@ class T4APIClient {
             // Stop loss in absolute price terms for AOCO_P or display purposes
             const stopLossAbsolutePrice = price + stopLossPoints;
 
-            // AOCO uses distance in ticks, AOCO_P uses the actual price
+            // AOCO uses distance in price, AOCO_P uses the actual price
             const stopLossStopPrice = (orderLinkValue === T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)
                 ? stopLossPoints
                 : stopLossAbsolutePrice;
