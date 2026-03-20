@@ -98,6 +98,10 @@
             <div class="form-group">
                 <label for="stopLossPrice">Stop Loss ($):</label>
                 <input type="number" id="stopLossPrice" step="1" placeholder="Optional">
+                <div class="trailing-toggle">
+                    <input type="checkbox" id="trailingStopToggle">
+                    <label for="trailingStopToggle">Trailing</label>
+                </div>
             </div>
             <div class="form-group submit-btn-container">
                 <button id="submitOrderBtn" class="submit-order-btn">Submit Order</button>
@@ -478,11 +482,13 @@
                 // Get take profit and stop loss values if provided
                 const takeProfitElement = document.getElementById('takeProfitPrice');
                 const stopLossElement = document.getElementById('stopLossPrice');
+                const trailingStopElement = document.getElementById('trailingStopToggle');
 
                 const takeProfit = takeProfitElement && takeProfitElement.value ? parseFloat(takeProfitElement.value) : null;
                 const stopLoss = stopLossElement && stopLossElement.value ? parseFloat(stopLossElement.value) : null;
+                const trailingStop = trailingStopElement ? trailingStopElement.checked : false;
 
-                await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss);
+                await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss, trailingStop);
             } catch (error) {
                 log(`Order submission error: ${error.message}`, 'error');
             }

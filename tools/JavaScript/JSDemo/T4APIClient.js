@@ -184,7 +184,7 @@ class T4APIClient {
             this.currentSubscription = null;
         }
 
-        this.currentSubscription = {exchangeId, contractId, marketId};
+        this.currentSubscription = { exchangeId, contractId, marketId };
         this.currentMarketId = marketId;
 
         await this.sendMessage({
@@ -216,7 +216,7 @@ class T4APIClient {
         this.startHeartbeat();
     }
 
-    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null) {
+    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false) {
         if (!this.selectedAccount || !this.currentMarketId) {
             throw new Error('No account or market selected');
         }
@@ -278,19 +278,37 @@ class T4APIClient {
             ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL
             : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY;
 
+        // Select the correct decimals based on price format:
+        // 0 = Decimal format (use decimals), 1 = Real format (use realDecimals)
+        const priceDecimals = (this.config.priceFormat === 0)
+            ? marketDetails.decimals
+            : marketDetails.realDecimals;
+
         // Add take profit order if specified
         if (takeProfitDollars !== null) {
 
-            //const takeProfitPoints = takeProfitDollars / marketDetails.pointValue.value;
-            // const takeProfitPrice = takeProfitPoints * marketDetails.minPriceIncrement.value;
-            const takeProfitPrice = takeProfitDollars * marketDetails.minPriceIncrement.value;
+            // Calc how many points the take profit is from the entry price based on the dollar amount, contract multiplier, and point value
+            let takeProfitPoints = (Math.abs(takeProfitDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+
+            // Buy main order: TP is above fill (add), Sell main order: TP is below fill (subtract)
+            takeProfitPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
+                ? takeProfitPoints
+                : -takeProfitPoints;
+
+            // TP in absolute price terms for AOCO_P or display purposes
+            const takeProfitAbsolutePrice = price + takeProfitPoints;
+
+            // AOCO uses distance in price, AOCO_P uses the actual price
+            const takeProfitLimitPrice = (orderLinkValue === T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)
+                ? takeProfitPoints
+                : takeProfitAbsolutePrice;
 
             orders.push({
                 buySell: protectionSide,
-                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT, // Always limit for take profit
+                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT, // Limit for take profit. Could also use other orders types depending on strategy e.g. Market if touched.
                 timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
                 volume: 0, // Volume should be 0 for bracket orders
-                limitPrice: { value: takeProfitPrice.toString() },
+                limitPrice: { value: takeProfitLimitPrice.toString() }, // AOCO = distance in price, AOCO_P = actual price
                 // Hold activation means order is not active until parent order is filled
                 activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
             });
@@ -299,9 +317,37 @@ class T4APIClient {
         // Add stop loss order if specified
         if (stopLossDollars !== null) {
 
-            // const stopLossPoints = stopLossDollars / marketDetails.pointValue.value;
-            // const stopLossPrice = stopLossPoints * marketDetails.minPriceIncrement.value;
-            const stopLossPrice = stopLossDollars * marketDetails.minPriceIncrement.value;
+            // Calc how many points the stop loss is from the entry price based on the dollar amount, contract multiplier, and point value
+            let stopLossPoints = (Math.abs(stopLossDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+
+            // Buy main order: SL is below fill (-), Sell main order: SL is above fill (+)
+            stopLossPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
+                ? - stopLossPoints // Stop loss distance below entry for buy orders
+                : + stopLossPoints; // Stop loss distance above entry for sell orders
+
+            // Stop loss in absolute price terms for AOCO_P or display purposes
+            const stopLossAbsolutePrice = price + stopLossPoints;
+
+            // AOCO uses distance in price, AOCO_P uses the actual price
+            const stopLossStopPrice = (orderLinkValue === T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)
+                ? stopLossPoints
+                : stopLossAbsolutePrice;
+
+            if (trailingStop) {
+                                          
+                // Trailing stop:
+                orders.push({
+                    buySell: protectionSide,
+                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Example using stop market for trailing stop. Depending on strategy could also use STOP_LIMIT or other order types.
+                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                    volume: 0,
+                    stopPrice: { value: stopLossStopPrice.toString() }, // Price at which the stop order will trigger. For a trailing stop, this price will adjust as the market moves in your favor.
+                    trailDistance: { value: Math.abs(stopLossPoints).toFixed(priceDecimals) }, // Trail distance in the correct price format                 
+                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD,    // Hold activation means order is not active until parent order is filled
+                    activationData: "SL-TRAIL"
+                });
+
+            } else {
 
             orders.push({
                 buySell: protectionSide,
@@ -310,7 +356,8 @@ class T4APIClient {
                 volume: 0, // Volume should be 0 for bracket orders
                 stopPrice: { value: stopLossPrice.toString() },
                 // Hold activation means order is not active until parent order is filled
-                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
+                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
+                activationData: "SL"
             });
         }
 
@@ -339,7 +386,7 @@ class T4APIClient {
         }
 
         if (stopLossDollars !== null) {
-            this.log(`Stop loss: $${stopLossDollars} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+            this.log(`Stop loss: $${stopLossDollars}${trailingStop ? ' (Trailing)' : ''} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (hasBracketOrders) {
@@ -488,7 +535,7 @@ class T4APIClient {
     async authenticate() {
         const loginRequest = {
             loginRequest: this.config.apiKey ?
-                {apiKey: this.config.apiKey} :
+                { apiKey: this.config.apiKey } :
                 {
                     firm: this.config.firm,
                     username: this.config.userName,
@@ -638,7 +685,7 @@ class T4APIClient {
 
         // Resolve pending token request
         if (this.tokenResolvers && token.requestId && this.tokenResolvers.has(token.requestId)) {
-            const {resolve} = this.tokenResolvers.get(token.requestId);
+            const { resolve } = this.tokenResolvers.get(token.requestId);
             this.tokenResolvers.delete(token.requestId);
             resolve(token.token);
         }
@@ -1205,7 +1252,7 @@ class T4APIClient {
     // Market Data API
     async getMarketId(exchangeId, contractId) {
         try {
-            const headers = {'Content-Type': 'application/json'};
+            const headers = { 'Content-Type': 'application/json' };
 
             if (this.config.apiKey) {
                 headers['Authorization'] = `APIKey ${this.config.apiKey}`;
@@ -1218,7 +1265,7 @@ class T4APIClient {
 
             const response = await fetch(
                 `${this.config.apiUrl}/markets/picker/firstmarket?exchangeid=${exchangeId}&contractid=${contractId}`,
-                {headers}
+                { headers }
             );
 
             if (!response.ok) {
@@ -1305,7 +1352,7 @@ class T4APIClient {
         // Wait for response (handled in processServerMessage)
         return new Promise((resolve, reject) => {
             this.tokenResolvers = this.tokenResolvers || new Map();
-            this.tokenResolvers.set(requestId, {resolve, reject});
+            this.tokenResolvers.set(requestId, { resolve, reject });
 
             // Timeout after 30 seconds
             setTimeout(() => {
