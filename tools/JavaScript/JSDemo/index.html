@@ -14,18 +14,30 @@
 <div class="container">
     <!-- Connection Status & Account Selection -->
     <div class="section full-width">
-        <h2>Connection & Account</h2>
-        <div class="status">
-            <div class="status-indicator" id="connectionStatus"></div>
-            <span id="connectionText">Disconnected</span>
-        </div>
-        <div class="account-selector">
-            <label for="accountSelect">Account: </label>
-            <select id="accountSelect" disabled>
-                <option value="">Select Account...</option>
-            </select>
-            <button id="connectBtn">Connect</button>
-            <button id="disconnectBtn" disabled>Disconnect</button>
+        <h2 class="connection-header">
+            <span class="connection-header-left">
+                <span class="status-indicator" id="connectionStatus"></span>
+                <span id="connectionText">Disconnected</span>
+            </span>
+            <span class="connection-header-right">
+                <button id="connectBtn">Connect</button>
+                <button id="disconnectBtn" disabled>Disconnect</button>
+            </span>
+        </h2>
+        <div class="table-container" id="accountTableContainer">
+            <table id="accountsTable">
+                <thead>
+                <tr>
+                    <th class="account-active-col"></th>
+                    <th>Account</th>
+                    <th>Status</th>
+                    <th>Balance</th>
+                    <th>P&L</th>
+                    <th>UP&L</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
         </div>
     </div>
 
@@ -100,10 +112,13 @@
             <table id="positionsTable">
                 <thead>
                 <tr>
+                    <th>Account</th>
                     <th>Market</th>
                     <th>Net</th>
                     <th>P&L</th>
+                    <th>UP&L</th>
                     <th>Working</th>
+                    <th>Action</th>
                 </tr>
                 </thead>
                 <tbody></tbody>
@@ -153,7 +168,7 @@
         const elements = {
             connectionStatus: document.getElementById('connectionStatus'),
             connectionText: document.getElementById('connectionText'),
-            accountSelect: document.getElementById('accountSelect'),
+            accountsTable: document.getElementById('accountsTable').querySelector('tbody'),
             connectBtn: document.getElementById('connectBtn'),
             disconnectBtn: document.getElementById('disconnectBtn'),
             marketDataHeader: document.getElementById('marketDataHeader'),
@@ -189,6 +204,10 @@
                 updatePositionsTable(update.positions);
             } else if (update.type === 'orders') {
                 updateOrdersTable(update.orders);
+            } else if (update.type === 'accountProfit') {
+                renderAccountsTable();
+            } else if (update.type === 'accountUpdate') {
+                renderAccountsTable();
             }
         };
 
@@ -252,18 +271,14 @@
             elements.connectionText.textContent = connected ? 'Connected' : 'Disconnected';
             elements.connectBtn.disabled = connected;
             elements.disconnectBtn.disabled = !connected;
-            elements.accountSelect.disabled = !connected;
             elements.submitOrderBtn.disabled = !connected || !client.selectedAccount;
         }
 
         function updateAccountSelect(accounts) {
-            elements.accountSelect.innerHTML = '<option value="">Select Account...</option>';
-            accounts.forEach(account => {
-                const option = document.createElement('option');
-                option.value = account.accountId;
-                option.textContent = `${account.accountName} (${account.accountId})`;
-                elements.accountSelect.appendChild(option);
-            });
+            renderAccountsTable();
+
+            // Re-render positions table so account names resolve correctly
+            updatePositionsTable(Array.from(client.positions.values()));
 
             // Auto-select first account
             if (accounts.length > 0 && !client.selectedAccount) {
@@ -271,33 +286,117 @@
             }
         }
 
+        function renderAccountsTable() {
+            elements.accountsTable.innerHTML = '';
+            const accounts = client.getAccounts();
+
+            accounts.forEach(account => {
+                const row = document.createElement('tr');
+                const isActive = client.selectedAccount === account.accountId;
+                if (isActive) row.classList.add('active-account-row');
+                row.style.cursor = 'pointer';
+
+                const profitData = client.accountProfits.get(account.accountId);
+                const balance = profitData ? (profitData.balance ?? 0).toFixed(2) : '-';
+                const pnl = profitData ? (profitData.rpl ?? 0).toFixed(2) : '-';
+                const upl = profitData ? (profitData.upl ?? 0).toFixed(2) : '-';
+
+                const pnlValue = profitData ? (profitData.rpl ?? 0) : 0;
+                const uplValue = profitData ? (profitData.upl ?? 0) : 0;
+                const pnlColor = pnlValue < 0 ? 'negative-pnl' : pnlValue > 0 ? 'positive-pnl' : '';
+                const uplColor = uplValue < 0 ? 'negative-pnl' : uplValue > 0 ? 'positive-pnl' : '';
+
+                const accountUpdate = client.accountUpdates.get(account.accountId);
+                const statusText = accountUpdate?.status != null ? getAccountStatusText(accountUpdate.status) : '';
+
+                row.innerHTML = `
+                    <td class="account-active-col"><input type="radio" name="activeAccount" ${isActive ? 'checked' : ''} value="${account.accountId}"></td>
+                    <td>${account.accountName || account.displayName || account.accountId}</td>
+                    <td>${statusText}</td>
+                    <td>${balance !== '-' ? '$' + balance : '-'}</td>
+                    <td class="${pnlColor}">${pnl !== '-' ? '$' + pnl : '-'}</td>
+                    <td class="${uplColor}">${upl !== '-' ? '$' + upl : '-'}</td>
+                `;
+                elements.accountsTable.appendChild(row);
+
+                row.addEventListener('click', (e) => {
+                    // Prevent double-handling when clicking the radio directly
+                    if (e.target.tagName !== 'INPUT') {
+                        row.querySelector('input[type="radio"]').checked = true;
+                    }
+                    selectAccount(account.accountId);
+                });
+            });
+        }
+
         function updatePositionsTable(positions) {
             elements.positionsTable.innerHTML = '';
             positions.forEach(position => {
                 const row = document.createElement('tr');
-                const net = position.buys - position.sells;
-                const pnl = position.totalPnl !== undefined ? position.totalPnl.toFixed(2) :
-                    (position.rpl ? position.rpl.toFixed(2) : '0.00');
+                const buys = position.buys ?? 0;
+                const sells = position.sells ?? 0;
+                const net = buys - sells;
+                const workingBuys = position.workingBuys ?? 0;
+                const workingSells = position.workingSells ?? 0;
 
-                // Determine the color class based on P&L value
-                let pnlColor = '';
-                const pnlValue = parseFloat(pnl);
-                if (pnlValue < 0) {
-                    pnlColor = 'negative-pnl';
-                } else if (pnlValue > 0) {
-                    pnlColor = 'positive-pnl';
-                } else {
-                    pnlColor = 'neutral-pnl';
-                }
+                const pnlValue = position.totalPnl ?? 0;
+                const pnl = pnlValue.toFixed(2);
+                const pnlColor = pnlValue < 0 ? 'negative-pnl' : pnlValue > 0 ? 'positive-pnl' : 'neutral-pnl';
+
+                const uplValue = position.upl ?? 0;
+                const uplColor = uplValue < 0 ? 'negative-pnl' : uplValue > 0 ? 'positive-pnl' : 'neutral-pnl';
+
+                const accountInfo = client.accounts.get(position.accountId);
+                const accountDisplay = accountInfo ? (accountInfo.accountName || accountInfo.displayName || position.accountId) : position.accountId;
 
                 row.innerHTML = `
+                    <td>${accountDisplay}</td>
                     <td>${position.marketId}</td>
                     <td>${net}</td>
                     <td class="${pnlColor}">$${pnl}</td>
-                    <td>${position.workingBuys}/${position.workingSells}</td>
+                    <td class="${uplColor}">$${uplValue.toFixed(2)}</td>
+                    <td>${workingBuys}/${workingSells}</td>
+                    <td>
+                        <button class="action-btn flatten-btn" ${net === 0 ? 'disabled' : ''} data-market-id="${position.marketId}" data-net="${net}">
+                            <i class="fas fa-compress-arrows-alt"></i>
+                        </button>
+                    </td>
                 `;
                 elements.positionsTable.appendChild(row);
+
+                if (net !== 0) {
+                    const flattenBtn = row.querySelector('.flatten-btn');
+                    flattenBtn.addEventListener('click', () => client.flattenPosition(position.accountId, position.marketId, net));
+                }
             });
+        }
+
+        function getAccountStatusText(status) {
+            const statusMap = {
+                0: 'Unknown',
+                1: 'Blocked',
+                2: 'OK',
+                3: 'Unrestricted',
+                4: 'Deleted',
+                5: 'Disabled',
+                6: 'Outside Active Time',
+                7: 'Not Accessible',
+                8: 'Pit Trade Only',
+                9: 'Loss Limit Exceeded'
+            };
+            return statusMap[status] ?? status;
+        }
+
+        function getOrderStatusText(status) {
+            const statusMap = {
+                0: 'None',
+                1: 'Working',
+                2: 'Finished',
+                3: 'Rejected',
+                4: 'Held',
+                5: 'No Change'
+            };
+            return statusMap[status] ?? status;
         }
 
         function updateOrdersTable(orders) {
@@ -308,15 +407,18 @@
                 const row = document.createElement('tr');
                 const time = new Date(order.time.seconds * 1000).toLocaleTimeString();
                 const side = order.buySell === 1 ? 'Buy' : 'Sell';
-                const isEditable = order.status === 1; // Assume status 1 is active/working
+                const isEditable = order.status === 1; // status 1 is Working
+                const statusText = getOrderStatusText(order.status);
+                const price = order.currentLimitPrice ? order.currentLimitPrice.value
+                    : (order.currentStopPrice ? order.currentStopPrice.value : '-');
 
                 row.innerHTML = `
             <td>${time}</td>
             <td>${order.marketId}</td>
             <td>${side}</td>
             <td>${order.currentVolume}</td>
-            <td>${order.currentLimitPrice ? order.currentLimitPrice.value : '-'}</td>
-            <td>${order.status}</td>
+            <td>${price}</td>
+            <td>${statusText}</td>
             <td>
                 <button class="action-btn" ${!isEditable ? 'disabled' : ''} data-order-id="${order.uniqueId}">
                     <i class="fas fa-edit"></i>
@@ -335,7 +437,7 @@
 
         async function selectAccount(accountId) {
             await client.subscribeAccount(accountId);
-            elements.accountSelect.value = accountId;
+            renderAccountsTable();
             elements.submitOrderBtn.disabled = !client.isConnected || !accountId;
         }
 
@@ -363,6 +465,7 @@
             updatePositionsTable([]);
             updateOrdersTable([]);
             updateAccountSelect([]);
+            renderAccountsTable();
         }
 
         async function submitOrder() {
@@ -388,11 +491,6 @@
         // Event listeners
         elements.connectBtn.addEventListener('click', connect);
         elements.disconnectBtn.addEventListener('click', disconnect);
-        elements.accountSelect.addEventListener('change', (e) => {
-            if (e.target.value) {
-                selectAccount(e.target.value);
-            }
-        });
         elements.submitOrderBtn.addEventListener('click', submitOrder);
 
         // Contract picker handler

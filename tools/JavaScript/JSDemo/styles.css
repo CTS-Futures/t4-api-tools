@@ -40,6 +40,7 @@ h2 {
 }
 
 .status-indicator {
+    display: inline-block;
     width: 12px;
     height: 12px;
     border-radius: 50%;
@@ -408,3 +409,64 @@ th {
 .neutral-pnl {
     color: black;
 }
+
+/* Connection header with buttons */
+.connection-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.connection-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.connection-header-right {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.connection-header-right button {
+    font-size: 13px;
+    padding: 6px 14px;
+}
+
+/* Accounts table */
+#accountTableContainer {
+    max-height: 200px;
+}
+
+#accountsTable {
+    margin-top: 0;
+}
+
+#accountsTable tbody tr {
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+#accountsTable tbody tr:hover {
+    background-color: #e9ecef;
+}
+
+#accountsTable tbody tr.active-account-row {
+    background-color: #d4edff;
+}
+
+#accountsTable tbody tr.active-account-row:hover {
+    background-color: #bee0fb;
+}
+
+.account-active-col {
+    width: 30px;
+    text-align: center;
+}
+
+.account-active-col input[type="radio"] {
+    cursor: pointer;
+    margin: 0;
+}
+
