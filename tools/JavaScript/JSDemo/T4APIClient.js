@@ -18,7 +18,8 @@ class T4APIClient {
             heartbeatIntervalMs: 20000,
             messageTimeoutMs: 60000,
             mdExchangeId: T4_CONFIG.mdExchangeId,
-            mdContractId: T4_CONFIG.mdContractId
+            mdContractId: T4_CONFIG.mdContractId,
+            autoSubscribeAccounts: T4_CONFIG.autoSubscribeAccounts === true
         };
 
         // Connection state
@@ -42,6 +43,8 @@ class T4APIClient {
         // Order/Position tracking
         this.positions = new Map();
         this.orders = new Map();
+        this.accountProfits = new Map();
+        this.accountUpdates = new Map();
 
         // Heartbeat management
         this.heartbeatTimer = null;
@@ -99,6 +102,8 @@ class T4APIClient {
             this.ws = null;
         }
 
+        this.accountProfits.clear();
+        this.accountUpdates.clear();
         this.handleConnectionStatusChanged(false);
         this.log('Disconnected', 'info');
     }
@@ -109,6 +114,28 @@ class T4APIClient {
 
     async subscribeAccount(accountId) {
         if (this.selectedAccount === accountId) return;
+
+        if (this.config.autoSubscribeAccounts) {
+            // Subscription is managed at login; dropdown only controls which account orders are submitted to.
+            this.selectedAccount = accountId;
+            this.log(`Account selected: ${accountId}`, 'info');
+
+            // Immediately push updated positions and orders for the new account
+            if (this.onAccountUpdate) {
+                this.onAccountUpdate({
+                    type: 'positions',
+                    positions: Array.from(this.positions.values())
+                });
+                this.onAccountUpdate({
+                    type: 'orders',
+                    orders: Array.from(this.orders.values())
+                        .filter(o => o.accountId === this.selectedAccount)
+                });
+            }
+            return;
+        }
+
+        // Per-account subscription (autoSubscribeAccounts is false)
 
         // Unsubscribe from previous account
         if (this.selectedAccount) {
@@ -214,6 +241,19 @@ class T4APIClient {
             ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO  // 2
             : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;     // 0
 
+        // Get current time in CST
+        const now = new Date();
+        const cstOffset = -6 * 60; // CST is UTC-6 (or -5 for CDT, adjust as needed)
+        const localOffset = now.getTimezoneOffset();
+        const cstTime = new Date(now.getTime() + (localOffset - cstOffset) * 60000);
+
+        // Add 10 seconds
+        const submitTime = new Date(cstTime.getTime() + 10000);
+
+        // Convert to protobuf Timestamp format
+        const seconds = Math.floor(submitTime.getTime() / 1000);
+        const nanos = (submitTime.getTime() % 1000) * 1000000;
+
         // Create orders array with main order first
         const orders = [{
             buySell: buySellValue,
@@ -223,7 +263,14 @@ class T4APIClient {
             // Only set limit price if it's a limit order
             limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
                 ? { value: price.toString() }
-                : null
+                : null,
+            // activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_AT_OR_AFTER_TIME,
+            // activationData: {
+            //     submitTime: {
+            //         seconds: seconds,
+            //         nanos: nanos
+            //     }
+            // }
         }];
 
         // For bracket orders, we need to use the opposite side
@@ -263,8 +310,7 @@ class T4APIClient {
                 volume: 0, // Volume should be 0 for bracket orders
                 limitPrice: { value: takeProfitLimitPrice.toString() }, // AOCO = distance in price, AOCO_P = actual price
                 // Hold activation means order is not active until parent order is filled
-                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
-                activationData: "TP"
+                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
             });
         }
 
@@ -388,6 +434,44 @@ class T4APIClient {
 
         await this.sendMessage(orderRevise);
         this.log(`Order revised: ${orderId} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
+    }
+
+    async flattenPosition(accountId, marketId, netPosition) {
+        if (!accountId) {
+            throw new Error('No account specified for flatten');
+        }
+
+        if (netPosition === 0) {
+            this.log('Flatten: net position is already zero', 'warning');
+            return;
+        }
+
+        // To flatten: sell if long (net > 0), buy if short (net < 0)
+        const buySellValue = netPosition > 0
+            ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL   // -1
+            : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY;   //  1
+
+        const volume = Math.abs(netPosition);
+
+        const orderSubmit = {
+            orderSubmit: {
+                accountId: accountId,
+                marketId: marketId,
+                orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE,
+                manualOrderIndicator: true,
+                orders: [{
+                    buySell: buySellValue,
+                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_FLATTEN, // 16
+                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL,
+                    volume: volume
+                }]
+            }
+        };
+
+        await this.sendMessage(orderSubmit);
+
+        const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+        this.log(`Flatten submitted: ${sideText} ${volume} @ Flatten (Market: ${marketId})`, 'info');
     }
 
     handleMessage(event) {
@@ -533,6 +617,20 @@ class T4APIClient {
                 });
             }
 
+            // If autoSubscribeAccounts, subscribe to all accounts immediately upon login
+            if (this.config.autoSubscribeAccounts) {
+
+                this.log('Auto-subscribing to all accounts', 'info');
+
+                this.sendMessage({
+                    accountSubscribe: {
+                        subscribe: 2, // ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES
+                        subscribeAllAccounts: true,
+                        uplMode: 1
+                    }
+                });
+            }
+
             if (this.onAccountUpdate) {
                 this.onAccountUpdate({
                     type: 'accounts',
@@ -605,23 +703,57 @@ class T4APIClient {
 
     handleAccountDetails(details) {
         this.log(`Account details received: ${details.accountId}`, 'info');
+
+        // Store or update the account in the accounts map
+        const existing = this.accounts.get(details.accountId);
+        this.accounts.set(details.accountId, { ...existing, ...details });
+
+        // Notify UI so accounts table and positions table are refreshed
+        if (this.onAccountUpdate) {
+            this.onAccountUpdate({
+                type: 'accounts',
+                accounts: Array.from(this.accounts.values())
+            });
+        }
     }
 
     handleAccountPosition(position) {
         const key = `${position.accountId}_${position.marketId}`;
+        // Preserve any profit fields already received from AccountPositionProfit
+        const existing = this.positions.get(key);
+        if (existing) {
+            position = {
+                ...position,
+                upl: existing.upl,
+                rpl: existing.rpl,
+                totalPnl: existing.totalPnl
+            };
+        }
         this.positions.set(key, position);
 
         if (this.onAccountUpdate) {
             this.onAccountUpdate({
                 type: 'positions',
                 positions: Array.from(this.positions.values())
-                    .filter(p => p.accountId === this.selectedAccount)
             });
         }
     }
 
     handleAccountProfit(accountProfit) {
-        // Display the account profit, if wanted.
+        // Store account profit data for display in the accounts table
+        const existing = this.accountProfits.get(accountProfit.accountId) || {};
+        this.accountProfits.set(accountProfit.accountId, {
+            ...existing,
+            accountId: accountProfit.accountId,
+            balance: accountProfit.balance ?? existing.balance ?? 0,
+            rpl: accountProfit.rpl ?? existing.rpl ?? 0,
+            upl: accountProfit.uplTrade ?? accountProfit.upl ?? existing.upl ?? 0,
+            totalPnl: (accountProfit.rpl ?? existing.rpl ?? 0) + (accountProfit.uplTrade ?? accountProfit.upl ?? existing.upl ?? 0)
+        });
+
+        if (this.onAccountUpdate) {
+            this.onAccountUpdate({ type: 'accountProfit', accountId: accountProfit.accountId });
+        }
     }
 
     handleAccountPositionProfit(positionProfit) {
@@ -645,7 +777,7 @@ class T4APIClient {
         // Update with profit data
         position.upl = positionProfit.uplTrade;
         position.rpl = positionProfit.rpl;
-        position.totalPnl = (position.upl || 0) + (position.rpl || 0);
+        position.totalPnl = position.upl + position.rpl;
 
         // Store updated position
         this.positions.set(key, position);
@@ -663,25 +795,26 @@ class T4APIClient {
             marketInfo = ` (Bid: ${bestBid}, Offer: ${bestOffer}, Last: ${lastTrade})`;
         }
 
-        // Log P&L values with market ID and market info - fixed property access
-        this.log(`Position P&L update - Market: ${positionProfit.marketId}${marketInfo}, 
-        UPL: ${positionProfit.upl}, 
-        RPL: ${positionProfit.rpl}, 
-        Total P&L: ${positionProfit.upl + positionProfit.rpl}`,
+        // Log P&L values with market ID and market info
+        this.log(`Position P&L update - Market: ${positionProfit.marketId}${marketInfo}, UPL: ${positionProfit.uplTrade}, RPL: ${positionProfit.rpl}, Total P&L: ${positionProfit.uplTrade + positionProfit.rpl}`,
             'info');
 
         if (this.onAccountUpdate) {
             this.onAccountUpdate({
                 type: 'positions',
                 positions: Array.from(this.positions.values())
-                    .filter(p => p.accountId === this.selectedAccount)
             });
         }
     }
 
     handleAccountUpdate(update) {
-        // TODO: Display account information (balance, p&l, etc.)
-        //this.log(`Account update received: ${update.accountId}`, 'info');
+        if (update.accountId) {
+            this.accountUpdates.set(update.accountId, update);
+            this.log(`Account update received: ${update.accountId}`, 'info');
+        }
+        if (this.onAccountUpdate) {
+            this.onAccountUpdate({ type: 'accountUpdate', accountId: update.accountId });
+        }
     }
 
     handleMarketDepth(depth) {
@@ -707,12 +840,10 @@ class T4APIClient {
 
 
     handleMarketDepthTrade(trade) {
-        this.log(`Market Trade: ${trade.marketId} : ${trade.lastTradeVolume} @ ${trade.lastTradePrice.value}, TTV: ${trade.totalTradedVolume}`, 'info');
-    }
-
-    handleMarketDepthTrade(trade) {
-
-        this.log(`Market Trade: ${trade.marketId} : ${trade.LastTradeVolume} @ ${trade.LastTradePrice}, TTV: ${trade.TotalTradedVolume}`, 'info');
+        const price = trade.lastTradePrice ? trade.lastTradePrice.value : '-';
+        const volume = trade.lastTradeVolume ?? '-';
+        const ttv = trade.totalTradedVolume ?? '-';
+        this.log(`Market Trade: ${trade.marketId} : ${volume} @ ${price}, TTV: ${ttv}`, 'info');
     }
 
     handleMarketByOrderSnapshot(snashot) {
@@ -801,7 +932,7 @@ class T4APIClient {
             });
         }
 
-        if (updatesProcessed != updateMulti.updates.length) {
+        if (updatesProcessed !== updateMulti.updates.length) {
             this.log(`Order update multi received: ${updateMulti.uniqueId}, updates: ${updateMulti.updates.length}, processed: ${updatesProcessed}`, 'error');
         } else {
             this.log(`Order update multi received: ${updateMulti.uniqueId}, updates: ${updateMulti.updates.length}, processed: ${updatesProcessed}`, 'info');
@@ -1097,6 +1228,10 @@ class T4APIClient {
     handleConnectionStatusChanged(connected) {
         this.isConnected = connected;
 
+        if (!connected) {
+            this.selectedAccount = null;
+        }
+
         if (this.onConnectionStatusChanged) {
             this.onConnectionStatusChanged({
                 isConnected: connected,
@@ -1105,10 +1240,9 @@ class T4APIClient {
         }
     }
 
-    // Message Encoding/Decoding (Simplified - needs proper protobuf implementation)
+    // Message Encoding/Decoding
     encodeMessage(message) {
-        const clientMessage = T4Proto.ClientMessageHelper.createClientMessage(message);
-        return T4Proto.encodeMessage(clientMessage);
+        return T4Proto.encodeMessage(message);
     }
 
     decodeMessage(data) {
@@ -1172,8 +1306,7 @@ class T4APIClient {
     }
 
     getPositions() {
-        return Array.from(this.positions.values())
-            .filter(p => p.accountId === this.selectedAccount);
+        return Array.from(this.positions.values());
     }
 
     getOrders() {
@@ -1232,13 +1365,8 @@ class T4APIClient {
     }
 
     generateUUID() {
-
-        // *** TODO: Replace this. We don't need a UUID and can be simple for the demo app. ***
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-            const r = Math.random() * 16 | 0;
-            const v = c == 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-        });
+        // Simple unique ID for the demo app using timestamp + random suffix
+        return `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     }
 }
 
