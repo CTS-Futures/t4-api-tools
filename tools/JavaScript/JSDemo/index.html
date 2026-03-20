@@ -159,7 +159,7 @@
 </div>
 
 <script src="config.js"></script>
-<script src="t4-proto.js"></script>
+<script src="t4-proto-v2.js"></script>
 <script src="T4APIClient.js"></script>
 <script src="ContractPicker.js"></script>
 <script src="ExpiryPicker.js"></script>
@@ -474,7 +474,7 @@
 
         async function submitOrder() {
             try {
-                const side = parseInt(elements.orderSide.value);
+                const side = elements.orderSide.value;
                 const volume = parseInt(elements.orderVolume.value);
                 const priceType = elements.orderType.value; // 'limit' or 'market'
                 const price = parseFloat(elements.orderPrice.value);
