@@ -1,4 +1,4 @@
-import * as proto from './generated/proto';
+import * as proto from './generated/proto-v1';
 
 export function encodeMessage(message: proto.t4proto.v1.service.ClientMessage): Uint8Array {
     return proto.t4proto.v1.service.ClientMessage.encode(message).finish();

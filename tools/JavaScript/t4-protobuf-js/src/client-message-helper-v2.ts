@@ -1,8 +1,8 @@
-import * as proto from './generated/proto-v1';
+import * as proto from './generated/proto-v2';
 
 export class ClientMessageHelper {
-    static createClientMessage(message: any): proto.t4proto.v1.service.ClientMessage {
-        const clientMessage = new proto.t4proto.v1.service.ClientMessage();
+    static createClientMessage(message: any): proto.t4proto.v2.service.ClientMessage {
+        const clientMessage = new proto.t4proto.v2.service.ClientMessage();
 
         if (message.loginRequest) clientMessage.loginRequest = message.loginRequest;
         else if (message.authenticationTokenRequest) clientMessage.authenticationTokenRequest = message.authenticationTokenRequest;
@@ -19,3 +19,4 @@ export class ClientMessageHelper {
         return clientMessage;
     }
 }
+
