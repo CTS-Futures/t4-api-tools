@@ -1,10 +1,8 @@
 {
   "name": "@t4/protobuf",
   "version": "1.0.0",
-  "main": "dist/t4-proto.cjs.js",
-  "module": "dist/t4-proto.esm.js",
-  "browser": "dist/t4-proto.js",
-  "types": "types/t4-proto.d.ts",
+  "main": "dist/t4-proto-v1.js",
+  "types": "types/index.d.ts",
   "files": [
     "dist",
     "types"
@@ -12,7 +10,9 @@
   "scripts": {
     "clean": "node -e \"const fs=require('fs'); ['dist','types','src/generated','src/proto'].forEach(d=>{try{fs.rmSync(d,{recursive:true})}catch(e){}})\"",
     "copy-proto": "node copy-proto.js",
-    "build:proto": "npm run copy-proto && pbjs -t static-module -w commonjs -o src/generated/proto.js --path src/proto src/proto/t4/v1/service.proto && pbts -o src/generated/proto.d.ts src/generated/proto.js",
+    "build:proto:v1": "pbjs -t static-module -w commonjs -o src/generated/proto-v1.js --path src/proto src/proto/t4/v1/service.proto && pbts -o src/generated/proto-v1.d.ts src/generated/proto-v1.js",
+    "build:proto:v2": "pbjs -t static-module -w commonjs -o src/generated/proto-v2.js --path src/proto src/proto/t4/v2/service.proto && pbts -o src/generated/proto-v2.d.ts src/generated/proto-v2.js",
+    "build:proto": "npm run copy-proto && npm run build:proto:v1 && npm run build:proto:v2",
     "prepublishOnly": "npm run build",
     "build": "npm run build:proto && webpack && tsc --declaration --emitDeclarationOnly --outDir types --declarationDir types"
   },
