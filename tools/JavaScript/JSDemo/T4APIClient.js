@@ -334,7 +334,7 @@ class T4APIClient {
                 : stopLossAbsolutePrice;
 
             if (trailingStop) {
-                                          
+
                 // Trailing stop:
                 orders.push({
                     buySell: protectionSide,
@@ -349,16 +349,17 @@ class T4APIClient {
 
             } else {
 
-            orders.push({
-                buySell: protectionSide,
-                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
-                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
-                volume: 0, // Volume should be 0 for bracket orders
-                stopPrice: { value: stopLossPrice.toString() },
-                // Hold activation means order is not active until parent order is filled
-                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
-                activationData: "SL"
-            });
+                orders.push({
+                    buySell: protectionSide,
+                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
+                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                    volume: 0, // Volume should be 0 for bracket orders
+                    stopPrice: { value: stopLossStopPrice.toString() },
+                    // Hold activation means order is not active until parent order is filled
+                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
+                    activationData: "SL"
+                });
+            }
         }
 
         // Create the order submit message
@@ -563,7 +564,7 @@ class T4APIClient {
             this.handleAccountPosition(message.accountPosition);
         } else if (message.accountProfit) {
             this.handleAccountProfit(message.accountProfit);
-        }else if (message.accountPositionProfit) {
+        } else if (message.accountPositionProfit) {
             this.handleAccountPositionProfit(message.accountPositionProfit);
         } else if (message.accountUpdate) {
             this.handleAccountUpdate(message.accountUpdate);
