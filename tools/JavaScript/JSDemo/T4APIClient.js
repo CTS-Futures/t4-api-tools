@@ -529,11 +529,9 @@ class T4APIClient {
         } else if (message.marketByOrderUpdate) {
             this.handleMarketByOrderUpdate(message.marketByOrderUpdate);
         } else if (message.orderUpdate) {
-            this.handleOrderUpdate(message.orderUpdate);
+            this.dispatchOrderUpdate(message.orderUpdate);
         } else if (message.accountSnapshot) {
             this.handleAccountSnapshot(message.accountSnapshot);
-        } else if (message.orderUpdateMulti) {
-            this.handleOrderUpdateMulti(message.orderUpdateMulti);
         } else if (message.authenticationToken) {
             this.handleAuthenticationToken(message.authenticationToken);
         } else if (message.marketSnapshot) {
@@ -847,10 +845,8 @@ class T4APIClient {
                     this.handleAccountUpdate(msg.accountUpdate)
                 } else if (msg.accountPosition) {
                     this.handleAccountPosition(msg.accountPosition);
-                } else if (msg.orderUpdateMulti) {
-                    this.handleOrderUpdateMulti(msg.orderUpdateMulti)
                 } else if (msg.orderUpdate) {
-                    this.handleOrderUpdate(msg.orderUpdate);
+                    this.dispatchOrderUpdate(msg.orderUpdate);
                 } else {
                     const messageType = Object.keys(msg)[0] || 'unknown';
                     this.log(`Account snapshot message not handled: ${messageType}`, 'error');
@@ -859,203 +855,86 @@ class T4APIClient {
         }
     }
 
-    handleOrderUpdateMulti(updateMulti) {
-        var updatesProcessed = 0;
 
-        if (updateMulti.updates) {
-            updateMulti.updates.forEach((update, index) => {
-                if (update.orderUpdate) {
-                    updatesProcessed++;
-                    this.handleOrderUpdate(update.orderUpdate);
-                } else if (update.orderUpdateStatus) {
-                    updatesProcessed++;
-                    this.handleOrderUpdateStatus(update.orderUpdateStatus);
-                } else if (update.orderUpdateTrade) {
-                    updatesProcessed++;
-                    this.handleOrderUpdateTrade(update.orderUpdateTrade);
-                } else if (update.orderUpdateTradeLeg) {
-                    updatesProcessed++;
-                    this.handleOrderUpdateTradeLeg(update.orderUpdateTradeLeg);
-                } else if (update.orderUpdateFailed) {
-                    updatesProcessed++;
-                    this.handleOrderUpdateFailed(update.orderUpdateFailed);
-                } else {
-                    this.log(`Unknown order update type in multi message: ${Object.keys(update).join(', ')}`, 'error');
-                }
-            });
-        }
-
-        if (updatesProcessed !== updateMulti.updates.length) {
-            this.log(`Order update multi received: ${updateMulti.uniqueId}, updates: ${updateMulti.updates.length}, processed: ${updatesProcessed}`, 'error');
-        } else {
-            this.log(`Order update multi received: ${updateMulti.uniqueId}, updates: ${updateMulti.updates.length}, processed: ${updatesProcessed}`, 'info');
+    // ORDER_UPDATE_TYPE_NONE=0, SNAPSHOT=1, STATUS=2, TRADE=3, TRADE_LEG=4, FAILED=5
+    dispatchOrderUpdate(update) {
+        switch (update.updateType) {
+            case 0: // NONE — treat like a snapshot
+            case 1: // SNAPSHOT
+                this.handleOrderUpdate(update);
+                break;
+            case 2: // STATUS
+                this.handleOrderUpdateStatus(update);
+                break;
+            case 3: // TRADE
+                this.handleOrderUpdateTrade(update);
+                break;
+            case 4: // TRADE_LEG
+                this.handleOrderUpdateTradeLeg(update);
+                break;
+            case 5: // FAILED
+                this.handleOrderUpdateFailed(update);
+                break;
+            default:
+                this.log(`Unknown order update type: ${update.updateType}`, 'error');
         }
     }
 
     handleOrderUpdate(orderUpdate) {
+        // SNAPSHOT — store the full message as the canonical order state
         this.orders.set(orderUpdate.uniqueId, orderUpdate);
-
-        this.log(`Order update received: ${orderUpdate.uniqueId}, market: ${orderUpdate.marketId}`, 'info');
-
-        if (this.onAccountUpdate) {
-            this.onAccountUpdate({
-                type: 'orders',
-                orders: Array.from(this.orders.values())
-                    .filter(o => o.accountId === this.selectedAccount)
-            });
-        }
-    }
-
-    handleOrderUpdateStatus(statusUpdate) {
-        this.log(`Order status update: ${statusUpdate.uniqueId}, status: ${statusUpdate.status}`, 'info');
-
-        // Get existing order or create a minimal one
-        let existingOrder = this.orders.get(statusUpdate.uniqueId);
-
-        if (!existingOrder) {
-            // Create minimal order if it doesn't exist
-            existingOrder = {
-                uniqueId: statusUpdate.uniqueId,
-                accountId: statusUpdate.accountId || this.selectedAccount,
-                marketId: statusUpdate.marketId
-            };
-        }
-
-        // Update the existing order with all status fields (following C# UpdateStatusInformation)
-        const updatedOrder = {
-            ...existingOrder,
-            change: statusUpdate.change,
-            exchangeTime: statusUpdate.exchangeTime,
-            status: statusUpdate.status,
-            responsePending: statusUpdate.responsePending,
-            statusDetail: statusUpdate.statusDetail,
-            time: statusUpdate.time,
-            currentVolume: statusUpdate.currentVolume,
-            currentLimitPrice: statusUpdate.currentLimitPrice,
-            currentStopPrice: statusUpdate.currentStopPrice,
-            priceType: statusUpdate.priceType,
-            timeType: statusUpdate.timeType,
-            exchangeOrderId: statusUpdate.exchangeOrderId,
-            workingVolume: statusUpdate.workingVolume,
-            executingLoginId: statusUpdate.executingLoginId,
-            userId: statusUpdate.userId,
-            userName: statusUpdate.userName,
-            routingUserId: statusUpdate.routingUserId,
-            routingUserName: statusUpdate.routingUserName,
-            userAddress: statusUpdate.userAddress,
-            sessionId: statusUpdate.sessionId,
-            appId: statusUpdate.appId,
-            appName: statusUpdate.appName,
-            activationType: statusUpdate.activationType,
-            activationDetails: statusUpdate.activationDetails,
-            trailPrice: statusUpdate.trailPrice,
-            currentMaxShow: statusUpdate.currentMaxShow,
-            newVolume: statusUpdate.newVolume,
-            newLimitPrice: statusUpdate.newLimitPrice,
-            newStopPrice: statusUpdate.newStopPrice,
-            newMaxShow: statusUpdate.newMaxShow,
-            tag: statusUpdate.tag,
-            tagClOrdId: statusUpdate.tagClOrdId,
-            tagOrigClOrdId: statusUpdate.tagOrigClOrdId,
-            smpId: statusUpdate.smpId,
-            exchangeLoginId: statusUpdate.exchangeLoginId,
-            exchangeLocation: statusUpdate.exchangeLocation,
-            atsRegulatoryId: statusUpdate.atsRegulatoryId,
-            maxVolume: statusUpdate.maxVolume,
-            sequenceOrder: statusUpdate.sequenceOrder,
-            authorizedTraderId: statusUpdate.authorizedTraderId,
-            appType: statusUpdate.appType,
-            // Merge instruction extra if it exists
-            instructionExtra: {
-                ...(existingOrder.instructionExtra || {}),
-                ...(statusUpdate.instructionExtra || {})
-            }
-        };
-
-        this.orders.set(statusUpdate.uniqueId, updatedOrder);
+        this.log(`Order snapshot: ${orderUpdate.uniqueId}, market: ${orderUpdate.marketId}, status: ${orderUpdate.status}`, 'info');
         this.triggerOrdersUpdate();
     }
 
-    handleOrderUpdateTrade(tradeUpdate) {
-        this.log(`Order trade update: ${tradeUpdate.uniqueId}, exchange trade: ${tradeUpdate.exchangeTradeId}`, 'info');
+    handleOrderUpdateStatus(update) {
+        this.log(`Order status: ${update.uniqueId}, status: ${update.status}`, 'info');
 
-        // Get existing order or create a minimal one
-        let existingOrder = this.orders.get(tradeUpdate.uniqueId);
-
-        if (!existingOrder) {
-            // Create minimal order if it doesn't exist
-            existingOrder = {
-                uniqueId: tradeUpdate.uniqueId,
-                accountId: tradeUpdate.accountId || this.selectedAccount,
-                marketId: tradeUpdate.marketId
-            };
-        }
-
-        // Update the existing order with all status fields (following C# UpdateStatusInformation)
-        const updatedOrder = {
-            ...existingOrder,
-            change: tradeUpdate.change,
-            exchangeTime: tradeUpdate.exchangeTime,
-            status: tradeUpdate.status,
-            responsePending: tradeUpdate.responsePending,
-            statusDetail: tradeUpdate.statusDetail,
-            time: tradeUpdate.time,
-            currentVolume: tradeUpdate.currentVolume,
-            currentLimitPrice: tradeUpdate.currentLimitPrice,
-            currentStopPrice: tradeUpdate.currentStopPrice,
-            priceType: tradeUpdate.priceType,
-            timeType: tradeUpdate.timeType,
-            exchangeOrderId: tradeUpdate.exchangeOrderId,
-            workingVolume: tradeUpdate.workingVolume,
-            executingLoginId: tradeUpdate.executingLoginId,
-            userId: tradeUpdate.userId,
-            userName: tradeUpdate.userName,
-            routingUserId: tradeUpdate.routingUserId,
-            routingUserName: tradeUpdate.routingUserName,
-            userAddress: tradeUpdate.userAddress,
-            sessionId: tradeUpdate.sessionId,
-            appId: tradeUpdate.appId,
-            appName: tradeUpdate.appName,
-            activationType: tradeUpdate.activationType,
-            activationDetails: tradeUpdate.activationDetails,
-            trailPrice: tradeUpdate.trailPrice,
-            currentMaxShow: tradeUpdate.currentMaxShow,
-            newVolume: tradeUpdate.newVolume,
-            newLimitPrice: tradeUpdate.newLimitPrice,
-            newStopPrice: tradeUpdate.newStopPrice,
-            newMaxShow: tradeUpdate.newMaxShow,
-            tag: tradeUpdate.tag,
-            tagClOrdId: tradeUpdate.tagClOrdId,
-            tagOrigClOrdId: tradeUpdate.tagOrigClOrdId,
-            smpId: tradeUpdate.smpId,
-            exchangeLoginId: tradeUpdate.exchangeLoginId,
-            exchangeLocation: tradeUpdate.exchangeLocation,
-            atsRegulatoryId: tradeUpdate.atsRegulatoryId,
-            maxVolume: tradeUpdate.maxVolume,
-            sequenceOrder: tradeUpdate.sequenceOrder,
-            authorizedTraderId: tradeUpdate.authorizedTraderId,
-            appType: tradeUpdate.appType,
-            // Merge instruction extra if it exists
-            instructionExtra: {
-                ...(existingOrder.instructionExtra || {}),
-                ...(tradeUpdate.instructionExtra || {})
-            }
+        let existing = this.orders.get(update.uniqueId) || {
+            uniqueId: update.uniqueId,
+            accountId: update.accountId || this.selectedAccount,
+            marketId: update.marketId
         };
 
-        this.orders.set(tradeUpdate.uniqueId, updatedOrder);
+        // Merge all fields from the flat update onto the stored order
+        this.orders.set(update.uniqueId, { ...existing, ...update });
         this.triggerOrdersUpdate();
     }
 
-    handleOrderUpdateTradeLeg(tradeLegUpdate) {
-        this.log(`Order trade leg update: ${tradeLegUpdate.uniqueId}, leg: ${tradeLegUpdate.legIndex}`, 'info');
-        //this.orders.set(tradeLegUpdate.uniqueId, tradeLegUpdate);
-        //this.triggerOrdersUpdate();
+    handleOrderUpdateTrade(update) {
+        this.log(`Order trade: ${update.uniqueId}, status: ${update.status}`, 'info');
+
+        let existing = this.orders.get(update.uniqueId) || {
+            uniqueId: update.uniqueId,
+            accountId: update.accountId || this.selectedAccount,
+            marketId: update.marketId
+        };
+
+        this.orders.set(update.uniqueId, { ...existing, ...update });
+        this.triggerOrdersUpdate();
     }
 
-    handleOrderUpdateFailed(failedUpdate) {
-        this.log(`Order failed: ${failedUpdate.uniqueId}, status: ${failedUpdate.status}`, 'info');
-        //this.orders.set(failedUpdate.uniqueId, failedUpdate);
-        //this.triggerOrdersUpdate();
+    handleOrderUpdateTradeLeg(update) {
+        this.log(`Order trade leg: ${update.uniqueId}`, 'info');
+        // Trade leg updates carry additional fill detail; merge onto existing order
+        const existing = this.orders.get(update.uniqueId);
+        if (existing) {
+            this.orders.set(update.uniqueId, { ...existing, ...update });
+            this.triggerOrdersUpdate();
+        }
+    }
+
+    handleOrderUpdateFailed(update) {
+        this.log(`Order failed: ${update.uniqueId}, detail: ${update.statusDetail}`, 'info');
+
+        let existing = this.orders.get(update.uniqueId) || {
+            uniqueId: update.uniqueId,
+            accountId: update.accountId || this.selectedAccount,
+            marketId: update.marketId
+        };
+
+        this.orders.set(update.uniqueId, { ...existing, ...update });
+        this.triggerOrdersUpdate();
     }
 
     triggerOrdersUpdate() {
