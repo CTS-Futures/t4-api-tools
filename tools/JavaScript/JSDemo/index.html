@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="contract-picker.css">
     <link rel="stylesheet" href="expiry-picker.css">
     <link rel="stylesheet" href="revise-dialog.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 </head>
 <body>
 <div class="container">
@@ -403,13 +403,23 @@
             return statusMap[status] ?? status;
         }
 
+        function timestampToMs(ts) {
+            if (!ts) return 0;
+            const secs = ts.seconds;
+            // protobufjs may return seconds as a Long object
+            if (secs && typeof secs === 'object' && 'low' in secs) {
+                return (secs.low + secs.high * 4294967296) * 1000;
+            }
+            return Number(secs) * 1000;
+        }
+
         function updateOrdersTable(orders) {
             elements.ordersTable.innerHTML = '';
-            const sortedOrders = orders.sort((a, b) => new Date(b.time.seconds * 1000) - new Date(a.time.seconds * 1000));
+            const sortedOrders = orders.sort((a, b) => timestampToMs(b.time) - timestampToMs(a.time));
 
             sortedOrders.forEach(order => {
                 const row = document.createElement('tr');
-                const time = new Date(order.time.seconds * 1000).toLocaleTimeString();
+                const time = order.time ? new Date(timestampToMs(order.time)).toLocaleTimeString() : '-';
                 const side = order.buySell === 1 ? 'Buy' : 'Sell';
                 const isEditable = order.status === 1; // status 1 is Working
                 const statusText = getOrderStatusText(order.status);
