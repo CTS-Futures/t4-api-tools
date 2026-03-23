@@ -952,15 +952,6 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     this.handleAccountUpdate(msg.accountUpdate);
                 } else if (msg.accountPosition) {
                     this.handleAccountPosition(msg.accountPosition);
-<<<<<<< HEAD
-                } else if (msg.accountProfit) {
-                    this.handleAccountProfit(msg.accountProfit);
-                } else if (msg.accountPositionProfit) {
-                    this.handleAccountPositionProfit(msg.accountPositionProfit);
-                } else if (msg.orderUpdateMulti) {
-                    this.handleOrderUpdateMulti(msg.orderUpdateMulti);
-=======
->>>>>>> 86cade9 (Updated for V2 WIP.)
                 } else if (msg.orderUpdate) {
                     this.dispatchOrderUpdate(msg.orderUpdate);
                 } else {
