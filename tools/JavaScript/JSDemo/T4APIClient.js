@@ -43,6 +43,7 @@ class T4APIClient {
         // Order/Position tracking
         this.positions = new Map();
         this.orders = new Map();
+        this.trades = new Map(); // keyed by orderId, value is array of OrderTrade
         this.accountProfits = new Map();
         this.accountUpdates = new Map();
 
@@ -104,6 +105,7 @@ class T4APIClient {
 
         this.accountProfits.clear();
         this.accountUpdates.clear();
+        this.trades.clear();
         this.handleConnectionStatusChanged(false);
         this.log('Disconnected', 'info');
     }
@@ -530,6 +532,8 @@ class T4APIClient {
             this.handleMarketByOrderUpdate(message.marketByOrderUpdate);
         } else if (message.orderUpdate) {
             this.dispatchOrderUpdate(message.orderUpdate);
+        } else if (message.orderTrade) {
+            this.handleOrderTrade(message.orderTrade);
         } else if (message.accountSnapshot) {
             this.handleAccountSnapshot(message.accountSnapshot);
         } else if (message.authenticationToken) {
@@ -797,6 +801,34 @@ class T4APIClient {
         this.log(`Market Trade: ${trade.marketId} : ${volume} @ ${price}, TTV: ${ttv}`, 'info');
     }
 
+    handleOrderTrade(trade) {
+        const price = trade.price ? trade.price.value : '-';
+        const volume = trade.volume ?? '-';
+        const residual = trade.residualVolume ?? '-';
+        this.log(`Order trade fill: ${trade.orderId} - ${volume} @ ${price}, residual: ${residual}`, 'info');
+
+        // Store the trade in the trades collection (array per orderId)
+        const orderId = trade.orderId;
+        if (!this.trades.has(orderId)) {
+            this.trades.set(orderId, []);
+        }
+        this.trades.get(orderId).push(trade);
+
+        // Update fill summary on the stored order
+        const existing = this.orders.get(orderId);
+        if (existing) {
+            const merged = {
+                ...existing,
+                totalFillVolume: (existing.totalFillVolume ?? 0) + (trade.volume ?? 0),
+                workingVolume: trade.residualVolume ?? existing.workingVolume,
+                lastTradePrice: price,
+                lastTradeVolume: trade.volume
+            };
+            this.orders.set(orderId, merged);
+            this.triggerOrdersUpdate();
+        }
+    }
+
     handleMarketByOrderSnapshot(snashot) {
 
         this.log(`MBO Snapshot: ${snashot.marketId}`, 'info');
@@ -845,8 +877,10 @@ class T4APIClient {
                     this.handleAccountUpdate(msg.accountUpdate)
                 } else if (msg.accountPosition) {
                     this.handleAccountPosition(msg.accountPosition);
-                } else if (msg.orderUpdate) {
-                    this.dispatchOrderUpdate(msg.orderUpdate);
+                } else if (msg.orderStatus) {
+                    this.dispatchOrderUpdate(msg.orderStatus);
+                } else if (msg.orderTrade) {
+                    this.handleOrderTrade(msg.orderTrade);
                 } else {
                     const messageType = Object.keys(msg)[0] || 'unknown';
                     this.log(`Account snapshot message not handled: ${messageType}`, 'error');
@@ -856,84 +890,26 @@ class T4APIClient {
     }
 
 
-    // ORDER_UPDATE_TYPE_NONE=0, SNAPSHOT=1, STATUS=2, TRADE=3, TRADE_LEG=4, FAILED=5
+    // Handles all OrderUpdate messages (updateType: NONE=0, SNAPSHOT=1, STATUS=2, TRADE=3, TRADE_LEG=4, FAILED=5)
+    // The new structure is a single flat OrderUpdate — merge it onto the stored order.
     dispatchOrderUpdate(update) {
-        switch (update.updateType) {
-            case 0: // NONE — treat like a snapshot
-            case 1: // SNAPSHOT
-                this.handleOrderUpdate(update);
-                break;
-            case 2: // STATUS
-                this.handleOrderUpdateStatus(update);
-                break;
-            case 3: // TRADE
-                this.handleOrderUpdateTrade(update);
-                break;
-            case 4: // TRADE_LEG
-                this.handleOrderUpdateTradeLeg(update);
-                break;
-            case 5: // FAILED
-                this.handleOrderUpdateFailed(update);
-                break;
-            default:
-                this.log(`Unknown order update type: ${update.updateType}`, 'error');
-        }
-    }
+        const typeNames = ['NONE', 'SNAPSHOT', 'STATUS', 'TRADE', 'TRADE_LEG', 'FAILED'];
+        const typeName = typeNames[update.updateType] ?? update.updateType;
 
-    handleOrderUpdate(orderUpdate) {
-        // SNAPSHOT — store the full message as the canonical order state
-        this.orders.set(orderUpdate.uniqueId, orderUpdate);
-        this.log(`Order snapshot: ${orderUpdate.uniqueId}, market: ${orderUpdate.marketId}, status: ${orderUpdate.status}`, 'info');
-        this.triggerOrdersUpdate();
-    }
+        this.log(`Order update [${typeName}]: ${update.uniqueId}, status: ${update.status}`, 'info');
 
-    handleOrderUpdateStatus(update) {
-        this.log(`Order status: ${update.uniqueId}, status: ${update.status}`, 'info');
-
-        let existing = this.orders.get(update.uniqueId) || {
-            uniqueId: update.uniqueId,
-            accountId: update.accountId || this.selectedAccount,
-            marketId: update.marketId
-        };
-
-        // Merge all fields from the flat update onto the stored order
-        this.orders.set(update.uniqueId, { ...existing, ...update });
-        this.triggerOrdersUpdate();
-    }
-
-    handleOrderUpdateTrade(update) {
-        this.log(`Order trade: ${update.uniqueId}, status: ${update.status}`, 'info');
-
-        let existing = this.orders.get(update.uniqueId) || {
-            uniqueId: update.uniqueId,
-            accountId: update.accountId || this.selectedAccount,
-            marketId: update.marketId
-        };
-
-        this.orders.set(update.uniqueId, { ...existing, ...update });
-        this.triggerOrdersUpdate();
-    }
-
-    handleOrderUpdateTradeLeg(update) {
-        this.log(`Order trade leg: ${update.uniqueId}`, 'info');
-        // Trade leg updates carry additional fill detail; merge onto existing order
-        const existing = this.orders.get(update.uniqueId);
-        if (existing) {
+        // For SNAPSHOT (type 1 or 0) replace entirely; for all others merge into existing
+        if (update.updateType <= 1) {
+            this.orders.set(update.uniqueId, update);
+        } else {
+            const existing = this.orders.get(update.uniqueId) || {
+                uniqueId: update.uniqueId,
+                accountId: update.accountId || this.selectedAccount,
+                marketId: update.marketId
+            };
             this.orders.set(update.uniqueId, { ...existing, ...update });
-            this.triggerOrdersUpdate();
         }
-    }
 
-    handleOrderUpdateFailed(update) {
-        this.log(`Order failed: ${update.uniqueId}, detail: ${update.statusDetail}`, 'info');
-
-        let existing = this.orders.get(update.uniqueId) || {
-            uniqueId: update.uniqueId,
-            accountId: update.accountId || this.selectedAccount,
-            marketId: update.marketId
-        };
-
-        this.orders.set(update.uniqueId, { ...existing, ...update });
         this.triggerOrdersUpdate();
     }
 
