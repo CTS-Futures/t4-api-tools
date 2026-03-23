@@ -1,0 +1,244 @@
+syntax = "proto3";
+package t4proto.v2.orderrouting;
+
+import "google/protobuf/timestamp.proto";
+import "t4/v2/common/enums.proto";
+import "t4/v2/common/price.proto";
+
+
+/* Client to Server */
+
+message OrderActivation {
+  optional google.protobuf.Timestamp submit_time = 1;
+  optional int64 submit_delay_ms = 2;
+  optional google.protobuf.Timestamp cancel_time = 3;
+  optional int64 cancel_delay_ms = 4;
+  optional google.protobuf.Timestamp activation_cancel_time = 5;  
+  optional int64 activation_cancel_delay_ms = 6;  
+  optional t4proto.v2.common.MarketMode mode = 7;
+  optional t4proto.v2.common.Price price = 8;
+  optional int32 volume = 9;
+  optional t4proto.v2.common.BidOffer bid_offer = 10;  
+  optional bool implied = 11;
+  optional bool queue_submit = 12;
+}    
+
+message OrderSubmit {
+  optional string user_id = 1;
+  string account_id = 2;
+  string market_id = 3;
+  t4proto.v2.common.OrderLink order_link = 4;
+  bool manual_order_indicator = 5;
+  
+  message Order {
+    t4proto.v2.common.BuySell buy_sell = 1;
+    t4proto.v2.common.PriceType price_type = 2;
+    t4proto.v2.common.TimeType time_type = 3;
+    int32 volume = 4;
+    optional int32 max_show = 5;
+    optional int32 max_volume = 6;
+    optional t4proto.v2.common.Price limit_price = 7;
+    optional t4proto.v2.common.Price stop_price = 8;
+    optional t4proto.v2.common.Price trail_distance = 9;
+    optional string tag = 10;
+    optional t4proto.v2.common.ActivationType activation_type = 11;
+    optional OrderActivation activation_data = 12;
+  }
+
+  repeated Order orders = 6;
+}
+
+message OrderRevise {
+  string user_id = 1;
+  string account_id = 2;
+  string market_id = 3;
+  bool manual_order_indicator = 4;
+
+  message Revise {
+    string unique_id = 1;   
+    optional int32 volume = 2;
+    optional int32 max_show = 3;
+    optional int32 max_volume = 4;
+    optional t4proto.v2.common.Price limit_price = 5;
+    optional t4proto.v2.common.Price stop_price = 6;
+    optional t4proto.v2.common.Price trail_price = 7;
+    optional string tag = 8;
+    optional OrderActivation activation_data = 9;
+  }
+  
+  repeated Revise revisions = 5;
+}
+
+message OrderPull {
+  string user_id = 1;
+  string account_id = 2;
+  string market_id = 3;
+  bool manual_order_indicator = 4;
+
+  message Pull {
+    string unique_id = 1;
+    optional string tag = 2;
+  }
+  
+  repeated Pull pulls = 5;
+}
+
+message CreateUDS {
+    string request_id = 1;
+    string user_id = 2;
+    string account_id = 3;
+    t4proto.v2.common.StrategyType strategy_type = 4;
+
+    message Leg {
+        string exchange_id = 1;
+        string contract_id = 2;
+        string market_id = 3;
+        t4proto.v2.common.BuySell buy_sell = 4;
+        int32 volume = 5;
+        t4proto.v2.common.Price price = 6;
+        t4proto.v2.common.Decimal delta = 7;
+    }
+
+    repeated Leg legs = 5;
+}
+
+
+/* Server to Client */
+
+enum OrderUpdateType{
+	ORDER_UPDATE_TYPE_NONE = 0;
+	SNAPSHOT = 1;
+	STATUS = 2;
+	TRADE = 3;
+	TRADE_LEG = 4;
+	FAILED = 5;
+
+}
+
+message OrderUpdate {
+    string unique_id = 1;
+    string account_id = 2;
+    string market_id = 3;
+
+    google.protobuf.Timestamp time = 4;
+    google.protobuf.Timestamp exchange_time = 5;
+
+    OrderUpdateType update_type = 6;
+
+    t4proto.v2.common.OrderChange change = 7;
+    t4proto.v2.common.OrderStatus status = 8;
+    string status_detail = 9;
+    t4proto.v2.common.ResponsePending response_pending = 10;
+
+    string exchange_order_id = 11;
+    google.protobuf.Timestamp submit_time = 12;
+    int64 trade_date = 13;
+    string exchange_id = 14;
+    string exchange_login_id = 15;
+    string executing_login_id = 16;
+    string exchange_location = 17;
+
+    string user_id = 18;
+    string user_name = 19;
+    string user_address = 20;
+    string session_id = 21;
+    string app_id = 22;
+    string app_name = 23;
+
+    t4proto.v2.common.BuySell buy_sell = 24;
+    t4proto.v2.common.PriceType price_type = 25;
+    t4proto.v2.common.TimeType time_type = 26;
+
+    optional int32 current_volume = 27;
+    optional t4proto.v2.common.Price current_limit_price = 28;
+    optional t4proto.v2.common.Price current_stop_price = 29;
+
+    optional int32 new_volume = 30;
+    optional t4proto.v2.common.Price new_limit_price = 31;
+    optional t4proto.v2.common.Price new_stop_price = 32;
+
+    t4proto.v2.common.OpenClose open_close = 33;
+
+    string account_number = 34;
+    t4proto.v2.common.CTI cti = 35;
+    t4proto.v2.common.Origin origin = 36;
+    t4proto.v2.common.AccountCode account_code = 37;
+    string member_allocation = 38;
+    string trader_allocation = 39;
+    string customer_reference = 40;
+
+    t4proto.v2.common.CustOrderHandlingInstType cust_order_handling_inst = 41;
+    t4proto.v2.common.AvgPriceIndicatorType avg_price_indicator = 42;
+    string avg_price_group_id = 43;
+    t4proto.v2.common.ClearingTradePriceType clearing_trade_price_type = 44;
+    t4proto.v2.common.BillingFee billing_fee = 45;
+    string omnibus_account = 46;
+
+    string executing_group_id = 47;
+    string tag = 48;
+    optional int32 total_fill_volume = 49;
+    optional int32 working_volume = 50;
+    optional int32 exchange_total_fill_volume = 51;
+
+    t4proto.v2.common.Price trail_price = 52;
+    int32 trail_revision_interval = 53;
+    int32 trail_revision_change = 54;
+
+    t4proto.v2.common.OrderLink order_link = 55;
+    string orders_linked = 56;
+
+    t4proto.v2.common.ActivationType activation_type = 57;
+    t4proto.v2.common.PrimaryUserType primary_user = 58;
+
+    optional int32 current_max_show = 59;
+    optional int32 new_max_show = 60;
+
+    string routing_user_id = 61;
+    string routing_user_name = 62;
+
+    t4proto.v2.common.OrderSource order_source = 63;
+    t4proto.v2.common.OrderSourceMethod order_source_method = 64;
+    t4proto.v2.common.ApplicationType app_type = 65;
+    t4proto.v2.common.MasterType master_type = 66;
+
+    string tag_cl_ord_id = 67;
+    string tag_orig_cl_ord_id = 68;
+    string tag_relation_id = 69;
+    string smp_id = 70;
+
+    int32 sequence_order = 71;
+
+    string ats_regulatory_id = 72;
+    optional int32 max_volume = 73;
+    string authorized_trader_id = 74;
+    map<string, string> instruction_extra = 75;
+    google.protobuf.Timestamp receive_time = 76;
+    string activation_details = 77;
+}
+
+message OrderTrade {
+    
+    string account_id = 1;
+    string market_id = 2;
+    string order_id = 3;
+
+    optional int32 leg_index = 4;
+
+    int32 sequence_order = 5;
+    int32 volume = 6;
+    t4proto.v2.common.Price price = 7;
+    int32 residual_volume = 8;
+    google.protobuf.Timestamp time = 9;
+    string exchange_trade_id = 10;
+    google.protobuf.Timestamp exchange_time = 11;
+    string contra_trader = 12;
+    string contra_broker = 13;
+    int64 trade_date = 14;
+}
+
+message CreateUDSResponse {
+    string request_id = 1;
+    string status_detail = 2;
+    string MarketRef = 3;
+    t4proto.v2.common.UDSStatus uds_status = 4;
+}
