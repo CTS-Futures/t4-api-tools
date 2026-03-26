@@ -1,5 +1,6 @@
 import asyncio
 import time
+from unittest import case
 import websockets
 from tools.ClientMessageHelper import ClientMessageHelper
 from tools.ProtoUtils import encode_message, decode_message
@@ -370,35 +371,24 @@ class Client:
         pass
         print(message)
     
-    #similar to account snapshot
-    #order multi has many different messages nested within
-    #this sends each message to its corresponding handler
-    def handle_order_update_multi(self, update_multi):
-        updates_processed = 0
-        print(update_multi)
-        if update_multi.updates:
-            for update in update_multi.updates:
-                if update.HasField("order_update"):
-                    updates_processed += 1
-                    self.handle_order_update(update.order_update)
-                elif update.HasField("order_update_status"):
-                    updates_processed += 1
-                    self.handle_order_update_status(update.order_update_status)
-                elif update.HasField("order_update_trade"):
-                    updates_processed += 1
-                    self.handle_order_update_trade(update.order_update_trade)
-                elif update.HasField("order_update_trade_leg"):
-                    updates_processed += 1
-                    self.handle_order_update_trade_leg(update.order_update_trade_leg)
-                elif update.HasField("order_update_failed"):
-                    updates_processed += 1
-                    self.handle_order_update_failed(update.order_update_failed)
-                else:
-                    print(f"Unknown update type in message")
-        if updates_processed != len(update_multi.updates):
-            print(f"Order update multi mismatch: expected {len(update_multi.updates)}, processed {updates_processed}")
-        else:
-            print(f"Order update multi processed: {updates_processed}")
+    def dispatch_order_update(self, message):
+        
+        match message.update_type:
+            case 0: #default
+                pass
+            case 1:
+                self.handle_order_update(message)
+            case 2:
+                self.handle_order_update_status(message)
+            case 3:
+                self.handle_order_update_trade(message)
+            case 4:
+                self.handle_order_update_trade_leg(message)
+            case 5:
+                self.handle_order_update_failed(message)
+            case _:
+                print("unknown type")
+
 
     #caches the order
     def handle_order_update(self, order_update):
@@ -467,7 +457,7 @@ class Client:
     #this will be inside of the listen function.
     #sends each message to a handling funciton. Which will just parse the data that is needed
     def process_server_message(self, msg):
-        
+   
         msg = decode_message(msg)
         
         if not hasattr(msg, 'WhichOneof'):
@@ -500,14 +490,12 @@ class Client:
             case "market_depth":
                 self.handle_market_depth(msg.market_depth)
             case "order_update_multi":
+                print("this is order update multi")
                 print(msg)
             #    self.handle_order_update_multi(msg.order_update_multi)
             case "order_update":
-                print("this is the new orde update")
-                print("\n")
                 print(msg.order_update)
-                print("\n  ")
-              #  self.handle_order_update(msg.order_update)
+               
             case _:
                 print(msg)
                 print("unknown message type")
