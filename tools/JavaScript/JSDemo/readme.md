@@ -14,7 +14,7 @@ Download the Node.js installer from the official [website](https://nodejs.org/).
 Run the installer and follow the prompts to complete the installation.
 
 ## 2: Create config.js file
-In the root directory of the project, copy the `config.example.js` file and name the new file `config.js`. 
+In the root directory of the project, copy the `config.template.js` file and name the new file `config.js`. 
 This file will hold your configuration settings for the project.
 
 ### API Key
