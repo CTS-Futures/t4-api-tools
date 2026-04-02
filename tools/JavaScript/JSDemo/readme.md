@@ -18,7 +18,7 @@ In the root directory of the project, copy the `config.template.js` file and nam
 This file will hold your configuration settings for the project.
 
 ### API Key
-If you have an API key, paste that in to the `config.js` file and comment out the credential fields.
+If you have an API key, paste that into the `config.js` file and comment out the credential fields.
 
 ### Credentials
 If you don't have an API key, you can use your credentials to log in.
