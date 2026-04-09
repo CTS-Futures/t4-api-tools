@@ -52,6 +52,7 @@ message ServerMessage {
       t4proto.v2.market.MarketSnapshot market_snapshot = 108;
       t4proto.v2.market.MarketByOrderSnapshot market_by_order_snapshot = 109;
       t4proto.v2.market.MarketByOrderUpdate market_by_order_update = 110;
+      t4proto.v2.market.MarketByOrderTrade market_by_order_trade = 111;
 
       // Account Messages
       t4proto.v2.account.AccountSubscribeResponse account_subscribe_response = 200;
