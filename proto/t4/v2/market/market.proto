@@ -228,3 +228,19 @@ message MarketByOrderUpdate {
     uint64 priority = 6;
   }
 }
+
+message MarketByOrderTrade {
+  string market_id = 1;
+  google.protobuf.Timestamp time = 2;
+  t4proto.v2.common.Price trade_price = 3;
+  int32 trade_volume = 4;
+  t4proto.v2.common.BidOffer aggressor_side = 5;
+  uint64 sequence = 6;
+  repeated OrderDetail orders = 7;
+
+  message OrderDetail {
+    uint64 order_id = 1;
+    int32 volume = 2;
+    t4proto.v2.common.BidOffer bid_offer = 3;
+  }
+}
