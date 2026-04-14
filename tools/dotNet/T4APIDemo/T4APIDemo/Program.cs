@@ -1,10 +1,16 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using T4APIDemo.DemoClient;
 using T4APIDemo.T4;
 using T4APIDemo.T4.CredentialProviders;
 
-var builder = Host.CreateDefaultBuilder(args);
+var builder = Host.CreateDefaultBuilder(args)
+    .ConfigureAppConfiguration((context, config) =>
+    {
+        // Explicitly add user secrets
+        config.AddUserSecrets<Program>(optional: true);
+    });
 
 builder.ConfigureServices((hostContext, services) =>
 {
