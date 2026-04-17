@@ -349,6 +349,145 @@ class T4APIClient {
         }
     }
 
+    async submitMargininquiry(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null) {
+        if (!this.selectedAccount || !this.currentMarketId) {
+            throw new Error('No account or market selected');
+        }
+
+        const marketDetails = this.getMarketDetails(this.currentMarketId);
+
+        // Convert string price type to enum value
+        const priceTypeValue = priceType.toLowerCase() === 'market'
+            ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET  // 0
+            : T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT;  // 1
+
+        // Convert buy/sell string to enum value
+        const buySellValue = typeof side === 'string'
+            ? (side.toLowerCase() === 'buy'
+                ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY    // 1
+                : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // 2
+            : side;
+
+        // Determine if we need OCO order linking
+        const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
+        const orderLinkValue = hasBracketOrders
+            ? T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_AUTO_OCO  
+            : T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_NONE;     // 0
+
+        // Get current time in CST
+        const now = new Date();
+        const cstOffset = -6 * 60; // CST is UTC-6 (or -5 for CDT, adjust as needed)
+        const localOffset = now.getTimezoneOffset();
+        const cstTime = new Date(now.getTime() + (localOffset - cstOffset) * 60000);
+
+        // Add 10 seconds
+        const submitTime = new Date(cstTime.getTime() + 10000);
+
+        // Convert to protobuf Timestamp format
+        const seconds = Math.floor(submitTime.getTime() / 1000);
+        const nanos = (submitTime.getTime() % 1000) * 1000000;
+
+        // Generate unique GUID for margin inquiry
+        const marginInquiryId =  uuidv4();
+
+        // Create orders array with main order first
+        const orders = [{
+            buySell: buySellValue,
+            priceType: priceTypeValue,
+            timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL, // 0
+            volume: volume,
+            // Only set limit price if it's a limit order
+            limitPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT
+                ? { value: price.toString() }
+                : null,
+            // activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_AT_OR_AFTER_TIME,
+            // activationData: {
+            //     submitTime: {
+            //         seconds: seconds,
+            //         nanos: nanos
+            //     }
+            // }
+            marginInquiry: true,
+
+        }];
+
+        // For bracket orders, we need to use the opposite side
+        const protectionSide = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY
+            ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL
+            : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY;
+
+        // Add take profit order if specified
+        if (takeProfitDollars !== null) {
+
+            //const takeProfitPoints = takeProfitDollars / marketDetails.pointValue.value;
+            // const takeProfitPrice = takeProfitPoints * marketDetails.minPriceIncrement.value;
+            const takeProfitPrice = takeProfitDollars * marketDetails.minPriceIncrement.value;
+
+            orders.push({
+                buySell: protectionSide,
+                priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT, // Always limit for take profit
+                timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                volume: 0, // Volume should be 0 for bracket orders
+                limitPrice: { value: takeProfitPrice.toString() },
+                // Hold activation means order is not active until parent order is filled
+                activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD
+            });
+        }
+
+        // Add stop loss order if specified
+        if (stopLossDollars !== null) {
+
+            // const stopLossPoints = stopLossDollars / marketDetails.pointValue.value;
+            // const stopLossPrice = stopLossPoints * marketDetails.minPriceIncrement.value;
+            const stopLossPrice = stopLossDollars * marketDetails.minPriceIncrement.value;
+
+            orders.push({
+                buySell: protectionSide,
+                priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
+                timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                volume: 0, // Volume should be 0 for bracket orders
+                stopPrice: { value: stopLossPrice.toString() },
+                // Hold activation means order is not active until parent order is filled
+                activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
+                marginInquiry: true,
+                
+            });
+        }
+
+        // Create the order submit message
+        const orderSubmit = {
+            orderSubmit: {
+                accountId: this.selectedAccount,
+                marketId: this.currentMarketId,
+                orderLink: orderLinkValue,
+                manualOrderIndicator: true,
+                orders: orders
+            }
+        };
+
+        // Send the order
+        await this.sendMessage(orderSubmit);
+
+        // Log order details
+        const sideText = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+        const priceText = priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET ? 'Market' : price;
+
+        this.log(`Margin Inquiry submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType}, ID: ${marginInquiryId})`, 'info');
+
+        if (takeProfitDollars !== null) {
+            this.log(`Take profit: $${takeProfitDollars} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+        }
+
+        if (stopLossDollars !== null) {
+            this.log(`Stop loss: $${stopLossDollars} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+        }
+
+        if (hasBracketOrders) {
+            this.log(`OCO (One Cancels Other) bracket order applied`, 'info');
+        }
+
+        
+    }
     async pullOrder(orderId) {
         if (!this.selectedAccount) {
             throw new Error('No account selected');
@@ -534,6 +673,8 @@ class T4APIClient {
             this.dispatchOrderUpdate(message.orderUpdate);
         } else if (message.orderTrade) {
             this.handleOrderTrade(message.orderTrade);
+        } else if (message.marginInquiryResponse) {
+            this.handleMarginInquiryResponse(message.marginInquiryResponse);
         } else if (message.accountSnapshot) {
             this.handleAccountSnapshot(message.accountSnapshot);
         } else if (message.authenticationToken) {
@@ -829,6 +970,67 @@ class T4APIClient {
         }
     }
 
+    handleMarginInquiryResponse(response) {
+        this.log(response);
+        this.log('=== Margin Inquiry Response ===', 'info');
+        this.log(`Request ID: ${response.requestId}`, 'info');
+        
+        if (response.errorMessage) {
+            this.log(`Error: ${response.errorMessage}`, 'error');
+            return;
+        }
+
+        // Current account margins
+        this.log('--- Current Account Margins ---', 'info');
+        if (response.accountCurrentMargin != null) {
+            this.log(`Current Margin: $${response.accountCurrentMargin.toFixed(2)}`, 'info');
+        }
+        if (response.accountCurrentPreTradeMargin != null) {
+            this.log(`Current Pre-Trade Margin: $${response.accountCurrentPreTradeMargin.toFixed(2)}`, 'info');
+        }
+        if (response.accountCurrentDayMargin != null) {
+            this.log(`Current Day Margin: $${response.accountCurrentDayMargin.toFixed(2)}`, 'info');
+        }
+        if (response.accountCurrentFullMargin != null) {
+            this.log(`Current Full Margin: $${response.accountCurrentFullMargin.toFixed(2)}`, 'info');
+        }
+        if (response.accountCurrentAvailableCash != null) {
+            this.log(`Current Available Cash: $${response.accountCurrentAvailableCash.toFixed(2)}`, 'info');
+        }
+
+        // Margins with order
+        this.log('--- Margins With This Order ---', 'info');
+        if (response.accountMarginWithOrder != null) {
+            this.log(`Margin With Order: $${response.accountMarginWithOrder.toFixed(2)}`, 'info');
+        }
+        if (response.accountPreTradeMarginWithOrder != null) {
+            this.log(`Pre-Trade Margin With Order: $${response.accountPreTradeMarginWithOrder.toFixed(2)}`, 'info');
+        }
+        if (response.accountDayMarginWithOrder != null) {
+            this.log(`Day Margin With Order: $${response.accountDayMarginWithOrder.toFixed(2)}`, 'info');
+        }
+        if (response.accountFullMarginWithOrder != null) {
+            this.log(`Full Margin With Order: $${response.accountFullMarginWithOrder.toFixed(2)}`, 'info');
+        }
+
+        // Margin impacts
+        this.log('--- Margin Impact ---', 'info');
+        if (response.marginImpact != null) {
+            this.log(`Margin Impact: $${response.marginImpact.toFixed(2)}`, 'info');
+        }
+        if (response.preTradeMarginImpact != null) {
+            this.log(`Pre-Trade Margin Impact: $${response.preTradeMarginImpact.toFixed(2)}`, 'info');
+        }
+        if (response.dayMarginImpact != null) {
+            this.log(`Day Margin Impact: $${response.dayMarginImpact.toFixed(2)}`, 'info');
+        }
+        if (response.fullMarginImpact != null) {
+            this.log(`Full Margin Impact: $${response.fullMarginImpact.toFixed(2)}`, 'info');
+        }
+
+        this.log('================================', 'info');
+    }
+
     handleMarketByOrderSnapshot(snashot) {
 
         this.log(`MBO Snapshot: ${snashot.marketId}`, 'info');
@@ -897,7 +1099,7 @@ class T4APIClient {
         const typeName = typeNames[update.updateType] ?? update.updateType;
 
         this.log(`Order update [${typeName}]: ${update.uniqueId}, status: ${update.status}`, 'info');
-
+        this.log(`Order update details: ${JSON.stringify(update, null, 2)}`, 'info');
         // For SNAPSHOT (type 1 or 0) replace entirely; for all others merge into existing
         if (update.updateType <= 1) {
             this.orders.set(update.uniqueId, update);
@@ -968,7 +1170,15 @@ class T4APIClient {
             const encoded = this.encodeMessage(clientMessage);
             this.ws.send(encoded);
 
-            this.log(`SENT: ${JSON.stringify(messagePayload, null, 2)}`, 'sent');
+            // Check if this is a margin inquiry
+            let messageType = Object.keys(messagePayload)[0];
+            let isMarginInquiry = false;
+            if (messagePayload.orderSubmit?.orders?.[0]?.marginInquiry === true) {
+                isMarginInquiry = true;
+                messageType = 'marginInquiry';
+            }
+
+            this.log(`SENT [${messageType}]: ${JSON.stringify(messagePayload, null, 2)}`, 'sent');
 
             if (this.onMessageSent) {
                 this.onMessageSent(messagePayload);
@@ -1173,8 +1383,8 @@ class T4APIClient {
     }
 
     generateUUID() {
-        // Simple unique ID for the demo app using timestamp + random suffix
-        return `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        // Using standard UUID library (uuidv4)
+        return uuidv4();
     }
 }
 
