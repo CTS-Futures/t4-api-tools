@@ -105,6 +105,7 @@
             </div>
             <div class="form-group submit-btn-container">
                 <button id="submitOrderBtn" class="submit-order-btn">Submit Order</button>
+                <button id="submitMarginInquiryBtn" class="submit-order-btn margin-inquiry">Submit Margin Inquiry</button>
             </div>
         </div>
     </div>
@@ -184,6 +185,7 @@
             orderVolume: document.getElementById('orderVolume'),
             orderPrice: document.getElementById('orderPrice'),
             submitOrderBtn: document.getElementById('submitOrderBtn'),
+            submitMarginInquiryBtn: document.getElementById('submitMarginInquiryBtn'),
             positionsTable: document.getElementById('positionsTable').querySelector('tbody'),
             ordersTable: document.getElementById('ordersTable').querySelector('tbody'),
             console: document.getElementById('console')
@@ -276,6 +278,7 @@
             elements.connectBtn.disabled = connected;
             elements.disconnectBtn.disabled = !connected;
             elements.submitOrderBtn.disabled = !connected || !client.selectedAccount;
+            elements.submitMarginInquiryBtn.disabled = !connected || !client.selectedAccount;
         }
 
         function updateAccountSelect(accounts) {
@@ -453,6 +456,7 @@
             await client.subscribeAccount(accountId);
             renderAccountsTable();
             elements.submitOrderBtn.disabled = !client.isConnected || !accountId;
+            elements.submitMarginInquiryBtn.disabled = !client.isConnected || !accountId;
         }
 
         // Connection functions
@@ -504,10 +508,31 @@
             }
         }
 
+        async function submitMarginInquiry() {
+            try {
+                const side = elements.orderSide.value;
+                const volume = parseInt(elements.orderVolume.value);
+                const priceType = elements.orderType.value; // 'limit' or 'market'
+                const price = parseFloat(elements.orderPrice.value);
+
+                // Get take profit and stop loss values if provided
+                const takeProfitElement = document.getElementById('takeProfitPrice');
+                const stopLossElement = document.getElementById('stopLossPrice');
+
+                const takeProfit = takeProfitElement && takeProfitElement.value ? parseFloat(takeProfitElement.value) : null;
+                const stopLoss = stopLossElement && stopLossElement.value ? parseFloat(stopLossElement.value) : null;
+
+                await client.submitMargininquiry(side, volume, price, priceType, takeProfit, stopLoss);
+            } catch (error) {
+                log(`Margin inquiry error: ${error.message}`, 'error');
+            }
+        }
+
         // Event listeners
         elements.connectBtn.addEventListener('click', connect);
         elements.disconnectBtn.addEventListener('click', disconnect);
         elements.submitOrderBtn.addEventListener('click', submitOrder);
+        elements.submitMarginInquiryBtn.addEventListener('click', submitMarginInquiry);
 
         // Contract picker handler
         document.addEventListener('click', async (e) => {

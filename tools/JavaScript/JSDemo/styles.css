@@ -241,10 +241,13 @@ th {
 .submit-btn-container {
     grid-column: 1 / -1;
     margin-top: 10px;
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
 }
 
 .submit-order-btn {
-    width: 100%;
+    flex: 1;
     margin: 0;
     background-color: #4285f4;
     color: white;
@@ -254,6 +257,14 @@ th {
 
 .submit-order-btn:hover {
     background-color: #3367d6;
+}
+
+.submit-order-btn.margin-inquiry {
+    background-color: #2196F3;
+}
+
+.submit-order-btn.margin-inquiry:hover {
+    background-color: #1976D2;
 }
 
 /* Modal styles */
