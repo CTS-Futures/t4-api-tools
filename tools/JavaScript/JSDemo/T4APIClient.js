@@ -174,8 +174,8 @@ class T4APIClient {
                     exchangeId: this.currentSubscription.exchangeId,
                     contractId: this.currentSubscription.contractId,
                     marketId: this.currentSubscription.marketId,
-                    buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
-                    depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_UNDEFINED
+                    buffer: T4ProtoV2.t4proto.v2.common.DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
+                    depthLevels: T4ProtoV2.t4proto.v2.common.DepthLevels.DEPTH_LEVELS_UNDEFINED
                 }
             });
 
@@ -192,8 +192,8 @@ class T4APIClient {
                 exchangeId,
                 contractId,
                 marketId,
-                buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART,
-                depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_BEST_ONLY
+                buffer: T4ProtoV2.t4proto.v2.common.DepthBuffer.DEPTH_BUFFER_SMART,
+                depthLevels: T4ProtoV2.t4proto.v2.common.DepthLevels.DEPTH_LEVELS_BEST_ONLY
             }
         });
 
@@ -225,21 +225,21 @@ class T4APIClient {
 
         // Convert string price type to enum value
         const priceTypeValue = priceType.toLowerCase() === 'market'
-            ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET  // 0
-            : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;  // 1
+            ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET  // 0
+            : T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT;  // 1
 
         // Convert buy/sell string to enum value
         const buySellValue = typeof side === 'string'
             ? (side.toLowerCase() === 'buy'
-                ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY    // 1
-                : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL)  // -1
+                ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY    // 1
+                : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // 2
             : side;
 
         // Determine if we need OCO order linking
         const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
         const orderLinkValue = hasBracketOrders
-            ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO  // 2
-            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;     // 0
+            ? T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_AUTO_OCO  // 2
+            : T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_NONE;     // 0
 
         // Get current time in CST
         const now = new Date();
@@ -258,13 +258,13 @@ class T4APIClient {
         const orders = [{
             buySell: buySellValue,
             priceType: priceTypeValue,
-            timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
+            timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL, // 0
             volume: volume,
             // Only set limit price if it's a limit order
-            limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
+            limitPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT
                 ? { value: price.toString() }
                 : null,
-            // activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_AT_OR_AFTER_TIME,
+            // activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_AT_OR_AFTER_TIME,
             // activationData: {
             //     submitTime: {
             //         seconds: seconds,
@@ -274,15 +274,9 @@ class T4APIClient {
         }];
 
         // For bracket orders, we need to use the opposite side
-        const protectionSide = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY
-            ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL
-            : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY;
-
-        // Select the correct decimals based on price format:
-        // 0 = Decimal format (use decimals), 1 = Real format (use realDecimals)
-        const priceDecimals = (this.config.priceFormat === 0)
-            ? marketDetails.decimals
-            : marketDetails.realDecimals;
+        const protectionSide = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY
+            ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL
+            : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY;
 
         // Add take profit order if specified
         if (takeProfitDollars !== null) {
@@ -305,12 +299,12 @@ class T4APIClient {
 
             orders.push({
                 buySell: protectionSide,
-                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT, // Limit for take profit. Could also use other orders types depending on strategy e.g. Market if touched.
-                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT, // Always limit for take profit
+                timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
                 volume: 0, // Volume should be 0 for bracket orders
                 limitPrice: { value: takeProfitLimitPrice.toString() }, // AOCO = distance in price, AOCO_P = actual price
                 // Hold activation means order is not active until parent order is filled
-                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
+                activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD
             });
         }
 
@@ -349,17 +343,15 @@ class T4APIClient {
 
             } else {
 
-                orders.push({
-                    buySell: protectionSide,
-                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
-                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
-                    volume: 0, // Volume should be 0 for bracket orders
-                    stopPrice: { value: stopLossStopPrice.toString() },
-                    // Hold activation means order is not active until parent order is filled
-                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
-                    activationData: "SL"
-                });
-            }
+            orders.push({
+                buySell: protectionSide,
+                priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
+                timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                volume: 0, // Volume should be 0 for bracket orders
+                stopPrice: { value: stopLossPrice.toString() },
+                // Hold activation means order is not active until parent order is filled
+                activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD
+            });
         }
 
         // Create the order submit message
@@ -377,17 +369,17 @@ class T4APIClient {
         await this.sendMessage(orderSubmit);
 
         // Log order details
-        const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
-        const priceText = priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET ? 'Market' : price;
+        const sideText = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+        const priceText = priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET ? 'Market' : price;
 
         this.log(`Order submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType})`, 'info');
 
         if (takeProfitDollars !== null) {
-            this.log(`Take profit: $${takeProfitDollars} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+            this.log(`Take profit: $${takeProfitDollars} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (stopLossDollars !== null) {
-            this.log(`Stop loss: $${stopLossDollars}${trailingStop ? ' (Trailing)' : ''} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+            this.log(`Stop loss: $${stopLossDollars} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (hasBracketOrders) {
@@ -449,8 +441,8 @@ class T4APIClient {
 
         // To flatten: sell if long (net > 0), buy if short (net < 0)
         const buySellValue = netPosition > 0
-            ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL   // -1
-            : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY;   //  1
+            ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL   // 2
+            : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY;   //  1
 
         const volume = Math.abs(netPosition);
 
@@ -458,12 +450,12 @@ class T4APIClient {
             orderSubmit: {
                 accountId: accountId,
                 marketId: marketId,
-                orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE,
+                orderLink: T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_NONE,
                 manualOrderIndicator: true,
                 orders: [{
                     buySell: buySellValue,
-                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_FLATTEN, // 16
-                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL,
+                    priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_FLATTEN, // 16
+                    timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL,
                     volume: volume
                 }]
             }
@@ -471,7 +463,7 @@ class T4APIClient {
 
         await this.sendMessage(orderSubmit);
 
-        const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+        const sideText = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
         this.log(`Flatten submitted: ${sideText} ${volume} @ Flatten (Market: ${marketId})`, 'info');
     }
 
@@ -1157,7 +1149,7 @@ class T4APIClient {
 
         try {
             // Wrap the message in ClientMessage envelope
-            const clientMessage = T4Proto.ClientMessageHelper.createClientMessage(messagePayload);
+            const clientMessage = T4ProtoV2.ClientMessageHelper.createClientMessage(messagePayload);
             const encoded = this.encodeMessage(clientMessage);
             this.ws.send(encoded);
 
@@ -1243,11 +1235,11 @@ class T4APIClient {
 
     // Message Encoding/Decoding
     encodeMessage(message) {
-        return T4Proto.encodeMessage(message);
+        return T4ProtoV2.encodeMessage(message);
     }
 
     decodeMessage(data) {
-        return T4Proto.decodeMessage(data);
+        return T4ProtoV2.decodeMessage(data);
     }
 
     // Market Data API
