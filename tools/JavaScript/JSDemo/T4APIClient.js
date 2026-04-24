@@ -428,7 +428,7 @@ class T4APIClient {
         const nanos = (submitTime.getTime() % 1000) * 1000000;
 
         // Generate unique GUID for margin inquiry
-        const marginInquiryId =  uuidv4();
+        // const marginInquiryId =  uuidv4();
 
         // Create orders array with main order first
         const orders = [{
@@ -490,6 +490,7 @@ class T4APIClient {
                 // Hold activation means order is not active until parent order is filled
                 activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
                 marginInquiry: true,
+                marginInquiryId: "temp",
                 
             });
         }
