@@ -216,7 +216,7 @@ class T4APIClient {
         this.startHeartbeat();
     }
 
-    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false) {
+    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars') {
         if (!this.selectedAccount || !this.currentMarketId) {
             throw new Error('No account or market selected');
         }
@@ -237,9 +237,13 @@ class T4APIClient {
 
         // Determine if we need OCO order linking
         const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
+
+        // Use AUTO_OCO for dollar-distance mode, AUTO_OCO_P for absolute price mode
         const orderLinkValue = hasBracketOrders
-            ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO  // 2
-            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;     // 0
+            ? (bracketMode === 'price'
+                ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO_P  // 3
+                : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)   // 2
+            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;           // 0
 
         // Get current time in CST
         const now = new Date();
@@ -264,13 +268,6 @@ class T4APIClient {
             limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
                 ? { value: price.toString() }
                 : null,
-            // activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_AT_OR_AFTER_TIME,
-            // activationData: {
-            //     submitTime: {
-            //         seconds: seconds,
-            //         nanos: nanos
-            //     }
-            // }
         }];
 
         // For bracket orders, we need to use the opposite side
@@ -287,29 +284,30 @@ class T4APIClient {
         // Add take profit order if specified
         if (takeProfitDollars !== null) {
 
-            // Calc how many points the take profit is from the entry price based on the dollar amount, contract multiplier, and point value
-            let takeProfitPoints = (Math.abs(takeProfitDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+            let takeProfitLimitPrice;
 
-            // Buy main order: TP is above fill (add), Sell main order: TP is below fill (subtract)
-            takeProfitPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
-                ? takeProfitPoints
-                : -takeProfitPoints;
+            if (bracketMode === 'price') {
+                // AOCO_P mode: user provides absolute price directly
+                takeProfitLimitPrice = takeProfitDollars; // In price mode, the value IS the absolute price
+            } else {
+                // Dollar mode: calc distance from entry price
+                let takeProfitPoints = (Math.abs(takeProfitDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
 
-            // TP in absolute price terms for AOCO_P or display purposes
-            const takeProfitAbsolutePrice = price + takeProfitPoints;
+                // Buy main order: TP is above fill (add), Sell main order: TP is below fill (subtract)
+                takeProfitPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
+                    ? takeProfitPoints
+                    : -takeProfitPoints;
 
-            // AOCO uses distance in price, AOCO_P uses the actual price
-            const takeProfitLimitPrice = (orderLinkValue === T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)
-                ? takeProfitPoints
-                : takeProfitAbsolutePrice;
+                // AOCO uses distance in price
+                takeProfitLimitPrice = takeProfitPoints;
+            }
 
             orders.push({
                 buySell: protectionSide,
-                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT, // Limit for take profit. Could also use other orders types depending on strategy e.g. Market if touched.
-                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
-                volume: 0, // Volume should be 0 for bracket orders
-                limitPrice: { value: takeProfitLimitPrice.toString() }, // AOCO = distance in price, AOCO_P = actual price
-                // Hold activation means order is not active until parent order is filled
+                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT,
+                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                volume: 0,
+                limitPrice: { value: takeProfitLimitPrice.toString() },
                 activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
             });
         }
@@ -317,46 +315,48 @@ class T4APIClient {
         // Add stop loss order if specified
         if (stopLossDollars !== null) {
 
-            // Calc how many points the stop loss is from the entry price based on the dollar amount, contract multiplier, and point value
-            let stopLossPoints = (Math.abs(stopLossDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+            let stopLossStopPrice;
 
-            // Buy main order: SL is below fill (-), Sell main order: SL is above fill (+)
-            stopLossPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
-                ? - stopLossPoints // Stop loss distance below entry for buy orders
-                : + stopLossPoints; // Stop loss distance above entry for sell orders
+            if (bracketMode === 'price') {
+                // AOCO_P mode: user provides absolute price directly
+                stopLossStopPrice = stopLossDollars; // In price mode, the value IS the absolute price
+            } else {
+                // Dollar mode: calc distance from entry price
+                let stopLossPoints = (Math.abs(stopLossDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
 
-            // Stop loss in absolute price terms for AOCO_P or display purposes
-            const stopLossAbsolutePrice = price + stopLossPoints;
+                // Buy main order: SL is below fill (-), Sell main order: SL is above fill (+)
+                stopLossPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
+                    ? - stopLossPoints
+                    : + stopLossPoints;
 
-            // AOCO uses distance in price, AOCO_P uses the actual price
-            const stopLossStopPrice = (orderLinkValue === T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)
-                ? stopLossPoints
-                : stopLossAbsolutePrice;
+                // AOCO uses distance in price
+                stopLossStopPrice = stopLossPoints;
+            }
 
             if (trailingStop) {
+                const trailDistance = bracketMode === 'price'
+                    ? Math.abs(price - stopLossStopPrice).toFixed(priceDecimals)
+                    : Math.abs(stopLossStopPrice).toFixed(priceDecimals);
 
-                // Trailing stop:
                 orders.push({
                     buySell: protectionSide,
-                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Example using stop market for trailing stop. Depending on strategy could also use STOP_LIMIT or other order types.
+                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET,
                     timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
                     volume: 0,
-                    stopPrice: { value: stopLossStopPrice.toString() }, // Price at which the stop order will trigger. For a trailing stop, this price will adjust as the market moves in your favor.
-                    trailDistance: { value: Math.abs(stopLossPoints).toFixed(priceDecimals) }, // Trail distance in the correct price format                 
-                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD,    // Hold activation means order is not active until parent order is filled
+                    stopPrice: { value: stopLossStopPrice.toString() },
+                    trailDistance: { value: trailDistance },
+                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD,
                     activationData: "SL-TRAIL"
                 });
 
             } else {
-
                 orders.push({
                     buySell: protectionSide,
-                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
-                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
-                    volume: 0, // Volume should be 0 for bracket orders
+                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET,
+                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                    volume: 0,
                     stopPrice: { value: stopLossStopPrice.toString() },
-                    // Hold activation means order is not active until parent order is filled
-                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD, // 1
+                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD,
                     activationData: "SL"
                 });
             }
@@ -380,18 +380,21 @@ class T4APIClient {
         const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
         const priceText = priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET ? 'Market' : price;
 
-        this.log(`Order submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType})`, 'info');
+        this.log(`Order submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType}, Bracket: ${bracketMode})`, 'info');
 
         if (takeProfitDollars !== null) {
-            this.log(`Take profit: $${takeProfitDollars} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+            const tpLabel = bracketMode === 'price' ? `Price ${takeProfitDollars}` : `$${takeProfitDollars}`;
+            this.log(`Take profit: ${tpLabel} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (stopLossDollars !== null) {
-            this.log(`Stop loss: $${stopLossDollars}${trailingStop ? ' (Trailing)' : ''} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+            const slLabel = bracketMode === 'price' ? `Price ${stopLossDollars}` : `$${stopLossDollars}`;
+            this.log(`Stop loss: ${slLabel}${trailingStop ? ' (Trailing)' : ''} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (hasBracketOrders) {
-            this.log(`OCO (One Cancels Other) bracket order applied`, 'info');
+            const linkType = bracketMode === 'price' ? 'OCO (AOCO_P - Absolute Price)' : 'OCO (AOCO - Distance)';
+            this.log(`${linkType} bracket order applied`, 'info');
         }
     }
 
