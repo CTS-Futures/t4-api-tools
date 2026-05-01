@@ -554,6 +554,24 @@
         elements.disconnectBtn.addEventListener('click', disconnect);
         elements.submitOrderBtn.addEventListener('click', submitOrder);
 
+        // Click on bid/ask/last to set limit price
+        ['bestBid', 'bestOffer', 'lastTrade'].forEach(id => {
+            elements[id].addEventListener('click', () => {
+                const text = elements[id].textContent;
+                if (!text || text === '-') return;
+
+                // Format is "volume@price" — extract the price portion
+                const parts = text.split('@');
+                const price = parts.length === 2 ? parts[1] : parts[0];
+                const parsed = parseFloat(price);
+
+                if (!isNaN(parsed)) {
+                    elements.orderPrice.value = parsed;
+                    log(`Limit price set to ${parsed} from ${id.replace('best', '').replace('lastTrade', 'Last Trade')}`, 'info');
+                }
+            });
+        });
+
         // Contract picker handler
         document.addEventListener('click', async (e) => {
             if (e.target.classList.contains('market-contract-link')) {
