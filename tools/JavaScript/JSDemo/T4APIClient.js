@@ -418,27 +418,48 @@ class T4APIClient {
         this.log(`Order cancelled: ${orderId}`, 'info');
     }
 
-    async reviseOrder(orderId, volume, price, priceType = 'limit') {
-        if (!this.selectedAccount) {
-            throw new Error('No account selected');
-        }
 
-        const orderRevise = {
-            orderRevise: {
-                accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
-                manualOrderIndicator: true,
-                revisions: [{
-                    uniqueId: orderId,
-                    volume: volume,
-                    limitPrice: priceType === 'limit' ? { value: price.toString() } : null
-                }]
-            }
-        };
-
-        await this.sendMessage(orderRevise);
-        this.log(`Order revised: ${orderId} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
+async reviseOrder(orderId, volume, price, priceType = 'limit') {
+    if (!this.selectedAccount) {
+        throw new Error('No account selected');
     }
+
+    const isStop = priceType === 'stop';
+
+    // Use the order's market for decimals (fall back to current market)
+    const order = this.orders.get(orderId);
+    const marketId = order?.marketId || this.currentMarketId;
+    const marketDetails = this.getMarketDetails(marketId);
+    const priceDecimals = marketDetails
+        ? ((this.config.priceFormat === 0) ? marketDetails.decimals : marketDetails.realDecimals)
+        : 2;
+
+    // Format with the correct decimal precision
+    const priceStr = Number(price).toFixed(priceDecimals);
+
+    const revision = {
+        uniqueId: orderId,
+        volume: volume
+    };
+
+    if (isStop) {
+        revision.stopPrice = { value: priceStr };
+    } else {
+        revision.limitPrice = { value: priceStr };
+    }
+
+    const orderRevise = {
+        orderRevise: {
+            accountId: this.selectedAccount,
+            marketId: marketId,
+            manualOrderIndicator: true,
+            revisions: [revision]
+        }
+    };
+
+    await this.sendMessage(orderRevise);
+    this.log(`Order revised: ${orderId} - Volume: ${volume}, ${isStop ? 'stop' : 'limit'} price: ${priceStr}`, 'info');
+}
 
     async flattenPosition(accountId, marketId, netPosition) {
         if (!accountId) {

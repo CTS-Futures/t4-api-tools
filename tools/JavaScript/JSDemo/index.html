@@ -420,7 +420,7 @@
                 const row = document.createElement('tr');
                 const time = new Date(order.time.seconds * 1000).toLocaleTimeString();
                 const side = order.buySell === 1 ? 'Buy' : 'Sell';
-                const isEditable = order.status === 1; // status 1 is Working
+                const isEditable = order.status === 1 || order.status === 4; // Working or Held
                 const statusText = getOrderStatusText(order.status);
                 const price = order.currentLimitPrice?.value
                     || order.currentStopPrice?.value
