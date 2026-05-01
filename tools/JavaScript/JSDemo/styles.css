@@ -120,6 +120,19 @@ th {
     font-weight: bold;
 }
 
+.market-value.bid,
+.market-value.offer,
+.market-value.last {
+    cursor: pointer;
+}
+
+.market-value.bid:hover,
+.market-value.offer:hover,
+.market-value.last:hover {
+    text-decoration: underline;
+    opacity: 0.8;
+}
+
 .bid { color: #007bff; }
 .offer { color: #dc3545; }
 .last { color: #28a745; }
@@ -491,4 +504,33 @@ th {
     cursor: pointer;
     margin: 0;
 }
+
+/* Bracket mode toggle - full width separator row */
+.bracket-mode-group {
+    grid-column: 1 / -1;
+    border-top: 1px solid #ddd;
+    border-bottom: 1px solid #ddd;
+    padding: 10px 0;
+    margin: 5px 0;
+}
+
+.bracket-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+    .bracket-toggle input[type="radio"] {
+        width: auto;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    .bracket-toggle label {
+        font-weight: normal;
+        font-size: 13px;
+        color: #555;
+        margin: 0;
+        cursor: pointer;
+    }
 

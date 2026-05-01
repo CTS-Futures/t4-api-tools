@@ -91,12 +91,21 @@
                 <label for="orderPrice">Price:</label>
                 <input type="number" id="orderPrice" step="0.01" value="100">
             </div>
+            <div class="form-group bracket-mode-group">
+                <label>Bracket Mode:</label>
+                <div class="bracket-toggle">
+                    <input type="radio" name="bracketMode" id="bracketModeDollars" value="dollars" checked>
+                    <label for="bracketModeDollars">Dollars ($)</label>
+                    <input type="radio" name="bracketMode" id="bracketModePrice" value="price">
+                    <label for="bracketModePrice">Price (AOCO_P)</label>
+                </div>
+            </div>
             <div class="form-group">
-                <label for="takeProfitPrice">Take Profit ($):</label>
+                <label for="takeProfitPrice" id="takeProfitLabel">Take Profit ($):</label>
                 <input type="number" id="takeProfitPrice" step="1" placeholder="Optional">
             </div>
             <div class="form-group">
-                <label for="stopLossPrice">Stop Loss ($):</label>
+                <label for="stopLossPrice" id="stopLossLabel">Stop Loss ($):</label>
                 <input type="number" id="stopLossPrice" step="1" placeholder="Optional">
                 <div class="trailing-toggle">
                     <input type="checkbox" id="trailingStopToggle">
@@ -167,7 +176,7 @@
 
 <script>
     // Wait for DOM to be fully loaded
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         // DOM elements
         const elements = {
             connectionStatus: document.getElementById('connectionStatus'),
@@ -411,10 +420,13 @@
                 const row = document.createElement('tr');
                 const time = new Date(order.time.seconds * 1000).toLocaleTimeString();
                 const side = order.buySell === 1 ? 'Buy' : 'Sell';
-                const isEditable = order.status === 1; // status 1 is Working
+                const isEditable = order.status === 1 || order.status === 4; // Working or Held
                 const statusText = getOrderStatusText(order.status);
-                const price = order.currentLimitPrice ? order.currentLimitPrice.value
-                    : (order.currentStopPrice ? order.currentStopPrice.value : '-');
+                const price = order.currentLimitPrice?.value
+                    || order.currentStopPrice?.value
+                    || order.limitPrice?.value
+                    || order.stopPrice?.value
+                    || '-';
 
                 row.innerHTML = `
             <td>${time}</td>
@@ -456,6 +468,8 @@
                     if (client.isConnected && !client.currentMarketId) {
                         await client.getMarketId(client.config.mdExchangeId, client.config.mdContractId);
                         await client.subscribeMarket(client.config.mdExchangeId, client.config.mdContractId, client.currentMarketId);
+                        // Auto-populate limit price from last trade after a short delay
+                        setTimeout(() => updateLimitPriceFromMarket(), 3000);
                     }
                 }, 2000);
 
@@ -472,12 +486,56 @@
             renderAccountsTable();
         }
 
+        // Update limit price field based on last trade price from market snapshot
+        function updateLimitPriceFromMarket() {
+            if (!client.currentMarketId) return;
+            const snapshot = client.getMarketSnapshot(client.currentMarketId);
+            if (snapshot && snapshot.tradeData && snapshot.tradeData.lastTradePrice) {
+                elements.orderPrice.value = snapshot.tradeData.lastTradePrice.value;
+                log(`Limit price set to last trade: ${snapshot.tradeData.lastTradePrice.value}`, 'info');
+            }
+        }
+
+        // Bracket mode toggle handler
+        document.querySelectorAll('input[name="bracketMode"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const mode = e.target.value;
+                const tpLabel = document.getElementById('takeProfitLabel');
+                const slLabel = document.getElementById('stopLossLabel');
+                const tpInput = document.getElementById('takeProfitPrice');
+                const slInput = document.getElementById('stopLossPrice');
+
+                if (mode === 'dollars') {
+                    tpLabel.textContent = 'Take Profit ($):';
+                    slLabel.textContent = 'Stop Loss ($):';
+                    tpInput.step = '1';
+                    slInput.step = '1';
+                    tpInput.placeholder = 'Optional';
+                    slInput.placeholder = 'Optional';
+                } else {
+                    tpLabel.textContent = 'Take Profit (Price):';
+                    slLabel.textContent = 'Stop Loss (Price):';
+                    tpInput.step = '0.01';
+                    slInput.step = '0.01';
+                    tpInput.placeholder = 'Absolute price';
+                    slInput.placeholder = 'Absolute price';
+                }
+
+                // Clear values on mode switch
+                tpInput.value = '';
+                slInput.value = '';
+            });
+        });
+
         async function submitOrder() {
             try {
                 const side = parseInt(elements.orderSide.value);
                 const volume = parseInt(elements.orderVolume.value);
                 const priceType = elements.orderType.value; // 'limit' or 'market'
                 const price = parseFloat(elements.orderPrice.value);
+
+                // Get bracket mode
+                const bracketMode = document.querySelector('input[name="bracketMode"]:checked').value;
 
                 // Get take profit and stop loss values if provided
                 const takeProfitElement = document.getElementById('takeProfitPrice');
@@ -488,7 +546,7 @@
                 const stopLoss = stopLossElement && stopLossElement.value ? parseFloat(stopLossElement.value) : null;
                 const trailingStop = trailingStopElement ? trailingStopElement.checked : false;
 
-                await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss, trailingStop);
+                await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss, trailingStop, bracketMode);
             } catch (error) {
                 log(`Order submission error: ${error.message}`, 'error');
             }
@@ -498,6 +556,24 @@
         elements.connectBtn.addEventListener('click', connect);
         elements.disconnectBtn.addEventListener('click', disconnect);
         elements.submitOrderBtn.addEventListener('click', submitOrder);
+
+        // Click on bid/ask/last to set limit price
+        ['bestBid', 'bestOffer', 'lastTrade'].forEach(id => {
+            elements[id].addEventListener('click', () => {
+                const text = elements[id].textContent;
+                if (!text || text === '-') return;
+
+                // Format is "volume@price" — extract the price portion
+                const parts = text.split('@');
+                const price = parts.length === 2 ? parts[1] : parts[0];
+                const parsed = parseFloat(price);
+
+                if (!isNaN(parsed)) {
+                    elements.orderPrice.value = parsed;
+                    log(`Limit price set to ${parsed} from ${id.replace('best', '').replace('lastTrade', 'Last Trade')}`, 'info');
+                }
+            });
+        });
 
         // Contract picker handler
         document.addEventListener('click', async (e) => {
@@ -513,6 +589,7 @@
                     try {
                         await client.getMarketId(result.exchangeId, result.contractId);
                         await client.subscribeMarket(result.exchangeId, result.contractId, client.currentMarketId);
+                        setTimeout(() => updateLimitPriceFromMarket(), 2000);
                     } catch (error) {
                         log(`Error subscribing to new contract: ${error.message}`, 'error');
                     }
@@ -540,6 +617,7 @@
 
                     try {
                         await client.subscribeMarket(result.exchangeId, result.contractId, result.marketId);
+                        setTimeout(() => updateLimitPriceFromMarket(), 2000);
                     } catch (error) {
                         log(`Error subscribing to new expiry: ${error.message}`, 'error');
                     }
