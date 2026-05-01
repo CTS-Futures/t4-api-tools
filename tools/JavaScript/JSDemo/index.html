@@ -422,8 +422,11 @@
                 const side = order.buySell === 1 ? 'Buy' : 'Sell';
                 const isEditable = order.status === 1; // status 1 is Working
                 const statusText = getOrderStatusText(order.status);
-                const price = order.currentLimitPrice ? order.currentLimitPrice.value
-                    : (order.currentStopPrice ? order.currentStopPrice.value : '-');
+                const price = order.currentLimitPrice?.value
+                    || order.currentStopPrice?.value
+                    || order.limitPrice?.value
+                    || order.stopPrice?.value
+                    || '-';
 
                 row.innerHTML = `
             <td>${time}</td>
