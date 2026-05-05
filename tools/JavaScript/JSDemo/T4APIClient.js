@@ -537,6 +537,12 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         this.log(`WebSocket closed: ${event.code} ${event.reason}`, 'info');
         this.handleConnectionStatusChanged(false);
 
+        // Stop heartbeat timer on close
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
+
         // Only retry on recoverable errors (network issues, not auth failures)
         const shouldRetry = !this.isDisposed &&
             this.reconnectAttempts < this.maxReconnectAttempts &&
@@ -548,6 +554,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             this.log('Authentication or permanent error - stopping reconnection attempts', 'error');
         }
     }
+
 
     handleError(error) {
         this.log(`WebSocket error: ${error}`, 'error');
@@ -662,9 +669,24 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     accounts: Array.from(this.accounts.values())
                 });
             }
-
+        } else if (
+            response.result === 6 || // Commonly used for "logged in elsewhere"
+            (response.errorMessage && response.errorMessage.toLowerCase().includes('logged in elsewhere'))
+        ) {
+            this.log('Login failed: Logged in elsewhere. Your session has been terminated by another login.', 'error');
+            if (this.ws) {
+                this.ws.close(4000, 'Logged in elsewhere');
+            }
+            // Optionally notify UI
+            if (this.onConnectionStatusChanged) {
+                this.onConnectionStatusChanged({
+                    isConnected: false,
+                    reconnectAttempts: this.reconnectAttempts,
+                    reason: 'logged_in_elsewhere'
+                });
+            }
         } else {
-            this.log(`Login failed: ${response.errorMessage || 'Unknown error'}`, 'error');
+            this.log(`Login failed (result=${response.result}): ${response.errorMessage || 'Unknown error'}`, 'error');
             if (this.ws) {
                 this.ws.close(4000, 'Authentication failed');
             }
