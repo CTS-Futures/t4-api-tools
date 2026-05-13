@@ -218,9 +218,9 @@
             } else if (update.type === 'orders') {
                 updateOrdersTable(update.orders);
             } else if (update.type === 'accountProfit') {
-                renderAccountsTable();
+                debouncedRenderAccountsTable();
             } else if (update.type === 'accountUpdate') {
-                renderAccountsTable();
+                debouncedRenderAccountsTable();
             }
         };
 
@@ -297,6 +297,12 @@
             if (accounts.length > 0 && !client.selectedAccount) {
                 selectAccount(accounts[0].accountId);
             }
+        }
+
+        let _renderAccountsTableTimer = null;
+        function debouncedRenderAccountsTable() {
+            clearTimeout(_renderAccountsTableTimer);
+            _renderAccountsTableTimer = setTimeout(renderAccountsTable, 100);
         }
 
         function renderAccountsTable() {

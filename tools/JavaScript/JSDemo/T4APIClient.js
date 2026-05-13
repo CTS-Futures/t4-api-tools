@@ -787,12 +787,10 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     }
 
     handleAccountProfit(accountProfit) {
-        // Store account profit data for display in the accounts table
         const existing = this.accountProfits.get(accountProfit.accountId) || {};
         this.accountProfits.set(accountProfit.accountId, {
             ...existing,
             accountId: accountProfit.accountId,
-            balance: accountProfit.balance ?? existing.balance ?? 0,
             rpl: accountProfit.rpl ?? existing.rpl ?? 0,
             upl: accountProfit.uplTrade ?? accountProfit.upl ?? existing.upl ?? 0,
             totalPnl: (accountProfit.rpl ?? existing.rpl ?? 0) + (accountProfit.uplTrade ?? accountProfit.upl ?? existing.upl ?? 0)
@@ -857,6 +855,19 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     handleAccountUpdate(update) {
         if (update.accountId) {
             this.accountUpdates.set(update.accountId, update);
+
+            // AccountUpdate carries balance and rpl — merge into accountProfits
+            // so renderAccountsTable reads consistent data from one place
+            if (update.balance != null || update.rpl != null) {
+                const existing = this.accountProfits.get(update.accountId) || {};
+                this.accountProfits.set(update.accountId, {
+                    ...existing,
+                    accountId: update.accountId,
+                    balance: update.balance ?? existing.balance ?? 0,
+                    rpl: update.rpl ?? existing.rpl ?? 0,
+                });
+            }
+
             this.log(`Account update received: ${update.accountId}`, 'info');
         }
         if (this.onAccountUpdate) {
@@ -938,11 +949,15 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                 if (msg.accountDetails) {
                     this.handleAccountDetails(msg.accountDetails);
                 } else if (msg.accountUpdate) {
-                    this.handleAccountUpdate(msg.accountUpdate)
+                    this.handleAccountUpdate(msg.accountUpdate);
                 } else if (msg.accountPosition) {
                     this.handleAccountPosition(msg.accountPosition);
+                } else if (msg.accountProfit) {
+                    this.handleAccountProfit(msg.accountProfit);
+                } else if (msg.accountPositionProfit) {
+                    this.handleAccountPositionProfit(msg.accountPositionProfit);
                 } else if (msg.orderUpdateMulti) {
-                    this.handleOrderUpdateMulti(msg.orderUpdateMulti)
+                    this.handleOrderUpdateMulti(msg.orderUpdateMulti);
                 } else if (msg.orderUpdate) {
                     this.handleOrderUpdate(msg.orderUpdate);
                 } else {
