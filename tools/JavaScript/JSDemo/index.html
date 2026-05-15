@@ -29,7 +29,7 @@
                 <thead>
                 <tr>
                     <th class="account-active-col"></th>
-                    <th>Account</th>
+                    <th id="accountsHeader">Account</th>
                     <th>Status</th>
                     <th>Balance</th>
                     <th>P&L</th>
@@ -308,6 +308,11 @@
         function renderAccountsTable() {
             elements.accountsTable.innerHTML = '';
             const accounts = client.getAccounts();
+
+            const accountsHeader = document.getElementById('accountsHeader');
+            if (accountsHeader) {
+                accountsHeader.textContent = accounts.length > 0 ? `Account (${accounts.length})` : 'Account';
+            }
 
             accounts.forEach(account => {
                 const row = document.createElement('tr');

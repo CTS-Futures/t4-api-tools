@@ -45,6 +45,7 @@ class T4APIClient {
         this.orders = new Map();
         this.accountProfits = new Map();
         this.accountUpdates = new Map();
+        this.accountDetailsCount = 0;
 
         // Heartbeat management
         this.heartbeatTimer = null;
@@ -749,7 +750,9 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     }
 
     handleAccountDetails(details) {
-        this.log(`Account details received: ${details.accountId}`, 'info');
+        this.accountDetailsCount++;
+        const accountName = details.accountName || details.name || details.accountId;
+        this.log(`Received account details (${this.accountDetailsCount} total) ${accountName}`, 'info');
 
         // Store or update the account in the accounts map
         const existing = this.accounts.get(details.accountId);
@@ -841,8 +844,8 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         }
 
         // Log P&L values with market ID and market info
-        this.log(`Position P&L update - Market: ${positionProfit.marketId}${marketInfo}, UPL: ${positionProfit.uplTrade}, RPL: ${positionProfit.rpl}, Total P&L: ${positionProfit.uplTrade + positionProfit.rpl}`,
-            'info');
+        // this.log(`Position P&L update - Market: ${positionProfit.marketId}${marketInfo}, UPL: ${positionProfit.uplTrade}, RPL: ${positionProfit.rpl}, Total P&L: ${positionProfit.uplTrade + positionProfit.rpl}`,
+        //     'info');
 
         if (this.onAccountUpdate) {
             this.onAccountUpdate({
