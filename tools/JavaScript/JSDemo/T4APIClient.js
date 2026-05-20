@@ -43,6 +43,7 @@ class T4APIClient {
         // Order/Position tracking
         this.positions = new Map();
         this.orders = new Map();
+        this.trades = new Map(); // keyed by orderId, value is array of OrderTrade
         this.accountProfits = new Map();
         this.accountUpdates = new Map();
         this.accountDetailsCount = 0;
@@ -105,6 +106,7 @@ class T4APIClient {
 
         this.accountProfits.clear();
         this.accountUpdates.clear();
+        this.trades.clear();
         this.handleConnectionStatusChanged(false);
         this.log('Disconnected', 'info');
     }
@@ -271,8 +273,11 @@ class T4APIClient {
             limitPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT
                 ? { value: price.toString() }
                 : null,
+<<<<<<< HEAD
             // Add ClOrdId if provided
             ClOrdId: ClOrdId || null,
+=======
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
             // activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_AT_OR_AFTER_TIME,
             // activationData: {
             //     submitTime: {
@@ -403,6 +408,7 @@ class T4APIClient {
 
             } else {
 
+<<<<<<< HEAD
                 orders.push({
                     buySell: protectionSide,
                     priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
@@ -417,6 +423,17 @@ class T4APIClient {
                     activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD
                 });
             }
+=======
+            orders.push({
+                buySell: protectionSide,
+                priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
+                timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                volume: 0, // Volume should be 0 for bracket orders
+                stopPrice: { value: stopLossPrice.toString() },
+                // Hold activation means order is not active until parent order is filled
+                activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD
+            });
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
         }
 
         // Create the order submit message
@@ -445,6 +462,7 @@ class T4APIClient {
 
         if (stopLossDollars !== null) {
             this.log(`Stop loss: $${stopLossDollars} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+<<<<<<< HEAD
         }
 
         if (hasBracketOrders) {
@@ -585,6 +603,151 @@ class T4APIClient {
 
         if (stopLossDollars !== null) {
             this.log(`Stop loss: $${stopLossDollars} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+=======
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
+        }
+
+        if (hasBracketOrders) {
+            this.log(`OCO (One Cancels Other) bracket order applied`, 'info');
+        }
+
+<<<<<<< HEAD
+        
+    }
+    async pullOrder(orderId = null, ClOrdId = null) {
+=======
+    async submitMargininquiry(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null) {
+        if (!this.selectedAccount || !this.currentMarketId) {
+            throw new Error('No account or market selected');
+        }
+
+        const marketDetails = this.getMarketDetails(this.currentMarketId);
+
+        // Convert string price type to enum value
+        const priceTypeValue = priceType.toLowerCase() === 'market'
+            ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET  // 0
+            : T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT;  // 1
+
+        // Convert buy/sell string to enum value
+        const buySellValue = typeof side === 'string'
+            ? (side.toLowerCase() === 'buy'
+                ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY    // 1
+                : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // 2
+            : side;
+
+        // Determine if we need OCO order linking
+        const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
+        const orderLinkValue = hasBracketOrders
+            ? T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_AUTO_OCO  
+            : T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_NONE;     // 0
+
+        // Get current time in CST
+        const now = new Date();
+        const cstOffset = -6 * 60; // CST is UTC-6 (or -5 for CDT, adjust as needed)
+        const localOffset = now.getTimezoneOffset();
+        const cstTime = new Date(now.getTime() + (localOffset - cstOffset) * 60000);
+
+        // Add 10 seconds
+        const submitTime = new Date(cstTime.getTime() + 10000);
+
+        // Convert to protobuf Timestamp format
+        const seconds = Math.floor(submitTime.getTime() / 1000);
+        const nanos = (submitTime.getTime() % 1000) * 1000000;
+
+        // Generate unique GUID for margin inquiry
+        // const marginInquiryId =  uuidv4();
+
+        // Create orders array with main order first
+        const orders = [{
+            buySell: buySellValue,
+            priceType: priceTypeValue,
+            timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL, // 0
+            volume: volume,
+            // Only set limit price if it's a limit order
+            limitPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT
+                ? { value: price.toString() }
+                : null,
+            // activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_AT_OR_AFTER_TIME,
+            // activationData: {
+            //     submitTime: {
+            //         seconds: seconds,
+            //         nanos: nanos
+            //     }
+            // }
+            marginInquiry: true,
+
+        }];
+
+        // For bracket orders, we need to use the opposite side
+        const protectionSide = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY
+            ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL
+            : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY;
+
+        // Add take profit order if specified
+        if (takeProfitDollars !== null) {
+
+            //const takeProfitPoints = takeProfitDollars / marketDetails.pointValue.value;
+            // const takeProfitPrice = takeProfitPoints * marketDetails.minPriceIncrement.value;
+            const takeProfitPrice = takeProfitDollars * marketDetails.minPriceIncrement.value;
+
+            orders.push({
+                buySell: protectionSide,
+                priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT, // Always limit for take profit
+                timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                volume: 0, // Volume should be 0 for bracket orders
+                limitPrice: { value: takeProfitPrice.toString() },
+                // Hold activation means order is not active until parent order is filled
+                activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD
+            });
+        }
+
+        // Add stop loss order if specified
+        if (stopLossDollars !== null) {
+
+            // const stopLossPoints = stopLossDollars / marketDetails.pointValue.value;
+            // const stopLossPrice = stopLossPoints * marketDetails.minPriceIncrement.value;
+            const stopLossPrice = stopLossDollars * marketDetails.minPriceIncrement.value;
+
+            orders.push({
+                buySell: protectionSide,
+                priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
+                timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
+                volume: 0, // Volume should be 0 for bracket orders
+                stopPrice: { value: stopLossPrice.toString() },
+                // Hold activation means order is not active until parent order is filled
+                activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
+                marginInquiry: true,
+                marginInquiryId: "temp",
+                
+            });
+        }
+
+        // Create the order submit message
+        const orderSubmit = {
+            orderSubmit: {
+                accountId: this.selectedAccount,
+                marketId: this.currentMarketId,
+                orderLink: orderLinkValue,
+                manualOrderIndicator: true,
+                orders: orders
+            }
+        };
+
+        // Send the order
+        await this.sendMessage(orderSubmit);
+
+        // Log order details
+        const sideText = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+        const priceText = priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET ? 'Market' : price;
+
+        this.log(`Margin Inquiry submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType}, ID: ${marginInquiryId})`, 'info');
+
+        if (takeProfitDollars !== null) {
+            this.log(`Take profit: $${takeProfitDollars} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+        }
+
+        if (stopLossDollars !== null) {
+            this.log(`Stop loss: $${stopLossDollars} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (hasBracketOrders) {
@@ -593,7 +756,8 @@ class T4APIClient {
 
         
     }
-    async pullOrder(orderId = null, ClOrdId = null) {
+    async pullOrder(orderId) {
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
         if (!this.selectedAccount) {
             throw new Error('No account selected');
         }
@@ -843,12 +1007,18 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         } else if (message.orderUpdate) {
             this.dispatchOrderUpdate(message.orderUpdate);
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
         } else if (message.orderTrade) {
             this.handleOrderTrade(message.orderTrade);
         } else if (message.marginInquiryResponse) {
             this.handleMarginInquiryResponse(message.marginInquiryResponse);
+<<<<<<< HEAD
 >>>>>>> 0d74ec1 (Added Margin Inquiry Req Support)
+=======
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
         } else if (message.accountSnapshot) {
             this.handleAccountSnapshot(message.accountSnapshot);
         } else if (message.authenticationToken) {
@@ -1145,7 +1315,10 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
     handleOrderTrade(trade) {
         const price = trade.price ? trade.price.value : '-';
         const volume = trade.volume ?? '-';
@@ -1235,7 +1408,10 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         this.log('================================', 'info');
     }
 
+<<<<<<< HEAD
 >>>>>>> 0d74ec1 (Added Margin Inquiry Req Support)
+=======
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
     handleMarketByOrderSnapshot(snashot) {
 
         this.log(`MBO Snapshot: ${snashot.marketId}`, 'info');
@@ -1284,8 +1460,15 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     this.handleAccountUpdate(msg.accountUpdate);
                 } else if (msg.accountPosition) {
                     this.handleAccountPosition(msg.accountPosition);
+<<<<<<< HEAD
                 } else if (msg.orderUpdate) {
                     this.dispatchOrderUpdate(msg.orderUpdate);
+=======
+                } else if (msg.orderStatus) {
+                    this.dispatchOrderUpdate(msg.orderStatus);
+                } else if (msg.orderTrade) {
+                    this.handleOrderTrade(msg.orderTrade);
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
                 } else {
                     const messageType = Object.keys(msg)[0] || 'unknown';
                     this.log(`Account snapshot message not handled: ${messageType}`, 'error');
@@ -1295,6 +1478,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     }
 
 
+<<<<<<< HEAD
     // ORDER_UPDATE_TYPE_NONE=0, SNAPSHOT=1, STATUS=2, TRADE=3, TRADE_LEG=4, FAILED=5
     dispatchOrderUpdate(update) {
 <<<<<<< HEAD
@@ -1318,6 +1502,11 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             default:
                 this.log(`Unknown order update type: ${update.updateType}`, 'error');
 =======
+=======
+    // Handles all OrderUpdate messages (updateType: NONE=0, SNAPSHOT=1, STATUS=2, TRADE=3, TRADE_LEG=4, FAILED=5)
+    // The new structure is a single flat OrderUpdate — merge it onto the stored order.
+    dispatchOrderUpdate(update) {
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
         const typeNames = ['NONE', 'SNAPSHOT', 'STATUS', 'TRADE', 'TRADE_LEG', 'FAILED'];
         const typeName = typeNames[update.updateType] ?? update.updateType;
 
@@ -1333,6 +1522,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                 marketId: update.marketId
             };
             this.orders.set(update.uniqueId, { ...existing, ...update });
+<<<<<<< HEAD
 >>>>>>> 0d74ec1 (Added Margin Inquiry Req Support)
         }
     }
@@ -1394,6 +1584,13 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         this.triggerOrdersUpdate();
     }
 
+=======
+        }
+
+        this.triggerOrdersUpdate();
+    }
+
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
     triggerOrdersUpdate() {
         if (this.onAccountUpdate) {
             this.onAccountUpdate({
@@ -1457,6 +1654,17 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                 messageType = 'marginInquiry';
             } 
 
+<<<<<<< HEAD
+=======
+            // Check if this is a margin inquiry
+            let messageType = Object.keys(messagePayload)[0];
+            let isMarginInquiry = false;
+            if (messagePayload.orderSubmit?.orders?.[0]?.marginInquiry === true) {
+                isMarginInquiry = true;
+                messageType = 'marginInquiry';
+            }
+
+>>>>>>> cc950b46e80af325f1ef0763a8054a9fb788da58
             this.log(`SENT [${messageType}]: ${JSON.stringify(messagePayload, null, 2)}`, 'sent');
 
             if (this.onMessageSent) {
