@@ -217,7 +217,11 @@ class T4APIClient {
         this.startHeartbeat();
     }
 
+<<<<<<< HEAD
     async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars') {
+=======
+    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, ClordId = null) {
+>>>>>>> 9493302 (added support for ClOrdId)
         if (!this.selectedAccount || !this.currentMarketId) {
             throw new Error('No account or market selected');
         }
@@ -267,6 +271,8 @@ class T4APIClient {
             limitPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT
                 ? { value: price.toString() }
                 : null,
+            // Add ClOrdId if provided
+            ClOrdId: ClOrdId || null,
             // activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_AT_OR_AFTER_TIME,
             // activationData: {
             //     submitTime: {
@@ -284,6 +290,7 @@ class T4APIClient {
         // Add take profit order if specified
         if (takeProfitDollars !== null) {
 
+<<<<<<< HEAD
             let takeProfitLimitPrice;
 
             if (bracketMode === 'price') {
@@ -292,15 +299,32 @@ class T4APIClient {
             } else {
                 // Dollar mode: calc distance from entry price
                 let takeProfitPoints = (Math.abs(takeProfitDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+=======
+            // Calc how many points the take profit is from the entry price based on the dollar amount, contract multiplier, and point value
+            const priceDecimals = marketDetails.priceDecimals || 2;
+            let takeProfitPoints = (Math.abs(takeProfitDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+
+            // Buy main order: TP is above fill (add), Sell main order: TP is below fill (subtract)
+            takeProfitPoints = (buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY)
+                ? takeProfitPoints
+                : -takeProfitPoints;
+>>>>>>> 9493302 (added support for ClOrdId)
 
                 // Buy main order: TP is above fill (add), Sell main order: TP is below fill (subtract)
                 takeProfitPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
                     ? takeProfitPoints
                     : -takeProfitPoints;
 
+<<<<<<< HEAD
                 // AOCO uses distance in price
                 takeProfitLimitPrice = takeProfitPoints;
             }
+=======
+            // AOCO uses distance in price, AOCO_P uses the actual price
+            const takeProfitLimitPrice = (orderLinkValue === T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_AUTO_OCO)
+                ? takeProfitPoints
+                : takeProfitAbsolutePrice;
+>>>>>>> 9493302 (added support for ClOrdId)
 
             orders.push({
                 buySell: protectionSide,
@@ -316,6 +340,7 @@ class T4APIClient {
         // Add stop loss order if specified
         if (stopLossDollars !== null) {
 
+<<<<<<< HEAD
             let stopLossStopPrice;
 
             if (bracketMode === 'price') {
@@ -324,15 +349,32 @@ class T4APIClient {
             } else {
                 // Dollar mode: calc distance from entry price
                 let stopLossPoints = (Math.abs(stopLossDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+=======
+            // Calc how many points the stop loss is from the entry price based on the dollar amount, contract multiplier, and point value
+            const priceDecimals = marketDetails.priceDecimals || 2;
+            let stopLossPoints = (Math.abs(stopLossDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+
+            // Buy main order: SL is below fill (-), Sell main order: SL is above fill (+)
+            stopLossPoints = (buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY)
+                ? - stopLossPoints // Stop loss distance below entry for buy orders
+                : + stopLossPoints; // Stop loss distance above entry for sell orders
+>>>>>>> 9493302 (added support for ClOrdId)
 
                 // Buy main order: SL is below fill (-), Sell main order: SL is above fill (+)
                 stopLossPoints = (buySellValue === T4Proto.t4proto.v2.common.BuySell.BUY_SELL_BUY)
                     ? - stopLossPoints
                     : + stopLossPoints;
 
+<<<<<<< HEAD
                 // AOCO uses distance in price
                 stopLossStopPrice = stopLossPoints;
             }
+=======
+            // AOCO uses distance in price, AOCO_P uses the actual price
+            const stopLossStopPrice = (orderLinkValue === T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_AUTO_OCO)
+                ? stopLossPoints
+                : stopLossAbsolutePrice;
+>>>>>>> 9493302 (added support for ClOrdId)
 
             if (trailingStop) {
                 const trailDistance = bracketMode === 'price'
@@ -341,12 +383,21 @@ class T4APIClient {
 
                 orders.push({
                     buySell: protectionSide,
+<<<<<<< HEAD
                     priceType: T4Proto.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET,
                     timeType: T4Proto.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
                     volume: 0,
                     stopPrice: { value: stopLossStopPrice.toString() },
                     trailDistance: { value: trailDistance },
                     activationType: T4Proto.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
+=======
+                    priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET, // Example using stop market for trailing stop. Depending on strategy could also use STOP_LIMIT or other order types.
+                    timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                    volume: 0,
+                    stopPrice: { value: stopLossStopPrice.toString() }, // Price at which the stop order will trigger. For a trailing stop, this price will adjust as the market moves in your favor.
+                    trailDistance: { value: Math.abs(stopLossPoints).toFixed(priceDecimals) }, // Trail distance in the correct price format                 
+                    activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,    // Hold activation means order is not active until parent order is filled
+>>>>>>> 9493302 (added support for ClOrdId)
                     activationData: "SL-TRAIL"
                 });
 
@@ -357,7 +408,11 @@ class T4APIClient {
                     priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET, // Stop market for stop loss
                     timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED, // 2
                     volume: 0, // Volume should be 0 for bracket orders
+<<<<<<< HEAD
                     stopPrice: { value: stopLossPrice.toString() },
+=======
+                    stopPrice: { value: stopLossStopPrice.toString() },
+>>>>>>> 9493302 (added support for ClOrdId)
                     // Hold activation means order is not active until parent order is filled
                     activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD
                 });
@@ -522,7 +577,7 @@ class T4APIClient {
         const sideText = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
         const priceText = priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET ? 'Market' : price;
 
-        this.log(`Margin Inquiry submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType}, ID: ${marginInquiryId})`, 'info');
+        this.log(`Margin Inquiry submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType})`, 'info');
 
         if (takeProfitDollars !== null) {
             this.log(`Take profit: $${takeProfitDollars} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
@@ -538,30 +593,68 @@ class T4APIClient {
 
         
     }
-    async pullOrder(orderId) {
+    async pullOrder(orderId = null, ClOrdId = null) {
         if (!this.selectedAccount) {
             throw new Error('No account selected');
         }
+
+        if (!orderId && !ClOrdId) {
+            throw new Error('Either orderId or ClOrdId must be provided');
+        }
+
+        const pull = {};
+        if (orderId) pull.uniqueId = orderId;
+        if (ClOrdId) pull.ClOrdId = ClOrdId;
 
         const orderPull = {
             orderPull: {
                 accountId: this.selectedAccount,
                 marketId: this.currentMarketId,
                 manualOrderIndicator: true,
-                pulls: [{
-                    uniqueId: orderId
-                }]
+                pulls: [pull]
             }
         };
 
         await this.sendMessage(orderPull);
-        this.log(`Order cancelled: ${orderId}`, 'info');
+        const identifier = ClOrdId || orderId;
+        this.log(`Order cancelled: ${identifier}`, 'info');
     }
 
+<<<<<<< HEAD
 
 async reviseOrder(orderId, volume, price, priceType = 'limit') {
     if (!this.selectedAccount) {
         throw new Error('No account selected');
+=======
+    async reviseOrder(ClordId = null, orderId = null, volume, price, priceType = 'limit') {
+        if (!this.selectedAccount) {
+            throw new Error('No account selected');
+        }
+
+        if (!orderId && !ClordId) {
+            throw new Error('Either orderId or ClordId must be provided');
+        }
+
+        const revision = {
+            volume: volume,
+            limitPrice: priceType === 'limit' ? { value: price.toString() } : null
+        };
+        if (orderId) revision.uniqueId = orderId;
+        if (ClordId) revision.ClOrdId = ClordId;
+
+        const orderRevise = {
+            orderRevise: {
+                accountId: this.selectedAccount,
+                marketId: this.currentMarketId,
+                manualOrderIndicator: true,
+                revisions: [revision]
+            }
+        };
+
+        await this.sendMessage(orderRevise);
+        const identifier = ClordId || orderId;
+        this.log(`Order revised: ${identifier} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
+>>>>>>> 9493302 (added support for ClOrdId)
     }
 
     const isStop = priceType === 'stop';
@@ -1355,14 +1448,14 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             const clientMessage = T4ProtoV2.ClientMessageHelper.createClientMessage(messagePayload);
             const encoded = this.encodeMessage(clientMessage);
             this.ws.send(encoded);
-
+            
             // Check if this is a margin inquiry
             let messageType = Object.keys(messagePayload)[0];
             let isMarginInquiry = false;
             if (messagePayload.orderSubmit?.orders?.[0]?.marginInquiry === true) {
                 isMarginInquiry = true;
                 messageType = 'marginInquiry';
-            }
+            } 
 
             this.log(`SENT [${messageType}]: ${JSON.stringify(messagePayload, null, 2)}`, 'sent');
 
