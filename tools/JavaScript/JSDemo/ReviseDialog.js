@@ -76,13 +76,6 @@ function hideOrderEditDialog() {
 }
 
 function handleOrderPull() {
-<<<<<<< HEAD
-    if (!currentEditingOrder) return;
-    try {
-        window.client.pullOrder(currentEditingOrder.uniqueId);
-    } catch (error) {
-        console.error('Error pulling order:', error);
-=======
     if (currentEditingOrder) {
         console.log('Pulling order:', currentEditingOrder.uniqueId);
 
@@ -94,7 +87,6 @@ function handleOrderPull() {
         }
 
         hideOrderEditDialog();
->>>>>>> 9493302 (added support for ClOrdId)
     }
     hideOrderEditDialog();
 }
@@ -106,17 +98,6 @@ function handleOrderRevise() {
     const newPrice = parseFloat(document.getElementById('editOrderPrice').value);
     const stop = isStopOrder(currentEditingOrder);
 
-<<<<<<< HEAD
-    try {
-        window.client.reviseOrder(
-            currentEditingOrder.uniqueId,
-            newVolume,
-            newPrice,
-            stop ? 'stop' : 'limit'
-        );
-    } catch (error) {
-        console.error('Error revising order:', error);
-=======
         // Call client method to revise order
         // Parameters: (ClordId, orderId, volume, price, priceType)
         try {
@@ -126,11 +107,9 @@ function handleOrderRevise() {
         }
 
         hideOrderEditDialog();
->>>>>>> 9493302 (added support for ClOrdId)
     }
 
-    hideOrderEditDialog();
-}
+   
 
 window.showOrderEditDialog = showOrderEditDialog;
 window.hideOrderEditDialog = hideOrderEditDialog;
