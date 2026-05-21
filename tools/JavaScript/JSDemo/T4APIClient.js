@@ -43,6 +43,7 @@ class T4APIClient {
         // Order/Position tracking
         this.positions = new Map();
         this.orders = new Map();
+        this.trades = new Map();
         this.accountProfits = new Map();
         this.accountUpdates = new Map();
         this.accountDetailsCount = 0;
@@ -105,6 +106,7 @@ class T4APIClient {
 
         this.accountProfits.clear();
         this.accountUpdates.clear();
+        this.trades.clear();
         this.handleConnectionStatusChanged(false);
         this.log('Disconnected', 'info');
     }
@@ -217,7 +219,7 @@ class T4APIClient {
         this.startHeartbeat();
     }
 
-    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars') {
+    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars', clOrdId = null) {
         if (!this.selectedAccount || !this.currentMarketId) {
             throw new Error('No account or market selected');
         }
@@ -274,6 +276,7 @@ class T4APIClient {
             //         nanos: nanos
             //     }
             // }
+           ClOrdId: clOrdId || null
         }];
 
         // For bracket orders, we need to use the opposite side
@@ -536,67 +539,60 @@ class T4APIClient {
 
         
     }
-    async pullOrder(orderId) {
+    async pullOrder(orderId, clOrdId = null) {
         if (!this.selectedAccount) {
             throw new Error('No account selected');
         }
+        if (!orderId && !clOrdId) {
+            throw new Error('Either orderId or ClOrdId must be provided');
+        }
 
+        const pull = {};
+        if (orderId) pull.uniqueId = orderId;
+        if (clOrdId) pull.ClOrdId = clOrdId;
         const orderPull = {
             orderPull: {
                 accountId: this.selectedAccount,
                 marketId: this.currentMarketId,
                 manualOrderIndicator: true,
-                pulls: [{
-                    uniqueId: orderId
-                }]
+                pulls: [pull]
             }
         };
 
         await this.sendMessage(orderPull);
-        this.log(`Order cancelled: ${orderId}`, 'info');
+        const identifier = ClOrdId || orderId;
+        this.log(`Order cancelled: ${identifier}`, 'info');
     }
 
 
-async reviseOrder(orderId, volume, price, priceType = 'limit') {
-    if (!this.selectedAccount) {
-        throw new Error('No account selected');
-    }
-
-    const isStop = priceType === 'stop';
-
-    // Use the order's market for decimals (fall back to current market)
-    const order = this.orders.get(orderId);
-    const marketId = order?.marketId || this.currentMarketId;
-    const marketDetails = this.getMarketDetails(marketId);
-    const priceDecimals = marketDetails
-        ? ((this.config.priceFormat === 0) ? marketDetails.decimals : marketDetails.realDecimals)
-        : 2;
-
-    // Format with the correct decimal precision
-    const priceStr = Number(price).toFixed(priceDecimals);
-
-    const revision = {
-        uniqueId: orderId,
-        volume: volume
-    };
-
-    if (isStop) {
-        revision.stopPrice = { value: priceStr };
-    } else {
-        revision.limitPrice = { value: priceStr };
-    }
-
-    const orderRevise = {
-        orderRevise: {
-            accountId: this.selectedAccount,
-            marketId: marketId,
-            manualOrderIndicator: true,
-            revisions: [revision]
+async reviseOrder(orderId, volume, price, priceType = 'limit', clOrdId = null) {
+     if (!this.selectedAccount) {
+            throw new Error('No account selected');
         }
-    };
 
-    await this.sendMessage(orderRevise);
-    this.log(`Order revised: ${orderId} - Volume: ${volume}, ${isStop ? 'stop' : 'limit'} price: ${priceStr}`, 'info');
+        if (!orderId && !ClordId) {
+            throw new Error('Either orderId or ClordId must be provided');
+        }
+
+        const revision = {
+            volume: volume,
+            limitPrice: priceType === 'limit' ? { value: price.toString() } : null
+        };
+        if (orderId) revision.uniqueId = orderId;
+        if (ClordId) revision.ClOrdId = ClordId;
+
+        const orderRevise = {
+            orderRevise: {
+                accountId: this.selectedAccount,
+                marketId: this.currentMarketId,
+                manualOrderIndicator: true,
+                revisions: [revision]
+            }
+        };
+
+        await this.sendMessage(orderRevise);
+        const identifier = ClordId || orderId;
+        this.log(`Order revised: ${identifier} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
 }
 
     async flattenPosition(accountId, marketId, netPosition) {
@@ -1185,6 +1181,8 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     this.handleAccountPosition(msg.accountPosition);
                 } else if (msg.orderUpdate) {
                     this.dispatchOrderUpdate(msg.orderUpdate);
+                } else if (msg.orderStatus){
+                    this.dispatchOrderUpdate(msg.orderStatus);
                 } else {
                     const messageType = Object.keys(msg)[0] || 'unknown';
                     this.log(`Account snapshot message not handled: ${messageType}`, 'error');

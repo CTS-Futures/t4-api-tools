@@ -112,6 +112,10 @@
                     <label for="trailingStopToggle">Trailing</label>
                 </div>
             </div>
+            <div class="form-group">
+                <label for="clOrdId">ClOrdId:</label>
+                <input type="text" id="clOrdId" placeholder="Optional">
+            </div>
             <div class="form-group submit-btn-container">
                 <button id="submitOrderBtn" class="submit-order-btn">Submit Order</button>
                 <button id="submitMarginInquiryBtn" class="submit-order-btn margin-inquiry">Submit Margin Inquiry</button>
@@ -119,7 +123,7 @@
         </div>
     </div>
 
-    <!-- Positions -->
+ <!-- Positions -->
     <div class="section">
         <h2>Positions</h2>
         <div class="table-container">
@@ -148,12 +152,13 @@
                 <thead>
                 <tr>
                     <th>Time</th>
+                    <th>ClOrdId</th>
                     <th>Market</th>
                     <th>Side</th>
                     <th>Volume</th>
                     <th>Price</th>
                     <th>Status</th>
-                    <th>Action</th>
+                    <th>Action</th>                   
                 </tr>
                 </thead>
                 <tbody></tbody>
@@ -443,6 +448,7 @@
             sortedOrders.forEach(order => {
                 const row = document.createElement('tr');
                 const time = order.time ? new Date(timestampToMs(order.time)).toLocaleTimeString() : '-';
+                const ClOrdId = order.tagClOrdId ?? '-';
                 const side = order.buySell === 1 ? 'Buy' : 'Sell';
                 const isEditable = order.status === 1 || order.status === 4; // Working or Held
                 const statusText = getOrderStatusText(order.status);
@@ -454,6 +460,7 @@
 
                 row.innerHTML = `
             <td>${time}</td>
+            <td>${ClOrdId}</td>
             <td>${order.marketId}</td>
             <td>${side}</td>
             <td>${order.currentVolume}</td>
@@ -571,7 +578,11 @@
                 const stopLoss = stopLossElement && stopLossElement.value ? parseFloat(stopLossElement.value) : null;
                 const trailingStop = trailingStopElement ? trailingStopElement.checked : false;
 
-                await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss, trailingStop, bracketMode);
+                // Get ClOrdId if provided
+                const clOrdIdElement = document.getElementById('clOrdId');
+                const clOrdId = clOrdIdElement && clOrdIdElement.value ? clOrdIdElement.value : null;
+
+                await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss, trailingStop, bracketMode, clOrdId);
             } catch (error) {
                 log(`Order submission error: ${error.message}`, 'error');
             }
@@ -602,6 +613,24 @@
         elements.disconnectBtn.addEventListener('click', disconnect);
         elements.submitOrderBtn.addEventListener('click', submitOrder);
         elements.submitMarginInquiryBtn.addEventListener('click', submitMarginInquiry);
+
+        // Click on bid/ask/last to set limit price
+        ['bestBid', 'bestOffer', 'lastTrade'].forEach(id => {
+            elements[id].addEventListener('click', () => {
+                const text = elements[id].textContent;
+                if (!text || text === '-') return;
+
+                // Format is "volume@price" — extract the price portion
+                const parts = text.split('@');
+                const price = parts.length === 2 ? parts[1] : parts[0];
+                const parsed = parseFloat(price);
+
+                if (!isNaN(parsed)) {
+                    elements.orderPrice.value = parsed;
+                    log(`Limit price set to ${parsed} from ${id.replace('best', '').replace('lastTrade', 'Last Trade')}`, 'info');
+                }
+            });
+        });
 
         // Contract picker handler
         document.addEventListener('click', async (e) => {
