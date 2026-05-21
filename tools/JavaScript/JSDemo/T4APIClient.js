@@ -560,7 +560,7 @@ class T4APIClient {
         };
 
         await this.sendMessage(orderPull);
-        const identifier = ClOrdId || orderId;
+        const identifier = clOrdId || orderId;
         this.log(`Order cancelled: ${identifier}`, 'info');
     }
 
@@ -570,8 +570,8 @@ async reviseOrder(orderId, volume, price, priceType = 'limit', clOrdId = null) {
             throw new Error('No account selected');
         }
 
-        if (!orderId && !ClordId) {
-            throw new Error('Either orderId or ClordId must be provided');
+        if (!orderId && !clOrdId) {
+            throw new Error('Either orderId or clOrdId must be provided');
         }
 
         const revision = {
@@ -579,7 +579,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit', clOrdId = null) {
             limitPrice: priceType === 'limit' ? { value: price.toString() } : null
         };
         if (orderId) revision.uniqueId = orderId;
-        if (ClordId) revision.ClOrdId = ClordId;
+        if (clOrdId) revision.ClOrdId = clOrdId;
 
         const orderRevise = {
             orderRevise: {
@@ -591,7 +591,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit', clOrdId = null) {
         };
 
         await this.sendMessage(orderRevise);
-        const identifier = ClordId || orderId;
+        const identifier = clOrdId || orderId;
         this.log(`Order revised: ${identifier} - New volume: ${volume}, New price: ${price || 'Market'}`, 'info');
 }
 
