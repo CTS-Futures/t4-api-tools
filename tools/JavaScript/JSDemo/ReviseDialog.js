@@ -81,7 +81,7 @@ function handleOrderPull() {
 
         // Call client method to pull order
         try {
-            window.client.pullOrder(null, currentEditingOrder.uniqueId);
+            window.client.pullOrder(currentEditingOrder.uniqueId);
         } catch (error) {
             console.error('Error pulling order:', error);
         }
@@ -101,7 +101,7 @@ function handleOrderRevise() {
         // Call client method to revise order
         // Parameters: (ClordId, orderId, volume, price, priceType)
         try {
-            window.client.reviseOrder(null, currentEditingOrder.uniqueId, newVolume, newPrice, 'limit');
+            window.client.reviseOrder(currentEditingOrder.uniqueId, newVolume, newPrice, 'limit');
         } catch (error) {
             console.error('Error revising order:', error);
         }

@@ -1210,6 +1210,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit', clOrdId = null) {
             };
             this.orders.set(update.uniqueId, { ...existing, ...update });
         }
+        this.triggerOrdersUpdate();
     }
 
     handleOrderUpdate(orderUpdate) {
