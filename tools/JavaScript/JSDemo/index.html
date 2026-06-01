@@ -32,6 +32,7 @@
                     <th id="accountsHeader">Account</th>
                     <th>Status</th>
                     <th>Balance</th>
+                    <th>Available Cash</th>
                     <th>P&L</th>
                     <th>UP&L</th>
                 </tr>
@@ -321,9 +322,11 @@
                 row.style.cursor = 'pointer';
 
                 const profitData = client.accountProfits.get(account.accountId);
-                const balance = profitData ? (profitData.balance ?? 0).toFixed(2) : '-';
-                const pnl = profitData ? (profitData.rpl ?? 0).toFixed(2) : '-';
-                const upl = profitData ? (profitData.upl ?? 0).toFixed(2) : '-';
+                const fmtMoney = (v) => Math.round(v).toLocaleString('en-US');
+                const balance = profitData ? fmtMoney(profitData.balance ?? 0) : '-';
+                const availableCash = profitData && profitData.availableCash != null ? fmtMoney(profitData.availableCash) : '-';
+                const pnl = profitData ? fmtMoney(profitData.rpl ?? 0) : '-';
+                const upl = profitData ? fmtMoney(profitData.upl ?? 0) : '-';
 
                 const pnlValue = profitData ? (profitData.rpl ?? 0) : 0;
                 const uplValue = profitData ? (profitData.upl ?? 0) : 0;
@@ -338,6 +341,7 @@
                     <td>${account.accountName || account.displayName || account.accountId}</td>
                     <td>${statusText}</td>
                     <td>${balance !== '-' ? '$' + balance : '-'}</td>
+                    <td>${availableCash !== '-' ? '$' + availableCash : '-'}</td>
                     <td class="${pnlColor}">${pnl !== '-' ? '$' + pnl : '-'}</td>
                     <td class="${uplColor}">${upl !== '-' ? '$' + upl : '-'}</td>
                 `;

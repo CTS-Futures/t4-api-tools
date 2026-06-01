@@ -172,6 +172,7 @@ message AccountProfit {
   optional int32 total_working_volume = 13;   // Total Working Volume
   optional bool is_alerting_live_margin = 14; // Is Alerting Live Margin
   optional bool is_alerting_full_margin = 15; // Is Alerting Full Margin
+  optional double available_cash = 16;        // Available cash available for trading.
 }
 
 // AccountPositionProfit message - position-level profit/loss information

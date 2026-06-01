@@ -796,6 +796,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             accountId: accountProfit.accountId,
             rpl: accountProfit.rpl ?? existing.rpl ?? 0,
             upl: accountProfit.uplTrade ?? accountProfit.upl ?? existing.upl ?? 0,
+            availableCash: accountProfit.availableCash ?? existing.availableCash ?? 0,
             totalPnl: (accountProfit.rpl ?? existing.rpl ?? 0) + (accountProfit.uplTrade ?? accountProfit.upl ?? existing.upl ?? 0)
         });
 
