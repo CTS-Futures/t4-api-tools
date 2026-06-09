@@ -52,8 +52,7 @@ def _last_completed_week() -> tuple[str, str]:
     """Return (start, end) ISO dates for the most recently completed Mon–Fri week.
 
     'Completed' means the week ended at least one full day ago so the sim feed
-    has had time to persist all ticks.  If today is Monday we step back two
-    weeks to avoid partial data from the current week.
+    has had time to persist all ticks.
     """
     today = datetime.date.today()
     # Monday of the current week (weekday 0 = Monday)
