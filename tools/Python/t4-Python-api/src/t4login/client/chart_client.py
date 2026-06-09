@@ -23,8 +23,8 @@ _DEFAULT_BASE_URL = "https://api-sim.t4login.com/chart"
 # The HTTP binary response wraps the T4Bin payload in an envelope (header + GUID +
 # request metadata) followed by the embedded T4Bin blob — we locate the blob by
 # scanning for either SOF signature.
-_T4BINAGGR_SOF_SIGNATURE = b"\x05\x01\x01\x00\x00\x00"
-_T4BIN_SOF_SIGNATURE = b"\x0d\x01\x01\x00\x00\x00"
+_T4BINAGGR_SOF_SIGNATURE = b"\x05\x01"
+_T4BIN_SOF_SIGNATURE = b"\x0d\x01"
 
 
 def _extract_t4bin_payload(content: bytes) -> bytes:
