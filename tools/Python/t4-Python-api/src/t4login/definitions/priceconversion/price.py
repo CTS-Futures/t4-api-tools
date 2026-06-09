@@ -196,9 +196,9 @@ class Price:
             whole = int(increments.quantize(Decimal(1), rounding=ROUND_HALF_EVEN))
             return Price.from_increments(mkt, whole)
         elif direction == RoundingDirection.Down:
-            return self.round_up(mkt)
-        else:
             return self.round_down(mkt)
+        else:
+            return self.round_up(mkt)
 
     def round_up(self, mkt: IMarketConversion) -> Price:
         """Round this price up (ceiling) to the next market increment."""
