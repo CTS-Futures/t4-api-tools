@@ -1,6 +1,4 @@
 # Python bytecode / cache
-__pycache__/
-*.py[cod]
 *$py.class
 
 # Virtual environments
@@ -14,11 +12,6 @@ dist/
 build/
 *.egg-info/
 *.egg
-
-# Tool caches
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 
 # Coverage
 .coverage
