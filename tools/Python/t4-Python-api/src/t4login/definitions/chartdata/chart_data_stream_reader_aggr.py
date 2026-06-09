@@ -174,6 +174,9 @@ class ChartDataStreamReaderAggr:
                     trades_at_bid = decode_7bit_int(cin)
                     trades_at_offer = decode_7bit_int(cin)
 
+                    if market is None:
+                        raise ValueError("CTAG_BAR_DELTA encountered before CTAG_MARKET_DEFINITION")
+
                     bar = Bar(
                         TradeDate=trade_date,
                         Time=time,
