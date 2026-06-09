@@ -177,10 +177,11 @@ class ChartDataStreamReader:
         if self._eof or self._in is None:
             return False
 
-        if self._in.available() == 0:
+        try:
+            length = decode_7bit_int(self._in)
+        except EOFError:
+            self._eof = True
             return False
-
-        length = decode_7bit_int(self._in)
         self._in.reset_count()
 
         if length > 0:
