@@ -190,8 +190,10 @@ def encode_decimal_to_stream(value: Decimal, out: BinaryIO) -> None:
     sign, digits, exponent = value.as_tuple()
     scale = -exponent if exponent < 0 else 0
 
-    # Reconstruct unscaled value as positive integer
+    # Reconstruct unscaled value as positive integer (apply positive exponent as a left shift)
     unscaled = int("".join(str(d) for d in digits)) if digits else 0
+    if exponent > 0:
+        unscaled *= 10**exponent
 
     # Split into three 32-bit chunks (little-endian order: low, mid, high)
     price_bits = [0, 0, 0, 0]
