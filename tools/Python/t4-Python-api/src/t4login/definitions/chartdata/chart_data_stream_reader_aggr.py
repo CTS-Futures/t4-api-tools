@@ -115,8 +115,11 @@ class ChartDataStreamReaderAggr:
         trade_date: NDateTime = NDateTime(0)
         market_id: str = ""
 
-        while cin.available() > 0:
-            length = decode_7bit_int(cin)
+        while True:
+            try:
+                length = decode_7bit_int(cin)
+            except EOFError:
+                break
             cin.reset_count()
 
             if length > 0:
