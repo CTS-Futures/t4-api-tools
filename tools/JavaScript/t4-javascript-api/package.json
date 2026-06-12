@@ -1,0 +1,25 @@
+{
+  "name": "@t4/chart-decoder",
+  "version": "0.0.1",
+  "description": "JavaScript port of the t4login Python chart-data decoder (T4Bin / T4BinAggr).",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "decimal.js": "^10.4.3"
+  },
+  "scripts": {
+    "smoke": "node examples/smoke.js",
+    "test": "node --test test/**/*.unit.test.js",
+    "test:integration": "node --test test/**/*.integration.test.js",
+    "test:all": "node --test test/"
+  }
+}

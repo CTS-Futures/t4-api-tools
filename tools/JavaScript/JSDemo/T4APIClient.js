@@ -56,6 +56,8 @@ class T4APIClient {
         this.onAccountUpdate = null;
         this.onMarketHeaderUpdate = null;
         this.onMarketUpdate = null;
+        this.onTrade = null;
+        this.onMarketChanged = null;
         this.onMessageSent = null;
         this.onMessageReceived = null;
         this.onError = null;
@@ -188,6 +190,10 @@ class T4APIClient {
         this.currentSubscription = { exchangeId, contractId, marketId };
         this.currentMarketId = marketId;
 
+        if (this.onMarketChanged) {
+            this.onMarketChanged({ marketId, contractId, exchangeId });
+        }
+
         await this.sendMessage({
             marketDepthSubscribe: {
                 exchangeId,
@@ -224,10 +230,14 @@ class T4APIClient {
 
         const marketDetails = this.getMarketDetails(this.currentMarketId);
 
-        // Convert string price type to enum value
-        const priceTypeValue = priceType.toLowerCase() === 'market'
-            ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET  // 0
-            : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;  // 1
+        // Convert string price type to enum value.
+        // 'market' -> MARKET, 'stop' -> STOP_MARKET (stop-market entry), else LIMIT.
+        const ptLower = (typeof priceType === 'string' ? priceType : 'limit').toLowerCase();
+        const priceTypeValue = ptLower === 'market'
+            ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET       // 0
+            : ptLower === 'stop'
+                ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
+                : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;       // 1
 
         // Convert buy/sell string to enum value
         const buySellValue = typeof side === 'string'
@@ -265,8 +275,11 @@ class T4APIClient {
             priceType: priceTypeValue,
             timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
             volume: volume,
-            // Only set limit price if it's a limit order
+            // Limit/stop price set only when the order type requires it.
             limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
+                ? { value: price.toString() }
+                : null,
+            stopPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET
                 ? { value: price.toString() }
                 : null,
         }];
@@ -622,10 +635,24 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             this.handleMarketDetails(message.marketDetails);
         } else if (message.heartbeat) {
             // Heartbeat received, connection is healthy
+        } else if (message.marketHighLow) {
+            // Periodic high/low ticks; we don't surface them in the demo UI yet.
+            // Stored for future use (e.g. HoD/LoD lines on the chart).
+            this.handleMarketHighLow(message.marketHighLow);
+        } else if (message.marketPriceLimits) {
+            // Daily price limits broadcast; not displayed yet.
+        } else if (message.marketSettlement) {
+            // Daily settlement; not displayed yet.
         } else {
             const messageType = Object.keys(message)[0] || 'unknown';
             this.log(`Server message not handled: ${messageType}`, 'error');
         }
+    }
+
+    handleMarketHighLow(highLow) {
+        if (!highLow || !highLow.marketId) return;
+        if (!this.marketHighLows) this.marketHighLows = new Map();
+        this.marketHighLows.set(highLow.marketId, highLow);
     }
 
     handleLoginResponse(response) {
@@ -887,6 +914,17 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             this.updateMarketHeader(marketDetails.contractId, marketDetails.expiryDate);
         }
 
+        // Most exchanges deliver trade prints inside marketDepth.tradeData rather
+        // than as standalone marketDepthTrade messages. Forward those too.
+        if (depth.tradeData && depth.tradeData.lastTradePrice && depth.tradeData.lastTradeVolume) {
+            this._emitTradeTick({
+                marketId: depth.marketId,
+                lastTradePrice: depth.tradeData.lastTradePrice,
+                lastTradeVolume: depth.tradeData.lastTradeVolume,
+                totalTradedVolume: depth.tradeData.totalTradedVolume
+            });
+        }
+
         if (this.onMarketUpdate) {
             this.onMarketUpdate({
                 marketId: depth.marketId,
@@ -902,10 +940,67 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
 
     handleMarketDepthTrade(trade) {
-        const price = trade.lastTradePrice ? trade.lastTradePrice.value : '-';
-        const volume = trade.lastTradeVolume ?? '-';
-        const ttv = trade.totalTradedVolume ?? '-';
-        this.log(`Market Trade: ${trade.marketId} : ${volume} @ ${price}, TTV: ${ttv}`, 'info');
+        // Per-trade log disabled: on busy markets (ES/NQ) hundreds of prints/sec
+        // appended to the console panel forced enough synchronous layout reflows
+        // to starve the main thread, freezing the chart and bid/offer panel.
+        // The chart's candle stream and the market-data panel already show this.
+        // const price = trade.lastTradePrice ? trade.lastTradePrice.value : '-';
+        // const volume = trade.lastTradeVolume ?? '-';
+        // const ttv = trade.totalTradedVolume ?? '-';
+        // this.log(`Market Trade: ${trade.marketId} : ${volume} @ ${price}, TTV: ${ttv}`, 'info');
+
+        this._emitTradeTick(trade);
+    }
+
+    // Scales price and dispatches onTrade. Dedupes by totalTradedVolume so the
+    // same print arriving via marketDepth.tradeData and marketDepthTrade is
+    // only emitted once per market.
+    _emitTradeTick(trade) {
+        if (!this.onTrade || !trade.lastTradePrice || !trade.lastTradeVolume) return;
+
+        const rawValue = Number(trade.lastTradePrice.value);
+        const tradeVolume = Number(trade.lastTradeVolume);
+        if (!Number.isFinite(rawValue) || !Number.isFinite(tradeVolume)) return;
+
+        const ttv = trade.totalTradedVolume != null ? Number(trade.totalTradedVolume) : null;
+        if (!this._lastTtvByMarket) this._lastTtvByMarket = new Map();
+        if (ttv != null) {
+            const prev = this._lastTtvByMarket.get(trade.marketId);
+            if (prev != null && ttv <= prev) return; // duplicate / stale
+            this._lastTtvByMarket.set(trade.marketId, ttv);
+        } else {
+            // Fallback dedup when TTV is absent: every marketDepth message
+            // carries a snapshot of the last trade, not necessarily a new one.
+            // Without this, every bid/ask change would re-emit the same print
+            // and re-paint the chart's last candle on every depth tick.
+            if (!this._lastTradeKeyByMarket) this._lastTradeKeyByMarket = new Map();
+            const key = `${rawValue}|${tradeVolume}`;
+            if (this._lastTradeKeyByMarket.get(trade.marketId) === key) return;
+            this._lastTradeKeyByMarket.set(trade.marketId, key);
+        }
+
+        const details = this.getMarketDetails(trade.marketId);
+        let priceDecimals = 2;
+        if (details) {
+            priceDecimals = (this.config.priceFormat === 0)
+                ? (details.decimals ?? 2)
+                : (details.realDecimals ?? 2);
+        }
+        // price.value is already the display price (the same value shown in the
+        // Market Data panel's Last Trade). marketDetails only tells us how many
+        // decimal places to format with — do NOT rescale the value here.
+        const displayPrice = rawValue;
+
+        this.onTrade({
+            marketId: trade.marketId,
+            time: Date.now(),
+            price: displayPrice,
+            rawPrice: rawValue,
+            volume: tradeVolume,
+            totalTradedVolume: ttv,
+            priceDecimals,
+            scaled: !!details
+        });
     }
 
     handleMarketByOrderSnapshot(snashot) {
@@ -1157,6 +1252,25 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
         this.orders.set(tradeUpdate.uniqueId, updatedOrder);
         this.triggerOrdersUpdate();
+
+        // Fan out to a fill listener (chart markers, blotter, etc.). Defensive:
+        // proto field names for the matched price/volume vary; pass the raw
+        // tradeUpdate so the consumer can probe, and provide derived hints.
+        if (this.onFill) {
+            try {
+                const buySell = updatedOrder.buySell ?? existingOrder.buySell;
+                this.onFill({
+                    uniqueId: tradeUpdate.uniqueId,
+                    marketId: tradeUpdate.marketId,
+                    accountId: updatedOrder.accountId,
+                    side: buySell === 1 ? 1 : (buySell === -1 ? -1 : null),
+                    time: tradeUpdate.time ?? tradeUpdate.exchangeTime ?? null,
+                    raw: tradeUpdate
+                });
+            } catch (err) {
+                this.log(`onFill handler threw: ${err?.message || err}`, 'error');
+            }
+        }
     }
 
     handleOrderUpdateTradeLeg(tradeLegUpdate) {
@@ -1345,6 +1459,287 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
         } catch (error) {
             this.log(`Error getting market ID: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+
+    // Historical bar chart data. Returns the full parsed Chart API JSON
+    // (caller usually wants .bars). Times in the response are CST wall-clock.
+    // Prices are raw integer strings; scale with marketDetails.decimals.
+    async getBarChart(exchangeId, contractId, marketId, {
+        barInterval,      // 'Second' | 'Minute' | 'Hour' | 'Day' | 'Week' | 'Tick' | 'TickRange' | 'Volume'
+        barPeriod,        // positive int
+        tradeDateStart,   // ISO 'YYYY-MM-DDTHH:mm:ss'
+        tradeDateEnd      // ISO 'YYYY-MM-DDTHH:mm:ss'
+    }) {
+        try {
+            const headers = { 'Content-Type': 'application/json' };
+
+            if (this.config.apiKey) {
+                headers['Authorization'] = `APIKey ${this.config.apiKey}`;
+            } else {
+                const token = await this.getAuthToken();
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+            }
+
+            const params = new URLSearchParams({
+                exchangeId,
+                contractId,
+                chartType: 'Bar',
+                barInterval,
+                barPeriod: String(barPeriod),
+                tradeDateStart,
+                tradeDateEnd
+            });
+            if (marketId) params.set('marketID', marketId);
+
+            const response = await fetch(
+                `${this.config.apiUrl}/chart/barchart?${params.toString()}`,
+                { headers }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const barCount = Array.isArray(data?.bars) ? data.bars.length : 0;
+            this.log(`Bar chart retrieved: ${barCount} bars for ${marketId || `${exchangeId}/${contractId}`}`, 'info');
+            return data;
+
+        } catch (error) {
+            this.log(`Error getting bar chart: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+
+    /**
+     * Fetch the aggregated barchart in T4BinAggr binary form and decode it with
+     * the ported chart-data decoder (window.T4ChartDecoder). Prices are scaled
+     * correctly by the decoder's MarketDefinition/Price logic, so no client-side
+     * calibration is needed.
+     *
+     * @returns {Promise<Array<{
+     *   timeIso: string, open: number, high: number, low: number,
+     *   close: number, volume: number, volumeAtBid: number,
+     *   volumeAtOffer: number, trades: number }>>}
+     */
+    async getBarChartBinary(exchangeId, contractId, marketId, {
+        barInterval,
+        barPeriod,
+        tradeDateStart,
+        tradeDateEnd,
+        maxAttempts: maxAttemptsOpt,
+        warmOnly = false
+    }) {
+        const decoder = (typeof window !== 'undefined') && window.T4ChartDecoder;
+        if (!decoder) {
+            throw new Error('T4ChartDecoder is not loaded');
+        }
+
+        try {
+            // Per T4 Chart API docs, both `application/octet-stream` and
+            // `application/t4` request the binary T4Bin format. Use
+            // octet-stream (observed to return real T4Bin bars when the chart
+            // server's cache is warm).
+            const headers = { 'Accept': 'application/octet-stream' };
+
+            if (this.config.apiKey) {
+                headers['Authorization'] = `APIKey ${this.config.apiKey}`;
+            } else {
+                const token = await this.getAuthToken();
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+            }
+
+            const params = new URLSearchParams({
+                exchangeId,
+                contractId,
+                chartType: 'Bar',
+                barInterval,
+                barPeriod: String(barPeriod),
+                tradeDateStart,
+                tradeDateEnd
+            });
+            if (marketId) params.set('marketID', marketId);
+
+            const url = `${this.config.apiUrl}/chart/barchart?${params.toString()}`;
+            const marketLabel = marketId || `${exchangeId}/${contractId}`;
+
+            // The chart server computes/caches aggregated bars ASYNCHRONOUSLY.
+            // On a cold cache it returns a small "request handle" envelope
+            // (header `d0 01 01 00`, then an int32 length + 36-char request
+            // GUID + market name) instead of the T4Bin stream. The act of
+            // requesting warms the cache, so retry a few times before giving up
+            // (which lets the caller fall back to the JSON path). Callers loading
+            // older history pass a smaller budget to fail-fast (the JSON path is
+            // already proven for those windows).
+            const MAX_ATTEMPTS = Math.max(1, Number(maxAttemptsOpt) || 3);
+            // Flat short backoff: keep the cold-start retry window tight so the
+            // first paint (or JSON fallback) happens fast. The clamp below means
+            // a single value applies to every retry.
+            const BACKOFFS_MS = [200];
+            let payload = null;
+            let lastContentType = '';
+            let lastBuf = null;
+
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                const response = await fetch(url, { headers });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const buf = new Uint8Array(await response.arrayBuffer());
+                lastBuf = buf;
+                const contentType = response.headers.get('content-type') || '';
+                lastContentType = contentType;
+                const ct = contentType.toLowerCase();
+                const looksBinary =
+                    ct.includes('octet-stream') ||
+                    ct.includes('application/t4') ||
+                    ct.includes('application/x-t4');
+
+                // Non-binary content-type = a genuine error/text body
+                // (e.g. JSON ProblemDetails). Surface it and stop retrying.
+                if (!looksBinary) {
+                    let bodyText = '';
+                    try { bodyText = new TextDecoder('utf-8', { fatal: false }).decode(buf); } catch (_) { /* ignore */ }
+                    const snippet = bodyText.replace(/\s+/g, ' ').trim().slice(0, 300);
+                    this.log(
+                        `Binary barchart: unexpected response (content-type="${contentType || 'none'}", ` +
+                        `${buf.length} bytes): ${snippet || '<non-text body>'}`,
+                        'warning'
+                    );
+                    throw new Error(
+                        `Binary barchart unavailable (content-type="${contentType || 'none'}", ${buf.length} bytes)` +
+                        (snippet ? `: ${snippet}` : '')
+                    );
+                }
+
+                // Detect the cold-cache request-handle envelope so we can retry.
+                const isHandleEnvelope =
+                    buf.length >= 4 &&
+                    buf[0] === 0xd0 && buf[1] === 0x01 && buf[2] === 0x01 && buf[3] === 0x00;
+
+                try {
+                    payload = decoder.extractT4BinPayload(buf);
+                    break; // got a real T4Bin stream
+                } catch (extractErr) {
+                    if (isHandleEnvelope && attempt < MAX_ATTEMPTS) {
+                        // Cold cache: the request itself warms it. Back off and
+                        // retry. (We previously polled /chart/cache-status here,
+                        // but it returns 403 on this deployment — a wasted round
+                        // trip per attempt — so it's been removed.)
+                        const wait = BACKOFFS_MS[Math.min(attempt - 1, BACKOFFS_MS.length - 1)];
+                        await new Promise((r) => setTimeout(r, wait));
+                        continue;
+                    }
+
+                    // Warm-up-only callers just wanted to kick the cache; a
+                    // cold handle envelope is the expected response, so return
+                    // quietly without throwing.
+                    if (warmOnly && isHandleEnvelope) return [];
+
+                    throw extractErr;
+                }
+            }
+
+            if (!payload) {
+                throw new Error(
+                    `Binary barchart not ready after ${MAX_ATTEMPTS} attempts ` +
+                    `(content-type="${lastContentType || 'none'}", last buf=${lastBuf?.length ?? 0} bytes)`
+                );
+            }
+
+            const pad = (n, w = 2) => String(n).padStart(w, '0');
+            const bars = [];
+
+            // The T4BinAggr market definition encodes `numerator`/`denominator`
+            // as 0/1 for many markets (e.g. ES), so the decoder's derived
+            // minPriceIncrement (= numerator/denominator) is 0. Because bars are
+            // delta-encoded (price = increments × minPriceIncrement), that makes
+            // every decoded OHLC value 0. Inject the authoritative tick size from
+            // the live market details (which carry the real minPriceIncrement)
+            // into the decoded MarketDefinition before any bars are reconstructed.
+            const Price = decoder.Price;
+            const DecimalCtor = decoder.Decimal;
+            // The caller may have started this fetch in parallel with the
+            // market-details subscription to remove the serial wait. Ensure the
+            // authoritative tick size is present before decoding delta bars
+            // (otherwise OHLC collapse to 0); poll briefly if it isn't yet.
+            if (marketId && typeof this.getMarketDetails === 'function' && !this.getMarketDetails(marketId)) {
+                const deadline = Date.now() + 3000;
+                while (!this.getMarketDetails(marketId) && Date.now() < deadline) {
+                    await new Promise((r) => setTimeout(r, 100));
+                }
+            }
+            const liveDetails = this.getMarketDetails?.(marketId);
+            const liveIncrementStr = liveDetails?.minPriceIncrement?.value;
+            const log = (msg, level) => this.log(msg, level);
+
+            decoder.ChartDataStreamReaderAggr.read(payload, {
+                onMarketDefinition(market) {
+                    if (!market || typeof market.getMinPriceIncrement !== 'function') return;
+                    const cur = market.getMinPriceIncrement();
+                    const decodedIsZero =
+                        !cur || !cur.value || (typeof cur.value.isZero === 'function' && cur.value.isZero());
+                    if (!decodedIsZero) return;
+                    if (!liveIncrementStr || !Price || !DecimalCtor) {
+                        log(
+                            `Binary barchart: market definition has zero minPriceIncrement and no ` +
+                            `live tick size available for ${marketId || `${exchangeId}/${contractId}`}; ` +
+                            `bars may decode as 0`,
+                            'warning'
+                        );
+                        return;
+                    }
+                    // Patch the decoder's market object in place. The aggregate
+                    // reader holds the same reference and uses it for every
+                    // subsequent delta-bar price reconstruction.
+                    market._minPriceIncrement = new Price(new DecimalCtor(liveIncrementStr));
+                    if (market.VPT_str && market.VPT_str.length > 0) {
+                        // VPT markets (e.g. some interest-rate products) derive
+                        // their tick ladder from the increment; rebuilding that
+                        // ladder isn't supported here, so warn instead of
+                        // silently producing wrong prices.
+                        log(
+                            `Binary barchart: VPT market ${marketId || `${exchangeId}/${contractId}`} ` +
+                            `had zero minPriceIncrement; prices may be approximate`,
+                            'warning'
+                        );
+                    }
+                },
+                onBar(bar) {
+                    const t = bar.Time;
+                    const timeIso =
+                        `${pad(t.year, 4)}-${pad(t.month)}-${pad(t.day)}T` +
+                        `${pad(t.hour)}:${pad(t.minute)}:${pad(t.second)}`;
+                    bars.push({
+                        timeIso,
+                        open: bar.OpenPrice.value.toNumber(),
+                        high: bar.HighPrice.value.toNumber(),
+                        low: bar.LowPrice.value.toNumber(),
+                        close: bar.ClosePrice.value.toNumber(),
+                        volume: Number(bar.Volume) || 0,
+                        volumeAtBid: Number(bar.VolumeAtBid) || 0,
+                        volumeAtOffer: Number(bar.VolumeAtOffer) || 0,
+                        trades: Number(bar.Trades) || 0
+                    });
+                }
+            });
+
+            this.log(`Bar chart (binary) decoded: ${bars.length} bars for ${marketId || `${exchangeId}/${contractId}`}`, 'info');
+            return bars;
+
+        } catch (error) {
+            // Caller (ChartService) handles this by falling back to JSON, so
+            // log as warning rather than error to avoid noisy red console lines
+            // on what is an expected recoverable path (cold binary cache, etc.).
+            this.log(`Binary bar chart unavailable: ${error.message}`, 'warning');
             throw error;
         }
     }
