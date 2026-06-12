@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="contract-picker.css">
     <link rel="stylesheet" href="expiry-picker.css">
     <link rel="stylesheet" href="revise-dialog.css">
+    <link rel="stylesheet" href="chart.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
@@ -161,6 +162,42 @@
         </div>
     </div>
 
+    <!-- Price Chart -->
+    <div class="section full-width chart-section">
+        <div class="chart-header">
+            <h2 style="margin:0;">Price Chart</h2>
+            <div class="chart-controls">
+                <label for="chartInterval">Interval:</label>
+                <select id="chartInterval">
+                    <option value="15000">15s</option>
+                    <option value="60000" selected>1m</option>
+                    <option value="300000">5m</option>
+                    <option value="900000">15m</option>
+                </select>
+                <label class="quick-trade-toggle" title="Click the chart to place/cancel orders instantly, bypassing the form">
+                    <input type="checkbox" id="chartQuickTrade"> Quick Trade
+                </label>
+                <label class="quick-trade-toggle" title="Show a confirmation step before submitting orders from the right-click chart menu">
+                    <input type="checkbox" id="chartConfirmOrders"> Confirm
+                </label>
+                <label for="chartQuickQty">Qty:</label>
+                <input type="number" id="chartQuickQty" value="1" min="1" class="chart-qty-input">
+            </div>
+        </div>
+        <div class="chart-tools" id="chartTools"></div>
+        <div class="chart-body">
+            <div class="chart-container" id="chartContainer">
+                <div class="chart-empty-overlay" id="chartEmptyOverlay">Waiting for trades…</div>
+            </div>
+            <aside class="chart-positions-panel" id="chartPositionsPanel">
+                <div class="chart-positions-title">Open Positions</div>
+                <div class="chart-positions-body" id="chartPositionsBody">
+                    <div class="chart-positions-empty">No positions for this market</div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
     <!-- Console -->
     <div class="section full-width">
         <h2>Console</h2>
@@ -170,10 +207,26 @@
 
 <script src="config.js"></script>
 <script src="t4-proto.js"></script>
+<script type="module" src="decoder/loader.js"></script>
 <script src="T4APIClient.js"></script>
 <script src="ContractPicker.js"></script>
 <script src="ExpiryPicker.js"></script>
 <script src="ReviseDialog.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="chart/EventBus.js"></script>
+<script src="chart/features/OrderLines.js"></script>
+<script src="chart/features/PositionLine.js"></script>
+<script src="chart/features/indicators/math.js"></script>
+<script src="chart/features/indicators/IndicatorFeature.js"></script>
+<script src="chart/features/FillMarkers.js"></script>
+<script src="chart/features/Drawings.js"></script>
+<script src="chart/features/ContextMenu.js"></script>
+<script src="chart/features/DragOrder.js"></script>
+<script src="chart/ui/IndicatorToolbar.js"></script>
+<script src="chart/ui/DrawingToolbar.js"></script>
+<script src="chart/ui/OrderToolbar.js"></script>
+<script src="chart/persistence/LayoutStore.js"></script>
+<script src="ChartService.js"></script>
 
 <script>
     // Wait for DOM to be fully loaded
@@ -203,6 +256,425 @@
         const client = new T4APIClient();
         window.client = client; // To better support contract and market pickers.
 
+        // Initialize live price chart (follows currently subscribed market)
+        let chartService = null;
+        try {
+            const chartContainer = document.getElementById('chartContainer');
+            const intervalSelect = document.getElementById('chartInterval');
+            const overlay = document.getElementById('chartEmptyOverlay');
+            if (chartContainer && window.ChartService) {
+                chartService = new ChartService({
+                    client,
+                    container: chartContainer,
+                    intervalSelect,
+                    intervalMs: Number(intervalSelect?.value) || 60000,
+                    overlayEl: overlay
+                });
+                window.chartService = chartService;
+
+                // Click empty price -> instant limit order (Quick Trade) only.
+                // The prefill-to-order-panel behavior has been removed: the
+                // right-click context menu is the canonical entry point for
+                // order placement from the chart.
+                chartService.onPriceLevelClick = (price, point) => {
+                    if (!Number.isFinite(price)) return;
+                    if (!document.getElementById('chartQuickTrade')?.checked) return;
+
+                    const snap = client.currentMarketId && client.getMarketSnapshot(client.currentMarketId);
+                    const last = Number(snap?.tradeData?.lastTradePrice?.value);
+                    // Resting-order semantics: above last = sell, below = buy.
+                    const side = (Number.isFinite(last) && price >= last) ? -1 : 1;
+
+                    if (!client.selectedAccount) {
+                        log('Select an account before quick trading', 'error');
+                        return;
+                    }
+                    const qtyEl = document.getElementById('chartQuickQty');
+                    const volume = Math.max(1, parseInt(qtyEl?.value) || 1);
+                    const sideText = side === 1 ? 'BUY' : 'SELL';
+                    const label = `${sideText} Limit @ ${price}`;
+
+                    // When the Confirm toggle is on, route through the context
+                    // menu's inline confirm UI instead of firing immediately.
+                    const ctxMenu = chartService.getFeature('context-menu');
+                    if (ctxMenu && document.getElementById('chartConfirmOrders')?.checked) {
+                        const rect = chartContainer.getBoundingClientRect();
+                        const cx = rect.left + (Number.isFinite(point?.x) ? point.x : rect.width / 2);
+                        const cy = rect.top + (Number.isFinite(point?.y) ? point.y : rect.height / 2);
+                        ctxMenu.confirmIntent({
+                            intent: { side, priceType: 'limit', price, volume },
+                            label,
+                            clientX: cx,
+                            clientY: cy
+                        });
+                        return;
+                    }
+
+                    client.submitOrder(side, volume, price, 'limit');
+                    log(`Quick trade: ${sideText} ${volume} @ ${price}`, 'info');
+                };
+
+                // Click an order line -> instant cancel (Quick Trade) or open revise dialog (normal).
+                chartService.onOrderLineClick = (uniqueId) => {
+                    const order = client.orders.get(uniqueId);
+                    if (!order) return;
+                    if (document.getElementById('chartQuickTrade')?.checked) {
+                        client.pullOrder(uniqueId);
+                        log(`Quick trade: cancel order ${uniqueId}`, 'info');
+                        return;
+                    }
+                    if (typeof window.showOrderEditDialog === 'function') {
+                        window.showOrderEditDialog(order);
+                    }
+                };
+            }
+        } catch (err) {
+            console.error('Chart init failed:', err);
+        }
+
+        // ---------- Chart features: indicators, drawings, fill markers ------
+        // Built on top of ChartService's EventBus + feature registry. All
+        // user-toggleable state is persisted per-symbol in localStorage.
+        let indicatorToolbar = null;
+        let drawingToolbar = null;
+        const chartLayoutStore = window.ChartLayoutStore ? new window.ChartLayoutStore() : null;
+
+        function persistChartLayout() {
+            if (!chartService || !chartService.activeMarketId || !chartLayoutStore) return;
+            chartLayoutStore.save(chartService.activeMarketId, {
+                indicators: indicatorToolbar ? indicatorToolbar.serialize() : [],
+                drawings: chartService.getFeature('drawings')?.serialize() ?? []
+            });
+        }
+
+        function loadChartLayoutForActiveMarket() {
+            if (!chartService || !chartService.activeMarketId || !chartLayoutStore) return;
+            const layout = chartLayoutStore.load(chartService.activeMarketId);
+            if (indicatorToolbar) indicatorToolbar.load(layout.indicators);
+            chartService.getFeature('drawings')?.load(layout.drawings);
+        }
+
+        try {
+            if (chartService) {
+                // Register optional features (drawings + fill markers).
+                if (window.ChartFeatures?.Drawings) {
+                    chartService.registerFeature(new window.ChartFeatures.Drawings());
+                }
+                if (window.ChartFeatures?.FillMarkers) {
+                    chartService.registerFeature(new window.ChartFeatures.FillMarkers());
+                }
+                if (window.ChartFeatures?.ContextMenu) {
+                    const ctxMenu = new window.ChartFeatures.ContextMenu();
+                    // Resolve right-click menu intents into real orders. Account
+                    // validation + logging stay here so the feature stays UI-only.
+                    ctxMenu.onOrder = ({ side, priceType, price, volume, takeProfitPrice, stopLossPrice }) => {
+                        if (!client.selectedAccount) {
+                            log('Select an account before trading from the chart', 'error');
+                            return;
+                        }
+                        const qty = Math.max(1, parseInt(volume, 10) || 1);
+                        const tp = Number.isFinite(takeProfitPrice) ? takeProfitPrice : null;
+                        const sl = Number.isFinite(stopLossPrice) ? stopLossPrice : null;
+                        // bracketMode='price' (AOCO_P) when either bracket leg is set.
+                        client.submitOrder(side, qty, price, priceType, tp, sl, false, 'price');
+                        const sideText = side === 1 ? 'BUY' : 'SELL';
+                        const priceText = priceType === 'market' ? 'Market' : price;
+                        const bracketText = (tp != null || sl != null)
+                            ? ` [TP ${tp ?? '-'} / SL ${sl ?? '-'}]`
+                            : '';
+                        log(`Chart order: ${sideText} ${qty} @ ${priceText} (${priceType})${bracketText}`, 'info');
+                    };
+                    ctxMenu.onCancelOrder = (uniqueId) => {
+                        client.pullOrder(uniqueId);
+                        log(`Chart cancel: order ${uniqueId}`, 'info');
+                    };
+                    ctxMenu.onReviseOrder = (uniqueId) => {
+                        const order = client.orders.get(uniqueId);
+                        if (order && typeof window.showOrderEditDialog === 'function') {
+                            window.showOrderEditDialog(order);
+                        }
+                    };
+                    chartService.registerFeature(ctxMenu);
+                }
+
+                // Drag-to-place order tool. The feature handles the gesture
+                // + preview line; we resolve the intent here so account
+                // validation, the Confirm toggle, and the actual submitOrder
+                // call stay consistent with the right-click context menu.
+                if (window.ChartFeatures?.DragOrder) {
+                    const dragOrder = new window.ChartFeatures.DragOrder();
+                    dragOrder.onOrder = ({ side, priceType, price, volume, anchor, label, takeProfitPrice, stopLossPrice, isBracket }) => {
+                        if (!client.selectedAccount) {
+                            log('Select an account before trading from the chart', 'error');
+                            return;
+                        }
+                        const qty = Math.max(1, parseInt(volume, 10) || 1);
+                        const tp = Number.isFinite(takeProfitPrice) ? takeProfitPrice : null;
+                        const sl = Number.isFinite(stopLossPrice) ? stopLossPrice : null;
+                        const ctxMenu = chartService.getFeature('context-menu');
+                        // Bracket setup is itself the confirmation step, so
+                        // bypass the per-order Confirm popup for brackets.
+                        if (!isBracket && ctxMenu && document.getElementById('chartConfirmOrders')?.checked) {
+                            ctxMenu.confirmIntent({
+                                intent: { side, priceType, price, volume: qty },
+                                label,
+                                clientX: anchor?.clientX,
+                                clientY: anchor?.clientY
+                            });
+                            return;
+                        }
+                        // bracketMode='price' submits TP/SL as absolute prices (AOCO_P).
+                        client.submitOrder(side, qty, price, priceType, tp, sl, false, 'price');
+                        log(`Chart drag: ${label} x${qty}`, 'info');
+                    };
+                    chartService.registerFeature(dragOrder);
+                }
+
+                // Build toolbars into the chart-tools mount.
+                const toolsHost = document.getElementById('chartTools');
+                if (toolsHost && window.ChartUI?.IndicatorToolbar) {
+                    indicatorToolbar = new window.ChartUI.IndicatorToolbar({
+                        host: toolsHost,
+                        chartService,
+                        onChange: () => persistChartLayout()
+                    });
+                }
+                if (toolsHost) {
+                    const sep = document.createElement('span');
+                    sep.className = 'toolbar-sep';
+                    toolsHost.appendChild(sep);
+                }
+                if (toolsHost && window.ChartUI?.DrawingToolbar) {
+                    drawingToolbar = new window.ChartUI.DrawingToolbar({
+                        host: toolsHost,
+                        chartService,
+                        onChange: () => persistChartLayout()
+                    });
+                }
+                if (toolsHost) {
+                    const sep = document.createElement('span');
+                    sep.className = 'toolbar-sep';
+                    toolsHost.appendChild(sep);
+                }
+                if (toolsHost && window.ChartUI?.OrderToolbar) {
+                    new window.ChartUI.OrderToolbar({
+                        host: toolsHost,
+                        chartService
+                    });
+                }
+
+                // Fan client fills into the FillMarkers feature. Coerce marketId
+                // since chartService.activeMarketId is a REST-string while fill.marketId
+                // comes from protobuf (numeric/Long).
+                client.onFill = (fill) => {
+                    if (fill && String(fill.marketId) === String(chartService.activeMarketId)) {
+                        chartService.getFeature('fill-markers')?.addFill(fill);
+                    }
+                };
+            }
+        } catch (err) {
+            console.error('Chart features init failed:', err);
+        }
+
+        // Force the chart to reset for a newly-selected market and re-show the
+        // "Waiting for trades…" overlay until the first print arrives.
+        function resetChartForMarket(marketId) {
+            if (!chartService || !marketId) return;
+            chartService.resetForMarket(marketId);
+            // Hydrate persisted indicators + drawings for the new symbol.
+            loadChartLayoutForActiveMarket();
+            syncChartOverlays();
+        }
+
+        // Normalize a marketId into a stable string key. The REST chart path
+        // delivers it as a string, the order protobuf may deliver it as a
+        // number, BigInt, or a protobuf.js Long ({ low, high, unsigned }).
+        // Without this both sides can be "equal" yet `===` mismatched, which
+        // silently drops every order overlay for the charted contract.
+        function normalizeMarketId(m) {
+            if (m == null) return '';
+            if (typeof m === 'string') return m;
+            if (typeof m === 'number' || typeof m === 'bigint') return String(m);
+            if (typeof m === 'object') {
+                if (typeof m.toString === 'function') {
+                    const s = m.toString();
+                    if (s && s !== '[object Object]') return s;
+                }
+                if ('low' in m && 'high' in m) {
+                    // protobuf.js Long fallback (unsigned 32-bit halves -> string).
+                    const low = m.low >>> 0;
+                    const high = m.high >>> 0;
+                    if (high === 0) return String(low);
+                    return String(high * 0x100000000 + low);
+                }
+            }
+            return String(m);
+        }
+
+        // Push the current working orders + position avg-price for the charted
+        // market onto the chart as overlays. Filtered by selected account so we
+        // don't draw lines for other accounts the user isn't trading from.
+        function syncChartOverlays() {
+            if (!chartService || !chartService.activeMarketId) return;
+            const marketId = chartService.activeMarketId;
+            const marketKey = normalizeMarketId(marketId);
+            const acct = client.selectedAccount;
+
+            // marketId from REST (data.marketID) is a string; order.marketId from the
+            // order protobuf is numeric/Long — normalize both sides through the same
+            // helper so neither numeric-vs-string nor Long-vs-Number drops overlays.
+            // accountId may be missing on a freshly-placed order before the full
+            // snapshot arrives; treat that as a match so the line still draws.
+            const allOrders = Array.from(client.orders.values());
+            const workingOrders = allOrders.filter(o =>
+                o && normalizeMarketId(o.marketId) === marketKey &&
+                (!acct || !o.accountId || o.accountId === acct) &&
+                [1, 4].includes(Number(o.status))
+            );
+            if (window.__debugChartOrders) {
+                console.debug('[syncChartOverlays]', {
+                    activeMarketId: marketId,
+                    activeMarketKey: marketKey,
+                    selectedAccount: acct,
+                    matched: workingOrders.length,
+                    orders: allOrders.map(o => ({
+                        uniqueId: o?.uniqueId,
+                        marketId: o?.marketId,
+                        marketKey: normalizeMarketId(o?.marketId),
+                        accountId: o?.accountId,
+                        status: o?.status
+                    }))
+                });
+            }
+            // Always-on (one round) so we don't depend on the user setting a flag.
+            console.log('[syncChartOverlays.run]', {
+                activeMarketId: marketId,
+                activeMarketKey: marketKey,
+                selectedAccount: acct,
+                totalOrders: allOrders.length,
+                matchedWorkingOrders: workingOrders.length,
+                allOrdersSummary: allOrders.map(o => ({
+                    uniqueId: o?.uniqueId,
+                    marketKey: normalizeMarketId(o?.marketId),
+                    accountId: o?.accountId,
+                    status: o?.status,
+                    statusMatches: [1, 4].includes(Number(o?.status)),
+                    marketMatches: normalizeMarketId(o?.marketId) === marketKey,
+                    acctMatches: (!acct || !o?.accountId || o?.accountId === acct)
+                }))
+            });
+            chartService.setWorkingOrders(workingOrders);
+
+            const pos = acct ? client.positions.get(`${acct}_${marketId}`) : null;
+            if (pos) {
+                const buys = pos.buys ?? 0;
+                const sells = pos.sells ?? 0;
+                const net = buys - sells;
+                const avgRaw = pos.averageOpenPrice?.value;
+                const avg = avgRaw != null ? Number(avgRaw) : null;
+                chartService.setPositionLine(Number.isFinite(avg) ? avg : null, net);
+
+                // Individual working-order lines (OrderLines feature) replace
+                // the old volume-weighted "working position" average line, so
+                // always clear that average — keep only the filled-position
+                // avg line above.
+                chartService.setWorkingPosition(null, 0, 0);
+            } else {
+                chartService.setPositionLine(null, 0);
+                chartService.setWorkingPosition(null, 0, 0);
+            }
+
+            updateChartPositionsPanel(marketId);
+        }
+        window.syncChartOverlays = syncChartOverlays;
+
+        // Volume-weighted average price of a set of working orders. Falls back
+        // to a simple average when volumes are missing, and returns null when no
+        // usable price exists.
+        function weightedWorkingPrice(orders) {
+            let pxVol = 0;
+            let vol = 0;
+            let pxSum = 0;
+            let count = 0;
+            for (const o of (orders || [])) {
+                const raw = o?.currentLimitPrice?.value ?? o?.currentStopPrice?.value
+                    ?? o?.limitPrice?.value ?? o?.stopPrice?.value;
+                const price = raw != null ? Number(raw) : NaN;
+                if (!Number.isFinite(price)) continue;
+                const v = Number(o?.workingVolume ?? o?.currentVolume ?? o?.volume ?? 0) || 0;
+                pxSum += price;
+                count += 1;
+                if (v > 0) {
+                    pxVol += price * v;
+                    vol += v;
+                }
+            }
+            if (vol > 0) return pxVol / vol;
+            if (count > 0) return pxSum / count;
+            return null;
+        }
+
+        // Render a display-only side panel listing every open position (across
+        // accounts) for the currently charted contract, broken down by buy/sell.
+        function updateChartPositionsPanel(marketId) {
+            const body = document.getElementById('chartPositionsBody');
+            if (!body) return;
+
+            const rows = Array.from(client.positions.values()).filter(p => {
+                if (!p || p.marketId !== marketId) return false;
+                const buys = p.buys ?? 0;
+                const sells = p.sells ?? 0;
+                const workingBuys = p.workingBuys ?? 0;
+                const workingSells = p.workingSells ?? 0;
+                return buys || sells || workingBuys || workingSells;
+            });
+
+            // The chart caps how many working-order lines it draws. Surface the
+            // overflow here so the trader knows some lines are hidden.
+            const overflow = chartService?.getFeature?.('order-lines')?.getOverflow?.();
+            const moreNote = overflow && overflow.hidden > 0
+                ? `<div class="chart-positions-more">+${overflow.hidden} more working order${overflow.hidden === 1 ? '' : 's'} off-chart</div>`
+                : '';
+
+            if (!rows.length) {
+                body.innerHTML = '<div class="chart-positions-empty">No positions for this market</div>' + moreNote;
+                return;
+            }
+
+            body.innerHTML = rows.map(p => {
+                const buys = p.buys ?? 0;
+                const sells = p.sells ?? 0;
+                const net = buys - sells;
+                const workingBuys = p.workingBuys ?? 0;
+                const workingSells = p.workingSells ?? 0;
+                const avgRaw = p.averageOpenPrice?.value;
+                const avg = avgRaw != null && Number.isFinite(Number(avgRaw)) ? Number(avgRaw) : null;
+                const upl = Number(p.upl ?? 0);
+                const acctInfo = client.accounts.get(p.accountId);
+                const acctName = acctInfo ? (acctInfo.accountName || acctInfo.displayName || p.accountId) : p.accountId;
+                const netClass = net > 0 ? 'positive-pnl' : net < 0 ? 'negative-pnl' : 'neutral-pnl';
+                const uplClass = upl > 0 ? 'positive-pnl' : upl < 0 ? 'negative-pnl' : 'neutral-pnl';
+
+                return `
+                    <div class="cpp-card">
+                        <div class="cpp-acct">${acctName}</div>
+                        <div class="cpp-row">
+                            <span class="cpp-buy">Buy ${buys}</span>
+                            <span class="cpp-sell">Sell ${sells}</span>
+                            <span class="cpp-net ${netClass}">Net ${net > 0 ? '+' : ''}${net}</span>
+                        </div>
+                        <div class="cpp-row cpp-sub">
+                            <span>Avg ${avg != null ? avg : '-'}</span>
+                            <span class="${uplClass}">UP&amp;L $${upl.toFixed(2)}</span>
+                        </div>
+                        <div class="cpp-row cpp-sub">
+                            <span>Working ${workingBuys}/${workingSells}</span>
+                        </div>
+                    </div>`;
+            }).join('') + moreNote;
+        }
+        window.updateChartPositionsPanel = updateChartPositionsPanel;
+
         // Setup event handlers after DOM is ready
         client.onConnectionStatusChanged = (status) => {
             updateConnectionStatus(status.isConnected);
@@ -216,8 +688,10 @@
                 updateAccountSelect(update.accounts);
             } else if (update.type === 'positions') {
                 updatePositionsTable(update.positions);
+                syncChartOverlays();
             } else if (update.type === 'orders') {
                 updateOrdersTable(update.orders);
+                syncChartOverlays();
             } else if (update.type === 'accountProfit') {
                 debouncedRenderAccountsTable();
             } else if (update.type === 'accountUpdate') {
@@ -470,6 +944,7 @@
             await client.subscribeAccount(accountId);
             renderAccountsTable();
             elements.submitOrderBtn.disabled = !client.isConnected || !accountId;
+            syncChartOverlays();
         }
 
         // Connection functions
@@ -604,6 +1079,7 @@
                     try {
                         await client.getMarketId(result.exchangeId, result.contractId);
                         await client.subscribeMarket(result.exchangeId, result.contractId, client.currentMarketId);
+                        resetChartForMarket(client.currentMarketId);
                         setTimeout(() => updateLimitPriceFromMarket(), 2000);
                     } catch (error) {
                         log(`Error subscribing to new contract: ${error.message}`, 'error');
@@ -632,6 +1108,7 @@
 
                     try {
                         await client.subscribeMarket(result.exchangeId, result.contractId, result.marketId);
+                        resetChartForMarket(result.marketId);
                         setTimeout(() => updateLimitPriceFromMarket(), 2000);
                     } catch (error) {
                         log(`Error subscribing to new expiry: ${error.message}`, 'error');
