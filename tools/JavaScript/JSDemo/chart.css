@@ -83,6 +83,123 @@
     overflow: hidden;
 }
 
+/* ---------- DOM ladder (live order book beside the chart) ---------- */
+.chart-section .dom-ladder-panel {
+    flex: 0 0 240px;
+    width: 240px;
+    height: 400px;
+    background: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.chart-section .dom-ladder {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    font-size: 11px;
+    color: #cfcfcf;
+}
+.dom-ladder-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid #2a2a2a;
+}
+.dom-ladder-title { font-size: 12px; font-weight: 600; color: #d0d0d0; }
+.dom-ladder-pos { font-size: 11px; margin-left: auto; font-variant-numeric: tabular-nums; }
+.dom-ladder-pos.dl-long { color: #26a69a; }
+.dom-ladder-pos.dl-short { color: #ef5350; }
+.dom-ladder-recenter {
+    font-size: 10px;
+    padding: 2px 6px;
+    background: #2d4f49;
+    color: #b6f0e6;
+    border: 1px solid #26a69a;
+    border-radius: 3px;
+    cursor: pointer;
+}
+.dom-ladder-cols,
+.dl-row {
+    display: grid;
+    grid-template-columns: 34px 1fr 60px 1fr 34px;
+}
+.dom-ladder-cols {
+    padding: 2px 4px;
+    border-bottom: 1px solid #2a2a2a;
+    color: #888;
+    font-size: 10px;
+    text-align: center;
+}
+.dom-ladder-body { flex: 1 1 auto; overflow-y: auto; }
+.dom-ladder-empty { color: #777; text-align: center; margin-top: 16px; font-size: 12px; }
+
+.dl-row {
+    align-items: stretch;
+    height: 18px;
+    line-height: 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+.dl-row.dl-best-bid { background: rgba(38, 166, 154, 0.10); }
+.dl-row.dl-best-offer { background: rgba(239, 83, 80, 0.10); }
+.dl-row.dl-best-bid .dl-price { color: #26a69a; font-weight: 600; }
+.dl-row.dl-best-offer .dl-price { color: #ef5350; font-weight: 600; }
+.dl-row.dl-pos-row { box-shadow: inset 0 0 0 1px #f0b90b; }
+
+.dl-cell {
+    position: relative;
+    overflow: hidden;
+    text-align: center;
+    white-space: nowrap;
+}
+.dl-bar {
+    position: absolute;
+    top: 1px;
+    bottom: 1px;
+    border-radius: 2px;
+}
+.dl-bid { text-align: right; padding-right: 4px; }
+.dl-bid .dl-bar { right: 0; }
+.dl-offer { text-align: left; padding-left: 4px; }
+.dl-offer .dl-bar { left: 0; }
+.dl-num { position: relative; z-index: 1; font-variant-numeric: tabular-nums; }
+.dl-price { color: #aaa; font-variant-numeric: tabular-nums; }
+.dl-price-pos { color: #f0b90b; font-weight: 600; }
+.dl-chip {
+    display: inline-block;
+    min-width: 12px;
+    padding: 0 4px;
+    border-radius: 7px;
+    color: #fff;
+    font-size: 9px;
+    line-height: 14px;
+}
+.dl-mybuy .dl-chip { background: #26a69a; }
+.dl-mysell .dl-chip { background: #ef5350; }
+
+/* Click-to-trade: Bid cell buys, Offer cell sells, at the row's price. */
+.dl-bid, .dl-offer { cursor: pointer; }
+.dl-bid:hover { background: rgba(38, 166, 154, 0.22); }
+.dl-offer:hover { background: rgba(239, 83, 80, 0.22); }
+
+.dom-ladder-qty {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    color: #999;
+}
+.dom-ladder-qty input {
+    width: 40px;
+    padding: 1px 3px;
+    background: #2a2a2a;
+    color: #d0d0d0;
+    border: 1px solid #444;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
 .chart-section .chart-positions-title {
     padding: 8px 10px;
     font-size: 13px;
@@ -167,7 +284,8 @@
 }
 
 .chart-section .indicator-add-btn,
-.chart-section .drawing-btn {
+.chart-section .drawing-btn,
+.chart-section .chart-reset-view-btn {
     background: #2a2a2a;
     color: #d0d0d0;
     border: 1px solid #444;
@@ -178,7 +296,8 @@
 }
 
 .chart-section .indicator-add-btn:hover,
-.chart-section .drawing-btn:hover {
+.chart-section .drawing-btn:hover,
+.chart-section .chart-reset-view-btn:hover {
     border-color: #666;
 }
 
@@ -243,6 +362,89 @@
 .chart-section .chart-container.chart-drag-armed.chart-bracket-edge-hover,
 .chart-section .chart-container.chart-drag-armed.chart-bracket-edge-hover * {
     cursor: ns-resize !important;
+}
+
+/* ---------- Orderflow DOM liquidity heatmap ---------- */
+/* The heat canvas sits BEHIND the Lightweight Charts canvas: it's the
+   container's firstChild and z-index 0, while the LC canvas (later sibling,
+   implicit z-index 0) paints on top — so candles draw over the heat. Requires
+   the chart's layout.background to be transparent (set in ChartService). The
+   container's solid #1e1e1e is the base backdrop. pointer-events:none. */
+.chart-section .chart-container .orderflow-heatmap {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Reference marks (best bid/offer lines, last price, trade bubbles) must sit
+   ABOVE the candles, so this canvas is z-index 2 — above the LC canvas, below
+   the interactive drawings overlay (z-index 3). pointer-events:none. */
+.chart-section .chart-container .orderflow-marks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* Thermal intensity legend, pinned to the chart's top-left corner. */
+.chart-section .chart-container .orderflow-legend {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    border-radius: 3px;
+    background: rgba(20, 20, 20, 0.7);
+    border: 1px solid #444;
+    pointer-events: none;
+    font-size: 10px;
+    color: #c0c0c0;
+}
+
+.chart-section .chart-container .orderflow-legend .ofl-bar {
+    width: 80px;
+    height: 8px;
+    border-radius: 2px;
+    /* Mirrors ChartOrderflow.thermal() stops. */
+    background: linear-gradient(to right,
+        rgb(8,12,40), rgb(33,80,200), rgb(40,200,220),
+        rgb(40,210,90), rgb(240,230,60), rgb(245,140,30),
+        rgb(235,40,40), rgb(255,240,230));
+}
+
+/* Heatmap toolbar toggle, styled to match the indicator/drawing buttons. */
+.chart-section .orderflow-toggle-btn.active {
+    background: #2d4f49;
+    border-color: #26a69a;
+    color: #b6f0e6;
+}
+
+/* ---------- Drawings overlay ---------- */
+/* Transparent canvas painted over the chart. pointer-events:none so normal
+   chart pan/zoom/crosshair works; the drawings feature attaches its own
+   capture-phase pointer listeners to the container instead. Sits above the
+   chart canvas but below DOM badges / context menus (which live in body). */
+.chart-section .chart-container .drawings-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+}
+
+/* Armed drawing tool: crosshair, like the order drag tool. */
+.chart-section .chart-container.drawing-armed,
+.chart-section .chart-container.drawing-armed * {
+    cursor: crosshair !important;
+}
+
+/* Hovering an existing drawing (idle): move cursor so it reads as grabbable. */
+.chart-section .chart-container.drawing-hover,
+.chart-section .chart-container.drawing-hover * {
+    cursor: move !important;
 }
 
 /* Bracket-mode "Bracket" toggle in the order toolbar. */
@@ -500,6 +702,56 @@
     height: 1px;
     background: #383838;
     margin: 4px 0;
+}
+
+/* ---------- Strategy View (sub-chart under the candles) ---------- */
+.chart-section .strategy-chart-wrap {
+    margin-top: 12px;
+}
+
+.chart-section .strategy-chart-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.chart-section .strategy-chart-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #d0d0d0;
+}
+
+.chart-section .strategy-chart-legend {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-size: 11px;
+    color: #aaa;
+}
+
+.chart-section .strategy-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.chart-section .strategy-legend-swatch {
+    width: 12px;
+    height: 3px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.chart-section .strategy-chart {
+    width: 100%;
+    height: 200px;
+    background: #1e1e1e;
+    border: 1px solid #2a2a2a;
+    border-radius: 4px;
+    overflow: hidden;
 }
 
 .chart-context-menu .ccm-confirm-detail {
