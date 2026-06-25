@@ -26,6 +26,7 @@ message ClientMessage {
         t4proto.v1.orderrouting.OrderSubmit order_submit = 300;
         t4proto.v1.orderrouting.OrderRevise order_revise = 301;
         t4proto.v1.orderrouting.OrderPull order_pull = 302;
+        t4proto.v1.orderrouting.OrderBatch order_batch = 303;
 
         t4proto.v1.orderrouting.CreateUDS create_uds = 340;
     }
@@ -71,6 +72,8 @@ message ServerMessage {
         t4proto.v1.orderrouting.OrderUpdateStatus order_update_status = 303;
         t4proto.v1.orderrouting.OrderUpdateTrade order_update_trade = 304;
         t4proto.v1.orderrouting.OrderUpdateTradeLeg order_update_trade_leg = 305;
+        t4proto.v1.orderrouting.OrderBatchAcknowledge order_batch_acknowledge = 310;
+        t4proto.v1.orderrouting.OrderBatchReject order_batch_reject = 311;
 
         t4proto.v1.orderrouting.CreateUDSResponse create_uds_response = 340;
     }

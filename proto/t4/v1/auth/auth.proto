@@ -49,6 +49,11 @@ message LoginResponse {
   repeated Account accounts = 8;
 
   optional AuthenticationToken authentication_token = 9;
+
+  string firm = 10;         // Firm name
+  string username = 11;     // Username
+  string brand_name = 12;   // Brand name of the user's firm
+  string server_name = 13;  // Name of the server that responded
 }
 
 message AuthenticationTokenRequest {

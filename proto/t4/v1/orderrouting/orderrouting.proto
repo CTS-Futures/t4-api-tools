@@ -48,6 +48,16 @@ message OrderSubmit {
   repeated Order orders = 6;
 }
 
+// Multiple OrderSubmits validated together: if any order fails validation the whole batch is
+// rejected (OrderBatchReject); otherwise the batch is acknowledged (OrderBatchAcknowledge) and each
+// order is submitted individually. Submissions may target different accounts and/or markets.
+message OrderBatch {
+  // Optional client correlation id (server generates one if omitted). Echoed back as tag_relation_id
+  // on order updates so all orders in the batch can be correlated.
+  optional string batch_id = 1;
+  repeated OrderSubmit submissions = 2;
+}
+
 message OrderRevise {
   string user_id = 1;
   string account_id = 2;
@@ -333,6 +343,41 @@ message OrderUpdateMulti {
   string account_id = 2;
   bool historical = 3;
   repeated OrderUpdateMultiMessage updates = 4;
+}
+
+// Batch accepted: all orders passed validation. Per-order updates follow as normal OrderUpdate
+// messages. Sent before the orders reach the Account Handler.
+message OrderBatchAcknowledge {
+  string batch_id = 1;
+
+  // One entry per submission, in OrderBatch.submissions order.
+  message Accepted {
+    string account_id = 1;
+    string market_id = 2;
+    // Assigned unique ids, in the submission's orders order.
+    repeated string unique_id = 3;
+  }
+
+  repeated Accepted accepted = 2;
+}
+
+// Batch rejected: at least one order failed validation, so none were submitted.
+message OrderBatchReject {
+  string batch_id = 1;
+  // Batch-level summary reason.
+  string reason = 2;
+
+  message OrderError {
+    // Index into OrderBatch.submissions.
+    int32 submission_index = 1;
+    // Index into the submission's orders, or -1 for a submission-level error.
+    int32 order_index = 2;
+    string account_id = 3;
+    string market_id = 4;
+    string reason = 5;
+  }
+
+  repeated OrderError errors = 3;
 }
 
 message CreateUDSResponse {
