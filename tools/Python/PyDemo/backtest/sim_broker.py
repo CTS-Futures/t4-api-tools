@@ -71,10 +71,14 @@ class SimBroker:
         if type_ == "market":
             self._pending.append({"id": order_id, "side": side, "qty": qty, "bracket": bracket})
         elif type_ in ("limit", "stop"):
-            if price is None or not math.isfinite(price):
-                raise ValueError(f"{type_} order requires a price")
+            try:
+                price_f = float(price)
+            except (TypeError, ValueError):
+                raise ValueError(f"{type_} order requires a numeric price") from None
+            if not math.isfinite(price_f):
+                raise ValueError(f"{type_} order requires a finite price")
             self._resting.append({"id": order_id, "side": side, "qty": qty, "type": type_,
-                                  "price": price, "bracket": bracket, "oco_group": None})
+                                  "price": price_f, "bracket": bracket, "oco_group": None})
         else:
             raise ValueError(f"Unknown order type: {type_}")
         return order_id
