@@ -47,8 +47,8 @@ def test_price_to_float():
 
 def test_price_to_float_accepts_raw_types():
     assert convert.price_to_float("3.14") == pytest.approx(3.14)
-    assert convert.price_to_float(None) != convert.price_to_float(None) or True  # nan
-
+    import math
+    assert math.isnan(convert.price_to_float(None))
 
 @pytest.mark.parametrize(
     "raw,expected",
