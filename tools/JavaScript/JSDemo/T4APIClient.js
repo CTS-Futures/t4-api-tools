@@ -1402,7 +1402,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         }
         if (this.onFillsUpdate) {
             try {
-                this.onFillsUpdate(this.fills);
+                this.onFillsUpdate(this.fills.slice());
             } catch (err) {
                 this.log(`onFillsUpdate handler threw: ${err?.message || err}`, 'error');
             }

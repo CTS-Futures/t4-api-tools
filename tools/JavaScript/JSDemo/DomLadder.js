@@ -306,6 +306,7 @@
             const posKey = (this._posPrice != null) ? Math.round(this._posPrice / step) : null;
             const maxVol = this._maxVol > 0 ? this._maxVol : 1;
             const frag = document.createDocumentFragment();
+            let midRow = null;
 
             for (let key = hiKey; key >= loKey; key--) {
                 const price = key * step;
@@ -327,13 +328,15 @@
                 row.appendChild(this._orderCell('dl-mysell', mySell));
 
                 frag.appendChild(row);
+                if (midKey != null && key === midKey) midRow = row;
+                else if (midKey == null && key === this._bestBidKey) midRow = row;
             }
 
             this._body.innerHTML = '';
             this._body.appendChild(frag);
             this._updatePosLabel();
 
-            if (this._autoFollow) this._centerOnMid();
+            if (this._autoFollow) this._centerOnMid(midRow);
         }
 
         _depthCell(cls, vol, maxVol, rgb, price, side) {
@@ -393,30 +396,14 @@
             }
         }
 
-        // Scroll the body so the inside market (midpoint of best bid/offer) sits
-        // vertically centered. Row positions are measured relative to the scroll
-        // container via getBoundingClientRect — NOT offsetTop, whose offsetParent is
-        // an unpositioned ancestor here and would be measured against the page.
-        _centerOnMid() {
+        // Scroll the body so the inside market sits vertically centered.
+        _centerOnMid(midRow) {
             const body = this._body;
-            const bid = body.querySelector('.dl-best-bid');
-            const offer = body.querySelector('.dl-best-offer');
-            const bodyTop = body.getBoundingClientRect().top;
-            // Row center in the body's scroll-content coordinate space (px).
-            const rowCenter = (el) => {
-                const r = el.getBoundingClientRect();
-                return (r.top - bodyTop) + body.scrollTop + r.height / 2;
-            };
-            let center;
-            if (bid && offer) {
-                center = (rowCenter(bid) + rowCenter(offer)) / 2;
-            } else {
-                const row = bid || offer || body.querySelector('.dl-row');
-                if (!row) return;
-                center = rowCenter(row);
-            }
+            const row = midRow || body.querySelector('.dl-best-bid') || body.querySelector('.dl-row');
+            if (!row) return;
+            const target = row.offsetTop - (body.clientHeight / 2) + (row.offsetHeight / 2);
             this._programmaticScroll = true;
-            body.scrollTop = Math.max(0, center - body.clientHeight / 2);
+            body.scrollTop = Math.max(0, target);
         }
     }
 

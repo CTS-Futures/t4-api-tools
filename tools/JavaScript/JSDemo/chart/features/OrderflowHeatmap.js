@@ -147,9 +147,8 @@
         _classify(marketId, price) {
             const snap = this._buffer ? this._buffer.latest(marketId) : null;
             if (snap) {
-                let bestBid = -Infinity, bestOffer = Infinity;
-                for (const b of snap.bids) if (b.price > bestBid) bestBid = b.price;
-                for (const o of snap.offers) if (o.price < bestOffer) bestOffer = o.price;
+                const bestBid = snap.bestBid;
+                const bestOffer = snap.bestOffer;
                 if (Number.isFinite(bestOffer) && price >= bestOffer) { this._lastPrice = price; return 1; }
                 if (Number.isFinite(bestBid) && price <= bestBid) { this._lastPrice = price; return -1; }
             }
