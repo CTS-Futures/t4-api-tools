@@ -2,3 +2,20 @@ httpx>=0.28.1
 websockets>=15.0.1
 pyyaml>=6.0.2
 protobuf>=6.31.1
+
+# Chart (companion TradingView Lightweight Charts window)
+lightweight-charts>=2.0
+pywebview>=5.0
+pandas>=2.0
+
+# Portfolio Study viewer (walk-forward rotation results) embeds an equity chart.
+matplotlib>=3.7
+
+# The chart's historical-bar decoder lives in the sibling t4-Python-api package.
+# Install it in editable mode (it has its own pyproject.toml):
+#   pip install -e ../t4-Python-api
+#
+# The Portfolio Study feature shells out to the sibling research package
+# (tools/Python/algo-py). Its compute deps (numpy/pandas + the decoder package)
+# must be importable by the interpreter that runs PyDemo. From algo-py:
+#   pip install -r requirements.txt   (and  pip install -e ../t4-Python-api)
