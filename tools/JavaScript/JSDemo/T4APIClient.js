@@ -291,9 +291,23 @@ class T4APIClient {
 
         // Select the correct decimals based on price format:
         // 0 = Decimal format (use decimals), 1 = Real format (use realDecimals)
+        // Still needed for trailing-stop trailDistance formatting below.
         const priceDecimals = (this.config.priceFormat === 0)
             ? marketDetails.decimals
             : marketDetails.realDecimals;
+
+        // Contract specs for dollar-mode bracket math. pointValue is dollars per
+        // 1.0 price point (e.g. ES = $50); tickSize is the minimum price increment
+        // (e.g. ES = 0.25). Same metadata DragOrder reads for its risk/reward badges.
+        const tickSize = Number(marketDetails.minPriceIncrement?.value);
+        const pointValue = Number(marketDetails.pointValue?.value);
+
+        // Snap a price offset to the nearest valid tick so the bracket lands on a
+        // tradable price. No-op when tick size is unknown.
+        const snapToTick = (offset) =>
+            (Number.isFinite(tickSize) && tickSize > 0)
+                ? Math.round(offset / tickSize) * tickSize
+                : offset;
 
         // Add take profit order if specified
         if (takeProfitDollars !== null) {
@@ -303,9 +317,13 @@ class T4APIClient {
             if (bracketMode === 'price') {
                 // AOCO_P mode: user provides absolute price directly
                 takeProfitLimitPrice = takeProfitDollars; // In price mode, the value IS the absolute price
+            } else if (!Number.isFinite(pointValue) || pointValue <= 0) {
+                this.log(`Skipping take profit: missing/invalid point value for market ${this.currentMarketId}`, 'error');
+                takeProfitLimitPrice = null;
             } else {
-                // Dollar mode: calc distance from entry price
-                let takeProfitPoints = (Math.abs(takeProfitDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+                // Dollar mode: convert the dollar amount to a price distance from the
+                // fill — offset = |dollars| / (qty * pointValue) — then snap to tick.
+                let takeProfitPoints = snapToTick(Math.abs(takeProfitDollars / volume) / pointValue);
 
                 // Buy main order: TP is above fill (add), Sell main order: TP is below fill (subtract)
                 takeProfitPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
@@ -316,14 +334,16 @@ class T4APIClient {
                 takeProfitLimitPrice = takeProfitPoints;
             }
 
-            orders.push({
-                buySell: protectionSide,
-                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT,
-                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
-                volume: 0,
-                limitPrice: { value: takeProfitLimitPrice.toString() },
-                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
-            });
+            if (takeProfitLimitPrice !== null) {
+                orders.push({
+                    buySell: protectionSide,
+                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT,
+                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                    volume: 0,
+                    limitPrice: { value: takeProfitLimitPrice.toString() },
+                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
+                });
+            }
         }
 
         // Add stop loss order if specified
@@ -334,9 +354,13 @@ class T4APIClient {
             if (bracketMode === 'price') {
                 // AOCO_P mode: user provides absolute price directly
                 stopLossStopPrice = stopLossDollars; // In price mode, the value IS the absolute price
+            } else if (!Number.isFinite(pointValue) || pointValue <= 0) {
+                this.log(`Skipping stop loss: missing/invalid point value for market ${this.currentMarketId}`, 'error');
+                stopLossStopPrice = null;
             } else {
-                // Dollar mode: calc distance from entry price
-                let stopLossPoints = (Math.abs(stopLossDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+                // Dollar mode: convert the dollar amount to a price distance from the
+                // fill — offset = |dollars| / (qty * pointValue) — then snap to tick.
+                let stopLossPoints = snapToTick(Math.abs(stopLossDollars / volume) / pointValue);
 
                 // Buy main order: SL is below fill (-), Sell main order: SL is above fill (+)
                 stopLossPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
@@ -347,7 +371,9 @@ class T4APIClient {
                 stopLossStopPrice = stopLossPoints;
             }
 
-            if (trailingStop) {
+            if (stopLossStopPrice === null) {
+                // skip: invalid point value already logged
+            } else if (trailingStop) {
                 const trailDistance = bracketMode === 'price'
                     ? Math.abs(price - stopLossStopPrice).toFixed(priceDecimals)
                     : Math.abs(stopLossStopPrice).toFixed(priceDecimals);
