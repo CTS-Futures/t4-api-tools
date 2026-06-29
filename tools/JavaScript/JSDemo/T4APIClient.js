@@ -43,6 +43,11 @@ class T4APIClient {
         // Order/Position tracking
         this.positions = new Map();
         this.orders = new Map();
+        // Session trade blotter: each executed fill (OrderUpdateTrade) is pushed
+        // here as the same payload handed to onFill. Live-session only — T4 has
+        // no historical-fills backfill on connect. Capped to bound memory.
+        this.fills = [];
+        this.maxFills = 500;
         this.accountProfits = new Map();
         this.accountUpdates = new Map();
         this.accountDetailsCount = 0;
@@ -57,6 +62,14 @@ class T4APIClient {
         this.onMarketHeaderUpdate = null;
         this.onMarketUpdate = null;
         this.onTrade = null;
+        // Fan-out for the trade-history blotter. Receives the full this.fills
+        // array on every new fill. Independent of onFill (which the chart's
+        // FillMarkers owns) so the two consumers never contend.
+        this.onFillsUpdate = null;
+        // Fan-out for full market-depth snapshots (bids/offers arrays), used by
+        // the chart's DOM liquidity heatmap. Optional; null when unused. Mirrors
+        // onTrade — receives the raw decoded `marketDepth` message.
+        this.onDepth = null;
         this.onMarketChanged = null;
         this.onMessageSent = null;
         this.onMessageReceived = null;
@@ -200,18 +213,18 @@ class T4APIClient {
                 contractId,
                 marketId,
                 buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART,
-                depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_BEST_ONLY
+                // ALL = full book, feeding the chart's DOM liquidity heatmap so
+                // deep walls are visible, not just the inside ~10 levels. The
+                // Market Data panel still only reads [0] (best bid/offer), so it
+                // is unaffected. Heavier bandwidth than NORMAL, but the heatmap's
+                // per-frame cost is bounded client-side: DepthSnapshotBuffer's
+                // `maxLevelsPerSide` caps how many levels are captured/painted
+                // (set at the feature registration in index.html), and
+                // `minIntervalMs` throttles snapshot capture. Tune those rather
+                // than this subscription so other consumers keep the full book.
+                depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_ALL
             }
         });
-
-        // await this.sendMessage({
-        //     marketByOrderSubscribe: {
-        //         exchangeId,
-        //         contractId,
-        //         marketId,
-        //         subscribe: true
-        //     }
-        // });
 
         this.log(`Subscribed to market: ${marketId}`, 'info');
     }
@@ -255,19 +268,6 @@ class T4APIClient {
                 ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO_P  // 3
                 : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)   // 2
             : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;           // 0
-
-        // Get current time in CST
-        const now = new Date();
-        const cstOffset = -6 * 60; // CST is UTC-6 (or -5 for CDT, adjust as needed)
-        const localOffset = now.getTimezoneOffset();
-        const cstTime = new Date(now.getTime() + (localOffset - cstOffset) * 60000);
-
-        // Add 10 seconds
-        const submitTime = new Date(cstTime.getTime() + 10000);
-
-        // Convert to protobuf Timestamp format
-        const seconds = Math.floor(submitTime.getTime() / 1000);
-        const nanos = (submitTime.getTime() % 1000) * 1000000;
 
         // Create orders array with main order first
         const orders = [{
@@ -518,23 +518,6 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
         try {
             const message = this.decodeMessage(new Uint8Array(event.data));
-
-
-            // Messages to exclude from logging
-            const excludeFromLogging = ['heartbeat', 'marketDepth', 'accountUpdate', 'accountPosition'];
-
-            // Check if message should be logged
-            const messageType = Object.keys(message)[0];
-            var shouldLog = !excludeFromLogging.includes(messageType);
-
-            // TEMP: Disable message logging.
-            shouldLog = false;
-
-            // Log message received.
-            if (shouldLog) {
-                this.log(`RECEIVED: ${JSON.stringify(message, null, 2)}`, 'received');
-            }
-
 
             if (this.onMessageReceived) {
                 this.onMessageReceived(message);
@@ -871,10 +854,6 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             marketInfo = ` (Bid: ${bestBid}, Offer: ${bestOffer}, Last: ${lastTrade})`;
         }
 
-        // Log P&L values with market ID and market info
-        // this.log(`Position P&L update - Market: ${positionProfit.marketId}${marketInfo}, UPL: ${positionProfit.uplTrade}, RPL: ${positionProfit.rpl}, Total P&L: ${positionProfit.uplTrade + positionProfit.rpl}`,
-        //     'info');
-
         if (this.onAccountUpdate) {
             this.onAccountUpdate({
                 type: 'positions',
@@ -908,6 +887,12 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
     handleMarketDepth(depth) {
         this.marketSnapshots.set(depth.marketId, depth);
+
+        // Fan the full book out to the chart heatmap (if wired). Defensive: a
+        // throwing consumer must not break depth processing for the panel.
+        if (this.onDepth) {
+            try { this.onDepth(depth); } catch (err) { this.log(`onDepth handler threw: ${err?.message || err}`, 'error'); }
+        }
 
         const marketDetails = this.getMarketDetails(depth.marketId);
         if (marketDetails && marketDetails.contractId && marketDetails.expiryDate) {
@@ -944,11 +929,6 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         // appended to the console panel forced enough synchronous layout reflows
         // to starve the main thread, freezing the chart and bid/offer panel.
         // The chart's candle stream and the market-data panel already show this.
-        // const price = trade.lastTradePrice ? trade.lastTradePrice.value : '-';
-        // const volume = trade.lastTradeVolume ?? '-';
-        // const ttv = trade.totalTradedVolume ?? '-';
-        // this.log(`Market Trade: ${trade.marketId} : ${volume} @ ${price}, TTV: ${ttv}`, 'info');
-
         this._emitTradeTick(trade);
     }
 
@@ -1256,19 +1236,34 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         // Fan out to a fill listener (chart markers, blotter, etc.). Defensive:
         // proto field names for the matched price/volume vary; pass the raw
         // tradeUpdate so the consumer can probe, and provide derived hints.
+        const buySell = updatedOrder.buySell ?? existingOrder.buySell;
+        const fill = {
+            uniqueId: tradeUpdate.uniqueId,
+            marketId: tradeUpdate.marketId,
+            accountId: updatedOrder.accountId,
+            side: buySell === 1 ? 1 : (buySell === -1 ? -1 : null),
+            time: tradeUpdate.time ?? tradeUpdate.exchangeTime ?? null,
+            raw: tradeUpdate
+        };
+
         if (this.onFill) {
             try {
-                const buySell = updatedOrder.buySell ?? existingOrder.buySell;
-                this.onFill({
-                    uniqueId: tradeUpdate.uniqueId,
-                    marketId: tradeUpdate.marketId,
-                    accountId: updatedOrder.accountId,
-                    side: buySell === 1 ? 1 : (buySell === -1 ? -1 : null),
-                    time: tradeUpdate.time ?? tradeUpdate.exchangeTime ?? null,
-                    raw: tradeUpdate
-                });
+                this.onFill(fill);
             } catch (err) {
                 this.log(`onFill handler threw: ${err?.message || err}`, 'error');
+            }
+        }
+
+        // Record on the session blotter and notify the trade-history panel.
+        this.fills.push(fill);
+        if (this.fills.length > this.maxFills) {
+            this.fills.splice(0, this.fills.length - this.maxFills);
+        }
+        if (this.onFillsUpdate) {
+            try {
+                this.onFillsUpdate(this.fills.slice());
+            } catch (err) {
+                this.log(`onFillsUpdate handler threw: ${err?.message || err}`, 'error');
             }
         }
     }

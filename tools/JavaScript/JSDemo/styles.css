@@ -6,7 +6,7 @@ body {
 }
 
 .container {
-    max-width: 1400px;
+    max-width: 1600px;
     margin: 0 auto;
     display: grid;
     gap: 20px;
@@ -154,7 +154,9 @@ th {
 }
 
 .table-container {
-    max-height: 300px;
+    /* Fixed (not max-) height so the table reserves a constant footprint and
+       streaming row changes don't reflow the page (CLS). Scrolls internally. */
+    height: 300px;
     overflow-y: auto;
     border: 1px solid #ddd;
     border-radius: 4px;
@@ -417,6 +419,174 @@ th {
  margin-top: 5px;
 }
 
+/* ---------- Algo Trader panel ---------- */
+.algo-demo-badge {
+    font-size: 11px;
+    font-weight: normal;
+    color: #b26a00;
+    background: #fff3e0;
+    border: 1px solid #ffcc80;
+    border-radius: 10px;
+    padding: 2px 8px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.algo-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.algo-form .form-group {
+    margin: 0;
+}
+
+/* Dynamic per-strategy param inputs: the wrapper is transparent so its
+   .form-group children participate directly in the .algo-form flex layout. */
+.algo-params {
+    display: contents;
+}
+
+/* Override the full-width submit-order-btn just inside the algo form. */
+.algo-form .submit-order-btn {
+    width: auto;
+    padding: 8px 16px;
+}
+
+.algo-form .submit-btn-container {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.algo-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #555;
+}
+
+.algo-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #bbb;
+    display: inline-block;
+}
+
+.algo-status-dot.running {
+    background: #26a69a;
+    box-shadow: 0 0 6px #26a69a;
+}
+
+.algo-kill-btn {
+    background: #c62828;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-weight: bold;
+    padding: 8px 16px;
+    cursor: pointer;
+}
+
+.algo-kill-btn:hover:not([disabled]) {
+    background: #b71c1c;
+}
+
+.algo-kill-btn[disabled] {
+    background: #e0a0a0;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+/* ---------- Backtester ---------- */
+.bt-date-input {
+    font-size: 13px;
+    padding: 5px 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.bt-note {
+    font-size: 12px;
+    color: #777;
+    margin: 8px 0 4px;
+}
+
+.bt-results {
+    margin-top: 12px;
+}
+
+.bt-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.bt-stat {
+    background: #f7f9fc;
+    border: 1px solid #e6ebf2;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+.bt-stat-label {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.bt-stat-value {
+    font-size: 18px;
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+.bt-subtitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: #555;
+    margin: 4px 0 6px;
+}
+
+.bt-equity {
+    width: 100%;
+    height: 240px;
+}
+
+.bt-trades-wrap {
+    margin-top: 16px;
+}
+
+.bt-trades-scroll {
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.bt-trades-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.bt-trades-table th,
+.bt-trades-table td {
+    padding: 5px 8px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.bt-trades-table thead th {
+    position: sticky;
+    top: 0;
+    background: #fafafa;
+}
+
 .trailing-toggle input[type="checkbox"] {
     width: auto;
     margin: 0;
@@ -470,7 +640,9 @@ th {
 
 /* Accounts table */
 #accountTableContainer {
-    max-height: 200px;
+    /* Fixed height (overrides .table-container's 300px) so the initial accounts
+       fill doesn't shift the sections below it. Scrolls internally. */
+    height: 200px;
 }
 
 #accountsTable {
@@ -532,4 +704,171 @@ th {
         margin: 0;
         cursor: pointer;
     }
+
+/* ---------- Trade History blotter ------------------------------------ */
+.th-session-badge {
+    font-size: 11px;
+    font-weight: normal;
+    color: #888;
+    background: #f0f0f0;
+    border-radius: 10px;
+    padding: 2px 8px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.th-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 12px;
+}
+
+.th-tab {
+    background: none;
+    color: #555;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    margin: 0;
+    padding: 8px 14px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.th-tab:hover {
+    background: #f5f8ff;
+    color: #333;
+}
+
+.th-tab.active {
+    color: #007bff;
+    border-bottom-color: #007bff;
+    font-weight: bold;
+}
+
+.th-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.th-summary {
+    font-size: 14px;
+    font-weight: bold;
+    color: #333;
+}
+
+.th-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.th-filter-label {
+    font-size: 13px;
+    color: #555;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.th-filter {
+    padding: 6px 8px;
+}
+
+.th-clear-btn {
+    background-color: #6c757d;
+    margin-left: 0;
+}
+
+.th-clear-btn:hover {
+    background-color: #5a6268;
+}
+
+.th-scroll {
+    /* Fixed height so streaming fills/tape don't grow this region and reflow
+       the chart section below it (CLS). Scrolls internally. */
+    height: 320px;
+    overflow-y: auto;
+    border: 1px solid #eee;
+    border-radius: 4px;
+}
+
+.th-table {
+    margin-top: 0;
+}
+
+.th-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.th-expander-col {
+    width: 28px;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+}
+
+.th-expander {
+    color: #888;
+    font-size: 12px;
+}
+
+.th-row:hover {
+    background-color: #f8fbff;
+}
+
+.th-order-link {
+    background: none;
+    border: none;
+    color: #007bff;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.th-order-link:hover {
+    background: none;
+    text-decoration: underline;
+}
+
+.th-detail-row td {
+    background: #fafafa;
+    padding: 10px 14px;
+}
+
+.th-detail {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 4px 16px;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12px;
+}
+
+.th-kv {
+    display: flex;
+    gap: 6px;
+    overflow: hidden;
+}
+
+.th-k {
+    color: #888;
+    flex: 0 0 auto;
+}
+
+.th-k::after {
+    content: ":";
+}
+
+.th-v {
+    color: #222;
+    word-break: break-all;
+}
 

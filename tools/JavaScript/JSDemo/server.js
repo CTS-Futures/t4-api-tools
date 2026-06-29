@@ -2,6 +2,8 @@
  * Local HTTPS dev server for JSDemo.
  * Generates a self-signed cert on the fly (no OpenSSL required).
  * Usage: node server.js [port]   (default port: 8443)
+ *
+ * Serves the JSDemo static files over HTTPS — nothing else.
  */
 
 const https = require('https');
@@ -28,6 +30,7 @@ const MIME = {
 
 function handler(req, res) {
     let urlPath = req.url.split('?')[0];
+
     if (urlPath === '/') urlPath = '/index.html';
 
     const filePath = path.join(ROOT, urlPath);
@@ -50,44 +53,40 @@ function handler(req, res) {
     });
 }
 
-// Try to load selfsigned; install it if missing
 function startServer(key, cert) {
-    https.createServer({ key, cert }, handler).listen(PORT, () => {
+    if (!key || !cert) {
+        // Guard against the silent failure that produced
+        // ERR_SSL_VERSION_OR_CIPHER_MISMATCH: a server with no usable cert
+        // starts fine but every TLS handshake fails.
+        throw new Error('Certificate generation returned no key/cert — cannot start HTTPS server');
+    }
+    const server = https.createServer({ key, cert }, handler);
+    server.listen(PORT, () => {
         console.log(`\n  HTTPS server running at https://localhost:${PORT}`);
         console.log('  (Your browser will show a security warning — click Advanced → Proceed)\n');
     });
 }
 
-try {
-    const selfsigned = require('selfsigned');
-    const attrs = [{ name: 'commonName', value: 'localhost' }];
-    const pems  = selfsigned.generate(attrs, {
-        days: 365,
-        keySize: 2048,
-        // SHA-1 (selfsigned's default) is rejected by modern browsers with
-        // ERR_SSL_VERSION_OR_CIPHER_MISMATCH. Force SHA-256 and add a
-        // subjectAltName for localhost/127.0.0.1 so Chrome will negotiate.
-        algorithm: 'sha256',
-        extensions: [{
-            name: 'subjectAltName',
-            altNames: [
-                { type: 2, value: 'localhost' },
-                { type: 7, ip: '127.0.0.1' }
-            ]
-        }]
-    });
-    startServer(pems.private, pems.cert);
-} catch (e) {
-    if (e.code === 'MODULE_NOT_FOUND') {
+// Load selfsigned (installing it on first run if missing).
+function loadSelfsigned() {
+    try {
+        return require('selfsigned');
+    } catch (e) {
+        if (e.code !== 'MODULE_NOT_FOUND') throw e;
         console.log('Installing selfsigned package (one-time)...');
         const { execSync } = require('child_process');
         execSync('npm install selfsigned --no-save', { stdio: 'inherit', cwd: ROOT });
-        const selfsigned = require('selfsigned');
-        const attrs = [{ name: 'commonName', value: 'localhost' }];
-        const pems  = selfsigned.generate(attrs, {
+        return require('selfsigned');
+    }
+}
+
+async function main() {
+    const selfsigned = loadSelfsigned();
+    const attrs = [{ name: 'commonName', value: 'localhost' }];
+    const opts = {
         days: 365,
         keySize: 2048,
-        // SHA-1 (selfsigned's default) is rejected by modern browsers with
+        // SHA-1 (selfsigned's old default) is rejected by modern browsers with
         // ERR_SSL_VERSION_OR_CIPHER_MISMATCH. Force SHA-256 and add a
         // subjectAltName for localhost/127.0.0.1 so Chrome will negotiate.
         algorithm: 'sha256',
@@ -98,9 +97,16 @@ try {
                 { type: 7, ip: '127.0.0.1' }
             ]
         }]
-    });
-        startServer(pems.private, pems.cert);
-    } else {
-        throw e;
-    }
+    };
+
+    // selfsigned >=5.0 is async-only (generate() returns a Promise); older
+    // versions return the pems object synchronously. Await handles both — a
+    // non-thenable value passes straight through.
+    const pems = await selfsigned.generate(attrs, opts);
+    startServer(pems.private, pems.cert);
 }
+
+main().catch((err) => {
+    console.error('Failed to start server:', err.message);
+    process.exit(1);
+});

@@ -43,8 +43,20 @@
     const QTY_INPUT_ID = 'chartQuickQty';
     const EDGE_HIT_PX = 8;          // tolerance for grabbing a TP/SL edge
     const DEFAULT_OFFSET_TICKS = 10; // initial TP/SL distance when bracket opens
-    const FORWARD_BARS = 200;        // how many bars the zone extends to the right
-    const BACKWARD_BARS = 5;         // and how many it starts before "now"
+    // Bracket setup framing. When setup opens we zoom IN on the right-hand area
+    // where the entry/TP/SL sit rather than zooming out: a short recent lookback
+    // for context on the left plus a slab of whitespace on the right where the
+    // bracket is drafted. Framed deterministically by LOGICAL bar index (not by
+    // time) so the far-future zone points can't distort the visible range, and
+    // the zone band is anchored to the real current candle so it sits right
+    // next to it. Restored on exit.
+    const SETUP_VIEW_LOOKBACK = 40;  // recent candles shown to the left for context
+    const SETUP_VIEW_FORWARD = 20;   // whitespace bars shown to the right (in view)
+    const ZONE_FORWARD_BARS = 60;    // how far the shaded band extends right (>= VIEW_FORWARD)
+    // Edge-drag sensitivity: cursor pixels are scaled by this factor before
+    // converting to price, so TP/SL adjust at a fraction of cursor speed for
+    // finer control. <1 = slower/finer.
+    const EDGE_DRAG_SENSITIVITY = 0.33;
 
     class DragOrderFeature {
         constructor() {
@@ -73,10 +85,15 @@
             //     tpBadge, slBadge, confirmBar }
             this._setup = null;
             this._edgeDrag = null;       // null | 'tp' | 'sl'
+            this._edgeStartY = NaN;      // grab anchor for sensitivity scaling
+            this._edgeStartPrice = NaN;
             this._setupRaf = 0;
 
             // Chart scroll/scale options to restore on disarm.
             this._savedHandle = null;
+            // Time-scale shape ({ rightOffset, fixRightEdge }) saved on bracket
+            // setup so the right-side draft buffer can be unwound on exit.
+            this._savedTimeScale = null;
 
             this._unsubSymbol = null;
 
@@ -232,6 +249,10 @@
                 e.preventDefault();
                 e.stopPropagation();
                 this._edgeDrag = edge;
+                // Anchor the drag so motion is measured as a pixel delta from
+                // the grab point and scaled down (see _edgePriceFromEvent).
+                this._edgeStartY = y;
+                this._edgeStartPrice = (edge === 'tp') ? this._setup.tp : this._setup.sl;
                 this._activePointerId = e.pointerId;
                 try { this._container.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
                 return;
@@ -254,7 +275,7 @@
             // Edge-drag during bracket setup.
             if (this._edgeDrag) {
                 if (this._activePointerId != null && e.pointerId !== this._activePointerId) return;
-                const price = this._priceFromEvent(e);
+                const price = this._edgePriceFromEvent(e);
                 if (!Number.isFinite(price)) return;
                 this._updateEdge(this._edgeDrag, price);
                 return;
@@ -281,6 +302,8 @@
                 if (this._activePointerId != null && e.pointerId !== this._activePointerId) return;
                 try { this._container.releasePointerCapture(e.pointerId); } catch (_) { /* ignore */ }
                 this._edgeDrag = null;
+                this._edgeStartY = NaN;
+                this._edgeStartPrice = NaN;
                 this._activePointerId = null;
                 return;
             }
@@ -305,6 +328,8 @@
             if (e.key !== 'Escape') return;
             if (this._edgeDrag) {
                 this._edgeDrag = null;
+                this._edgeStartY = NaN;
+                this._edgeStartPrice = NaN;
                 this._activePointerId = null;
                 return;
             }
@@ -334,6 +359,24 @@
             const rect = this._container.getBoundingClientRect();
             const y = e.clientY - rect.top;
             const raw = this._series.coordinateToPrice(y);
+            if (raw == null || !Number.isFinite(raw)) return NaN;
+            const snap = (this._host && typeof this._host._snapToTick === 'function')
+                ? this._host._snapToTick(raw)
+                : raw;
+            return Number(snap);
+        }
+
+        // Price for a TP/SL edge drag, scaled for finer control: the pixel delta
+        // from the grab point is shrunk by EDGE_DRAG_SENSITIVITY before being
+        // converted to price, so the edge tracks at a fraction of cursor speed.
+        // Still snapped to tick. Falls back to the 1:1 path if no drag anchor.
+        _edgePriceFromEvent(e) {
+            if (!this._container || !this._series) return NaN;
+            if (!Number.isFinite(this._edgeStartY)) return this._priceFromEvent(e);
+            const rect = this._container.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            const scaledY = this._edgeStartY + (y - this._edgeStartY) * EDGE_DRAG_SENSITIVITY;
+            const raw = this._series.coordinateToPrice(scaledY);
             if (raw == null || !Number.isFinite(raw)) return NaN;
             const snap = (this._host && typeof this._host._snapToTick === 'function')
                 ? this._host._snapToTick(raw)
@@ -441,13 +484,13 @@
             const tp = side === 1 ? entry + offset : entry - offset;
             const sl = side === 1 ? entry - offset : entry + offset;
 
-            // Time window for the shaded zones. We extend well into the
-            // future so the box reads as "from entry onward". The chart will
-            // clip / extend visually based on its own time scale.
-            const intervalSec = Math.max(1, (this._host?.intervalMs ?? 60000) / 1000);
-            const nowSec = Math.floor(Date.now() / 1000);
-            const tStart = nowSec - intervalSec * BACKWARD_BARS;
-            const tEnd = nowSec + intervalSec * FORWARD_BARS;
+            // Time window for the shaded zones. Anchored to the REAL current
+            // candle (not Date.now) so the band begins right next to it, and it
+            // extends forward so the box reads as "from entry onward".
+            const intervalSec = Math.max(1, Math.round((this._host?.intervalMs ?? 60000) / 1000));
+            const lastBarTime = this._lastBarTime();
+            const tStart = lastBarTime;
+            const tEnd = lastBarTime + intervalSec * ZONE_FORWARD_BARS;
 
             this._setup = {
                 side, entry, priceType, tp, sl, qty, decimals, pointValue,
@@ -459,13 +502,119 @@
             };
 
             this._renderSetup();
+            this._applySetupViewport();
             this._startBadgeLoop();
             this._emitStateChange();
+        }
+
+        // Number of candles currently on the chart. Prefers the live series data
+        // (reflects intraday updates) and falls back to the host's history.
+        _candleCount() {
+            try {
+                if (typeof this._series.data === 'function') {
+                    const d = this._series.data();
+                    if (Array.isArray(d)) return d.length;
+                }
+            } catch (_) { /* fall through */ }
+            const hb = this._host && this._host._historyBars;
+            return Array.isArray(hb) ? hb.length : 0;
+        }
+
+        // Time (UTC seconds) of the most recent candle — the anchor for the zone
+        // band so it begins right next to the current candle.
+        _lastBarTime() {
+            try {
+                if (typeof this._series.data === 'function') {
+                    const d = this._series.data();
+                    if (d && d.length) return d[d.length - 1].time;
+                }
+            } catch (_) { /* fall through */ }
+            const hb = this._host && this._host._historyBars;
+            if (Array.isArray(hb) && hb.length) return hb[hb.length - 1].time;
+            return Math.floor(Date.now() / 1000);
+        }
+
+        // Unpins the right edge, frees pan/zoom, and frames the bracket by
+        // logical bar index so the chart zooms IN on the current candle and the
+        // whitespace to its right (where the zone band sits). The original
+        // time-scale shape is stashed in _savedTimeScale and unwound by
+        // _restoreViewport().
+        _applySetupViewport() {
+            const s = this._setup;
+            if (!s || !this._chart) return;
+            const ts = this._chart.timeScale();
+
+            // Save the current pinned-right-edge shape so we can restore it.
+            try {
+                const opts = ts.options();
+                this._savedTimeScale = {
+                    rightOffset: opts.rightOffset,
+                    fixRightEdge: opts.fixRightEdge
+                };
+            } catch (_) {
+                this._savedTimeScale = { rightOffset: 0, fixRightEdge: false };
+            }
+
+            // Unpin the right edge. The zone series now provides the forward
+            // bars itself (see _setZoneData), so we leave no extra trailing
+            // offset — otherwise the offset would be measured from the zone's
+            // far end and shove the view past it.
+            try {
+                ts.applyOptions({ fixRightEdge: false, rightOffset: 0 });
+            } catch (_) { /* older builds — ignore */ }
+
+            // Re-enable pan/zoom during setup so the user can give themselves
+            // more room. Entry placement is already done; only edge-grabs
+            // remain, and those are explicitly hit-tested in _onPointerDown
+            // before any native pan would start.
+            try {
+                this._chart.applyOptions({ handleScroll: true, handleScale: true });
+            } catch (_) { /* ignore */ }
+
+            // One-shot auto-frame, by LOGICAL bar index so the far-future zone
+            // points can't distort it. Shows the last SETUP_VIEW_LOOKBACK
+            // candles for context, the current candle, and SETUP_VIEW_FORWARD
+            // whitespace bars to the right (filled by the zone band) where the
+            // user drafts. Zoomed in, never out. Set once — we don't re-assert
+            // on edge drags, leaving the user in control.
+            const n = this._candleCount();
+            if (n > 0) {
+                const last = n - 1;
+                try {
+                    ts.setVisibleLogicalRange({
+                        from: last - SETUP_VIEW_LOOKBACK,
+                        to: last + SETUP_VIEW_FORWARD
+                    });
+                } catch (_) { /* non-fatal */ }
+            }
+        }
+
+        // Restores the pinned right edge / offset saved by _applySetupViewport
+        // and returns to armed entry-drag behavior (pan/zoom disabled). When
+        // called as part of cancelTool/detach, _disarmChart restores the real
+        // scroll/scale state afterward, so the re-disable here is harmless.
+        _restoreViewport() {
+            if (!this._chart) { this._savedTimeScale = null; return; }
+            if (this._savedTimeScale) {
+                try {
+                    this._chart.timeScale().applyOptions({
+                        fixRightEdge: this._savedTimeScale.fixRightEdge,
+                        rightOffset: this._savedTimeScale.rightOffset
+                    });
+                } catch (_) { /* ignore */ }
+                this._savedTimeScale = null;
+            }
+            if (this._toolMode) {
+                try {
+                    this._chart.applyOptions({ handleScroll: false, handleScale: false });
+                } catch (_) { /* ignore */ }
+            }
         }
 
         _exitSetup(/* canceled */) {
             if (!this._setup) return;
             this._stopBadgeLoop();
+            this._restoreViewport();
             const s = this._setup;
             const removeLine = (l) => {
                 if (l && this._series) {
@@ -488,6 +637,10 @@
             this._container?.classList.remove('chart-bracket-edge-hover');
             this._setup = null;
             this._edgeDrag = null;
+            // Zone series (which extended the data forward) are now gone, so
+            // return to the live right-edge view. Logical-range framing does not
+            // auto-undo, so do it explicitly.
+            try { this._chart?.timeScale()?.scrollToRealTime(); } catch (_) { /* ignore */ }
             this._emitStateChange();
         }
 
@@ -569,13 +722,18 @@
             });
         }
 
+        // One point per bar interval from tStart to tEnd, so the band fills a
+        // run of real, evenly-spaced logical bars to the right of the current
+        // candle instead of collapsing the whole gap into a single logical bar
+        // (which would distort the time axis and the framing).
         _setZoneData(series, top, tStart, tEnd) {
             if (!series) return;
+            const intervalSec = Math.max(1, Math.round((this._host?.intervalMs ?? 60000) / 1000));
+            const pts = [];
+            for (let t = tStart; t <= tEnd; t += intervalSec) pts.push({ time: t, value: top });
+            if (pts.length < 2) pts.push({ time: tStart + intervalSec, value: top });
             try {
-                series.setData([
-                    { time: tStart, value: top },
-                    { time: tEnd, value: top }
-                ]);
+                series.setData(pts);
             } catch (err) { /* time outside range — non-fatal */ }
         }
 

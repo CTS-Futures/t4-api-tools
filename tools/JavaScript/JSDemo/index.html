@@ -4,6 +4,49 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>T4 WebSocket API Demo</title>
+    <!-- TEMP CLS DIAGNOSTIC — remove after layout tuning. Logs the largest
+         layout-shift contributors to the console; call __clsReport() any time
+         for the full breakdown. -->
+    <script>
+    (function () {
+        if (!('PerformanceObserver' in window)) return;
+        var total = 0;
+        var byEl = new Map();
+        function describe(node) {
+            if (!node || node.nodeType !== 1) return '(non-element/text)';
+            var el = node, s = el.tagName.toLowerCase();
+            if (el.id) s += '#' + el.id;
+            if (typeof el.className === 'string' && el.className.trim()) {
+                s += '.' + el.className.trim().split(/\s+/).slice(0, 3).join('.');
+            }
+            return s;
+        }
+        try {
+            var obs = new PerformanceObserver(function (list) {
+                for (var entry of list.getEntries()) {
+                    if (entry.hadRecentInput) continue; // ignore user-driven shifts
+                    total += entry.value;
+                    var srcs = entry.sources || [];
+                    if (!srcs.length) byEl.set('(no source)', (byEl.get('(no source)') || 0) + entry.value);
+                    for (var src of srcs) {
+                        var key = describe(src.node);
+                        byEl.set(key, (byEl.get(key) || 0) + entry.value);
+                    }
+                }
+                var rows = Array.from(byEl.entries())
+                    .sort(function (a, b) { return b[1] - a[1]; }).slice(0, 12)
+                    .map(function (r) { return { element: r[0], cls: +r[1].toFixed(4) }; });
+                console.log('%c[CLS] cumulative=' + total.toFixed(4), 'color:#e6b800;font-weight:bold');
+                console.table(rows);
+            });
+            obs.observe({ type: 'layout-shift', buffered: true });
+            window.__clsReport = function () {
+                return { total: +total.toFixed(4),
+                         byElement: Array.from(byEl.entries()).sort(function (a, b) { return b[1] - a[1]; }) };
+            };
+        } catch (e) { console.warn('[CLS] observer unavailable', e); }
+    })();
+    </script>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="contract-picker.css">
     <link rel="stylesheet" href="expiry-picker.css">
@@ -162,6 +205,12 @@
         </div>
     </div>
 
+    <!-- Trade History -->
+    <div class="section full-width trade-history-section">
+        <h2>Trade History <span class="th-session-badge">fills + tape</span></h2>
+        <div id="tradeHistoryPanel"></div>
+    </div>
+
     <!-- Price Chart -->
     <div class="section full-width chart-section">
         <div class="chart-header">
@@ -189,6 +238,7 @@
             <div class="chart-container" id="chartContainer">
                 <div class="chart-empty-overlay" id="chartEmptyOverlay">Waiting for trades…</div>
             </div>
+            <aside class="dom-ladder-panel" id="domLadderPanel"></aside>
             <aside class="chart-positions-panel" id="chartPositionsPanel">
                 <div class="chart-positions-title">Open Positions</div>
                 <div class="chart-positions-body" id="chartPositionsBody">
@@ -196,6 +246,27 @@
                 </div>
             </aside>
         </div>
+        <!-- Strategy View: the active strategy's traces/markers, time-synced to
+             the candles above. Driven by the Algo Trader / Backtester panels. -->
+        <div class="strategy-chart-wrap" id="strategyChartWrap" style="display:none;">
+            <div class="strategy-chart-header">
+                <span class="strategy-chart-title">Strategy View</span>
+                <span class="strategy-chart-legend" id="strategyChartLegend"></span>
+            </div>
+            <div class="strategy-chart" id="strategyChart"></div>
+        </div>
+    </div>
+
+    <!-- Algo Trader -->
+    <div class="section full-width">
+        <h2>Algo Trader <span class="algo-demo-badge">demo · no risk controls</span></h2>
+        <div id="algoPanel"></div>
+    </div>
+
+    <!-- Backtester: single-instrument JS engine over the active market's loaded history. -->
+    <div class="section full-width">
+        <h2>Backtester <span class="algo-demo-badge" id="backtestBadge">loaded chart history</span></h2>
+        <div id="backtestPanel"></div>
     </div>
 
     <!-- Console -->
@@ -212,6 +283,8 @@
 <script src="ContractPicker.js"></script>
 <script src="ExpiryPicker.js"></script>
 <script src="ReviseDialog.js"></script>
+<script src="TradeHistory.js"></script>
+<script src="DomLadder.js"></script>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="chart/EventBus.js"></script>
 <script src="chart/features/OrderLines.js"></script>
@@ -219,14 +292,44 @@
 <script src="chart/features/indicators/math.js"></script>
 <script src="chart/features/indicators/IndicatorFeature.js"></script>
 <script src="chart/features/FillMarkers.js"></script>
+<script src="chart/drawings/DrawingGeometry.js"></script>
+<script src="chart/drawings/DrawingTypes.js"></script>
+<script src="chart/drawings/DrawingsOverlay.js"></script>
 <script src="chart/features/Drawings.js"></script>
+<script src="chart/orderflow/colormap.js"></script>
+<script src="chart/orderflow/DepthSnapshotBuffer.js"></script>
+<script src="chart/orderflow/TradeTape.js"></script>
+<script src="chart/orderflow/DepthHeatmapRenderer.js"></script>
+<script src="chart/features/OrderflowHeatmap.js"></script>
 <script src="chart/features/ContextMenu.js"></script>
 <script src="chart/features/DragOrder.js"></script>
 <script src="chart/ui/IndicatorToolbar.js"></script>
 <script src="chart/ui/DrawingToolbar.js"></script>
 <script src="chart/ui/OrderToolbar.js"></script>
 <script src="chart/persistence/LayoutStore.js"></script>
+<script src="chart/StrategyChart.js"></script>
 <script src="ChartService.js"></script>
+
+<!-- Algo trading layer (strategy <-> IBroker <-> live/sim) -->
+<script src="algo/IBroker.js"></script>
+<script src="algo/LiveBroker.js"></script>
+<script src="algo/strategies/Strategy.js"></script>
+<script src="algo/strategies/indicators.js"></script>
+<script src="algo/strategies/SmaCrossover.js"></script>
+<script src="algo/strategies/RsiReversion.js"></script>
+<script src="algo/strategies/BollingerReversion.js"></script>
+<script src="algo/strategies/DonchianBreakout.js"></script>
+<script src="algo/strategies/MacdCross.js"></script>
+<script src="algo/strategies/MomentumScalper.js"></script>
+<script src="algo/DataHealth.js"></script>
+<script src="algo/RiskManager.js"></script>
+<script src="algo/AlgoRunner.js"></script>
+<script src="algo/Portfolio.js"></script>
+<script src="algo/SimBroker.js"></script>
+<script src="algo/Backtester.js"></script>
+<script src="algo/ui/ParamForm.js"></script>
+<script src="algo/ui/AlgoPanel.js"></script>
+<script src="algo/ui/BacktestPanel.js"></script>
 
 <script>
     // Wait for DOM to be fully loaded
@@ -258,6 +361,21 @@
 
         // Initialize live price chart (follows currently subscribed market)
         let chartService = null;
+        let domLadder = null;
+
+        // Push the active market's tick size + decimals onto the DOM ladder so
+        // it can lay out one row per price tick and format prices. Tick comes
+        // from market details; decimals from the chart's calibrated scale.
+        function refreshLadderDetails(marketId) {
+            if (!domLadder || marketId == null) return;
+            const d = client.getMarketDetails?.(marketId);
+            const tickRaw = Number(d?.minPriceIncrement?.value);
+            domLadder.setMarketDetails({
+                tick: (Number.isFinite(tickRaw) && tickRaw > 0) ? tickRaw : undefined,
+                decimals: chartService?.knownDecimals
+            });
+        }
+
         try {
             const chartContainer = document.getElementById('chartContainer');
             const intervalSelect = document.getElementById('chartInterval');
@@ -271,6 +389,38 @@
                     overlayEl: overlay
                 });
                 window.chartService = chartService;
+
+                // Standalone DOM ladder beside the chart: live bids/offers per
+                // price with the user's working orders + net position. Fed by
+                // the depth fan-out (below) and by syncChartOverlays().
+                const ladderEl = document.getElementById('domLadderPanel');
+                if (ladderEl && window.DomLadder) {
+                    domLadder = new window.DomLadder(ladderEl, {
+                        // One-click trading off the order book: Bid cell -> BUY
+                        // limit, Offer cell -> SELL limit, at that row's price.
+                        onOrder: ({ side, price, volume }) => {
+                            if (!client.selectedAccount) { log('Select an account before trading.'); return; }
+                            client.submitOrder(side, volume, price, 'limit');
+                        }
+                    });
+                    window.domLadder = domLadder;
+
+                    // Chain the client's depth fan-out (preserve any existing
+                    // handler) to feed the ladder the live book for the charted
+                    // market. Features (e.g. heatmap) wrap onDepth later on
+                    // attach, saving this handler as their prior — so it stays
+                    // in the chain whether or not those features are enabled.
+                    const priorOnDepth = client.onDepth;
+                    client.onDepth = (depth) => {
+                        if (priorOnDepth) { try { priorOnDepth(depth); } catch (_) {} }
+                        try {
+                            if (!domLadder || !depth || !chartService?.activeMarketId) return;
+                            if (normalizeMarketId(depth.marketId) !== normalizeMarketId(chartService.activeMarketId)) return;
+                            refreshLadderDetails(depth.marketId);
+                            domLadder.setDepth({ bids: depth.bids, offers: depth.offers });
+                        } catch (_) {}
+                    };
+                }
 
                 // Click empty price -> instant limit order (Quick Trade) only.
                 // The prefill-to-order-panel behavior has been removed: the
@@ -462,6 +612,64 @@
                         chartService
                     });
                 }
+                if (toolsHost) {
+                    const sep = document.createElement('span');
+                    sep.className = 'toolbar-sep';
+                    toolsHost.appendChild(sep);
+                    const resetBtn = document.createElement('button');
+                    resetBtn.type = 'button';
+                    resetBtn.className = 'chart-reset-view-btn';
+                    resetBtn.textContent = '⟲ Latest';
+                    resetBtn.title = 'Reset view to current market';
+                    resetBtn.addEventListener('click', () => chartService.resetView());
+                    toolsHost.appendChild(resetBtn);
+                }
+
+                // DOM liquidity heatmap toggle. Register/unregister the feature
+                // (mirrors how indicators toggle on/off). On-state is a global
+                // preference persisted in localStorage, default off, since the
+                // depth feed is live-only and has no per-symbol layout.
+                if (toolsHost && window.ChartFeatures?.OrderflowHeatmap) {
+                    const HEATMAP_KEY = 'chart.orderflowHeatmap.enabled';
+                    const sep = document.createElement('span');
+                    sep.className = 'toolbar-sep';
+                    toolsHost.appendChild(sep);
+
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'indicator-add-btn orderflow-toggle-btn';
+                    btn.textContent = 'Heatmap';
+                    btn.title = 'DOM liquidity heatmap (live order book)';
+                    toolsHost.appendChild(btn);
+
+                    const setEnabled = (on) => {
+                        if (on) {
+                            if (!chartService.getFeature('orderflow-heatmap')) {
+                                // Cap captured depth per side and throttle snapshots a touch
+                                // so busy markets (ES/NQ) stay light on the main thread. 150
+                                // levels is far deeper than the inside book, so the on-screen
+                                // band is unaffected in practice.
+                                chartService.registerFeature(new window.ChartFeatures.OrderflowHeatmap({
+                                    maxLevelsPerSide: 150,
+                                    minIntervalMs: 150
+                                }));
+                            }
+                            btn.classList.add('active');
+                        } else {
+                            chartService.unregisterFeature('orderflow-heatmap');
+                            btn.classList.remove('active');
+                        }
+                        try { localStorage.setItem(HEATMAP_KEY, on ? '1' : '0'); } catch (_) {}
+                    };
+
+                    btn.addEventListener('click', () => {
+                        setEnabled(!chartService.getFeature('orderflow-heatmap'));
+                    });
+
+                    let startOn = false;
+                    try { startOn = localStorage.getItem(HEATMAP_KEY) === '1'; } catch (_) {}
+                    if (startOn) setEnabled(true);
+                }
 
                 // Fan client fills into the FillMarkers feature. Coerce marketId
                 // since chartService.activeMarketId is a REST-string while fill.marketId
@@ -481,6 +689,9 @@
         function resetChartForMarket(marketId) {
             if (!chartService || !marketId) return;
             chartService.resetForMarket(marketId);
+            // Reset the DOM ladder for the new contract (book has no history)
+            // and re-pull its tick size / decimals.
+            if (domLadder) { domLadder.clear(); refreshLadderDetails(marketId); }
             // Hydrate persisted indicators + drawings for the new symbol.
             loadChartLayoutForActiveMarket();
             syncChartOverlays();
@@ -531,39 +742,9 @@
                 (!acct || !o.accountId || o.accountId === acct) &&
                 [1, 4].includes(Number(o.status))
             );
-            if (window.__debugChartOrders) {
-                console.debug('[syncChartOverlays]', {
-                    activeMarketId: marketId,
-                    activeMarketKey: marketKey,
-                    selectedAccount: acct,
-                    matched: workingOrders.length,
-                    orders: allOrders.map(o => ({
-                        uniqueId: o?.uniqueId,
-                        marketId: o?.marketId,
-                        marketKey: normalizeMarketId(o?.marketId),
-                        accountId: o?.accountId,
-                        status: o?.status
-                    }))
-                });
-            }
-            // Always-on (one round) so we don't depend on the user setting a flag.
-            console.log('[syncChartOverlays.run]', {
-                activeMarketId: marketId,
-                activeMarketKey: marketKey,
-                selectedAccount: acct,
-                totalOrders: allOrders.length,
-                matchedWorkingOrders: workingOrders.length,
-                allOrdersSummary: allOrders.map(o => ({
-                    uniqueId: o?.uniqueId,
-                    marketKey: normalizeMarketId(o?.marketId),
-                    accountId: o?.accountId,
-                    status: o?.status,
-                    statusMatches: [1, 4].includes(Number(o?.status)),
-                    marketMatches: normalizeMarketId(o?.marketId) === marketKey,
-                    acctMatches: (!acct || !o?.accountId || o?.accountId === acct)
-                }))
-            });
             chartService.setWorkingOrders(workingOrders);
+            // Same filtered set drives the DOM ladder's buy/sell order chips.
+            if (domLadder) domLadder.setOrders(workingOrders);
 
             const pos = acct ? client.positions.get(`${acct}_${marketId}`) : null;
             if (pos) {
@@ -573,6 +754,7 @@
                 const avgRaw = pos.averageOpenPrice?.value;
                 const avg = avgRaw != null ? Number(avgRaw) : null;
                 chartService.setPositionLine(Number.isFinite(avg) ? avg : null, net);
+                if (domLadder) domLadder.setPosition(Number.isFinite(avg) ? avg : null, net);
 
                 // Individual working-order lines (OrderLines feature) replace
                 // the old volume-weighted "working position" average line, so
@@ -582,37 +764,12 @@
             } else {
                 chartService.setPositionLine(null, 0);
                 chartService.setWorkingPosition(null, 0, 0);
+                if (domLadder) domLadder.setPosition(null, 0);
             }
 
             updateChartPositionsPanel(marketId);
         }
         window.syncChartOverlays = syncChartOverlays;
-
-        // Volume-weighted average price of a set of working orders. Falls back
-        // to a simple average when volumes are missing, and returns null when no
-        // usable price exists.
-        function weightedWorkingPrice(orders) {
-            let pxVol = 0;
-            let vol = 0;
-            let pxSum = 0;
-            let count = 0;
-            for (const o of (orders || [])) {
-                const raw = o?.currentLimitPrice?.value ?? o?.currentStopPrice?.value
-                    ?? o?.limitPrice?.value ?? o?.stopPrice?.value;
-                const price = raw != null ? Number(raw) : NaN;
-                if (!Number.isFinite(price)) continue;
-                const v = Number(o?.workingVolume ?? o?.currentVolume ?? o?.volume ?? 0) || 0;
-                pxSum += price;
-                count += 1;
-                if (v > 0) {
-                    pxVol += price * v;
-                    vol += v;
-                }
-            }
-            if (vol > 0) return pxVol / vol;
-            if (count > 0) return pxSum / count;
-            return null;
-        }
 
         // Render a display-only side panel listing every open position (across
         // accounts) for the currently charted contract, broken down by buy/sell.
@@ -1116,6 +1273,82 @@
                 }
             }
         });
+
+        // ---------- Strategy View chart --------------------------------------
+        // Second chart under the candles that renders the active strategy's own
+        // traces. Shared by the Algo Trader (live) and Backtester panels.
+        let strategyChart = null;
+        try {
+            const stratHost = document.getElementById('strategyChart');
+            if (stratHost && window.ChartFeatures?.StrategyChart) {
+                strategyChart = new window.ChartFeatures.StrategyChart().mount(stratHost, {
+                    wrapEl: document.getElementById('strategyChartWrap'),
+                    legendEl: document.getElementById('strategyChartLegend')
+                });
+                window.strategyChart = strategyChart;
+            }
+        } catch (err) {
+            console.error('Strategy chart init failed:', err);
+        }
+
+        // ---------- Algo Trader panel ----------------------------------------
+        // Live strategy runner. Reuses the chart's closed-bar stream as the
+        // strategy clock, so signals fire on the same bars the user sees.
+        try {
+            const algoHost = document.getElementById('algoPanel');
+            if (algoHost && window.Algo?.ui?.AlgoPanel) {
+                window.algoPanel = new window.Algo.ui.AlgoPanel({
+                    host: algoHost,
+                    client,
+                    chartService,
+                    strategyChart,
+                    log
+                });
+            }
+        } catch (err) {
+            console.error('Algo panel init failed:', err);
+        }
+
+        // ---------- Backtester panel -----------------------------------------
+        // Replays a strategy over the chart's loaded history through SimBroker.
+        try {
+            const btHost = document.getElementById('backtestPanel');
+            if (btHost && window.Algo?.ui?.BacktestPanel) {
+                window.backtestPanel = new window.Algo.ui.BacktestPanel({
+                    host: btHost,
+                    client,
+                    chartService,
+                    strategyChart,
+                    log
+                });
+            }
+        } catch (err) {
+            console.error('Backtest panel init failed:', err);
+        }
+
+        // ---------- Trade History panel --------------------------------------
+        // Session blotter of executed fills, fed by client.onFillsUpdate. The
+        // order link reuses the existing revise dialog.
+        try {
+            const thHost = document.getElementById('tradeHistoryPanel');
+            if (thHost && window.TradeHistory) {
+                window.tradeHistory = new window.TradeHistory({
+                    host: thHost,
+                    client,
+                    log,
+                    onOrderClick: (uniqueId) => {
+                        const order = client.orders.get(uniqueId);
+                        if (order && typeof window.showOrderEditDialog === 'function') {
+                            window.showOrderEditDialog(order);
+                        } else {
+                            log(`Order ${uniqueId} not found (may be finished)`, 'info');
+                        }
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('Trade history panel init failed:', err);
+        }
 
         // Initialize
         log('T4 WebSocket Demo initialized', 'info');

@@ -114,7 +114,12 @@
             }
             this.container = container;
             this.chart = global.LightweightCharts.createChart(container, {
-                layout: { background: { color: '#1e1e1e' }, textColor: '#d0d0d0' },
+                // Transparent layout background so the orderflow liquidity
+                // heatmap canvas (inserted behind this chart's canvas, z-index 0)
+                // shows through beneath the candles. The container's solid
+                // #1e1e1e (chart.css) is the actual backdrop, so the chart looks
+                // identical to before when the heatmap is off.
+                layout: { background: { type: 'solid', color: 'rgba(0,0,0,0)' }, textColor: '#d0d0d0' },
                 grid: {
                     vertLines: { color: '#2a2a2a' },
                     horzLines: { color: '#2a2a2a' }
@@ -134,11 +139,11 @@
                     borderColor: '#444',
                     timeVisible: true,
                     secondsVisible: false,
-                    // Hard-stop panning at the data boundaries: users cannot
-                    // scroll past the first bar (left) or the last bar (right),
-                    // so the view never drifts into empty space beyond the data.
-                    fixLeftEdge: true,
-                    fixRightEdge: true
+                    // No hard stops at the data boundaries: the user can freely
+                    // pan past the first bar (left) and the last bar (right) into
+                    // empty space. (Defaults are false; set explicitly for clarity.)
+                    fixLeftEdge: false,
+                    fixRightEdge: false
                 },
                 crosshair: { mode: 1 },
                 autoSize: true
@@ -204,6 +209,22 @@
 
         fitContent() {
             this.chart.timeScale().fitContent();
+        }
+
+        // Re-locks the view onto whatever data is currently loaded. Lightweight
+        // Charts disables a price scale's autoScale the moment the user drags the
+        // price axis, and features (DragOrder, DrawingsOverlay) toggle
+        // handleScroll/handleScale and fixRightEdge/rightOffset during gestures.
+        // If a market switch interrupts any of that, the chart stays framed on the
+        // previous market's price range (candles off-screen) or frozen. Called on
+        // every new-market/interval seed so the chart always re-fits vertically and
+        // comes back interactive. Each applyOptions is guarded so an older
+        // Lightweight Charts build can't throw.
+        lockToData() {
+            try { this.candleSeries.priceScale().applyOptions({ autoScale: true }); } catch (_) { /* older build */ }
+            try { this.volumeSeries.priceScale().applyOptions({ autoScale: true }); } catch (_) { /* older build */ }
+            try { this.chart.applyOptions({ handleScroll: true, handleScale: true }); } catch (_) { /* older build */ }
+            try { this.chart.timeScale().applyOptions({ fixRightEdge: false, rightOffset: 0 }); } catch (_) { /* older build */ }
         }
 
         // Zooms the visible time range onto the most recent trading day in
@@ -467,6 +488,72 @@
             this._loadAndReplay();
         }
 
+        // Public: fetch normalized OHLC bars for the active market over an
+        // arbitrary [start, end] date range WITHOUT touching the on-screen chart.
+        // Used by the backtester so a run can cover any historical window
+        // independent of what the live chart has scrolled to. Returns a Promise
+        // of { bars, volBars } (display-unit OHLC, UTC-second timestamps,
+        // ascending) — the same shape ChartService seeds its own series with.
+        // Reuses the binary decoder path (with a JSON+calibration fallback) and
+        // the existing normalize helpers. `start`/`end` are Date objects.
+        async fetchHistoryRange(start, end) {
+            const marketId = this.activeMarketId;
+            if (!marketId) throw new Error('No active market — select a contract first');
+            const sub = this.client.currentSubscription;
+            if (!sub || sub.marketId !== marketId) {
+                throw new Error('No active subscription for the current market');
+            }
+            if (!(start instanceof Date) || !(end instanceof Date) ||
+                !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+                throw new Error('fetchHistoryRange needs valid start/end dates');
+            }
+            if (start.getTime() >= end.getTime()) {
+                throw new Error('Start date must be before end date');
+            }
+
+            const spec = intervalMsToBarSpec(this.intervalMs);
+            const reqStart = formatNoTz(start);
+            const reqEnd = formatNoTz(end);
+
+            // Make sure decimals are current so any JSON-path scaling is correct.
+            await this._waitForMarketDetails(marketId, 5000);
+            this._refreshDecimals();
+
+            // Preferred: binary decoder (prices already display-scaled).
+            if (typeof this.client.getBarChartBinary === 'function') {
+                const decoder = await this._waitForDecoder(2000);
+                if (decoder) {
+                    try {
+                        const decoded = await this.client.getBarChartBinary(
+                            sub.exchangeId, sub.contractId, marketId,
+                            { barInterval: spec.barInterval, barPeriod: spec.barPeriod,
+                              tradeDateStart: reqStart, tradeDateEnd: reqEnd, maxAttempts: 5 }
+                        );
+                        const norm = this._normalizeBinaryBars(decoded);
+                        if (norm.bars.length) return norm;
+                        // Empty binary payload (the ES/ETH "99-byte" case) -> JSON.
+                    } catch (_) { /* fall through to JSON */ }
+                }
+            }
+
+            // JSON fallback with the same divisor logic used by the live loader.
+            if (typeof this.client.getBarChart !== 'function') {
+                throw new Error('Chart history API unavailable');
+            }
+            const data = await this.client.getBarChart(
+                sub.exchangeId, sub.contractId, marketId,
+                { barInterval: spec.barInterval, barPeriod: spec.barPeriod,
+                  tradeDateStart: reqStart, tradeDateEnd: reqEnd }
+            );
+            const rawBars = Array.isArray(data?.bars) ? data.bars : [];
+            const details = this.client.getMarketDetails(marketId);
+            let scaleDecimals = this._historyScale != null
+                ? Math.round(Math.log10(this._historyScale))
+                : (details?.decimals ?? this.knownDecimals ?? 2);
+            const scale = Math.pow(10, scaleDecimals);
+            return this._normalizeJsonBars(rawBars, scale);
+        }
+
         // Emits a Console heartbeat describing the current chart state: which
         // decode path served the last history load, and how many bars are
         // currently loaded. Silent when no market is active.
@@ -553,6 +640,14 @@
         // UI when the user picks a new contract/expiry).
         resetForMarket(marketId) {
             this._switchMarket(marketId, true);
+        }
+
+        // Public: re-frame the chart to the current market — the most recent
+        // trading day's range. Mirrors the reframe done on initial seed.
+        resetView() {
+            if (Array.isArray(this._historyBars) && this._historyBars.length) {
+                this.renderer.focusRecentDay(this._historyBars);
+            }
         }
 
         _refreshDecimals() {
@@ -765,8 +860,11 @@
                 bars.sort((a, b) => a.time - b.time);
                 volBars.sort((a, b) => a.time - b.time);
 
-                this._seedChartWithHistory(marketId, bars, volBars);
+                // Set decode mode before seeding (see _loadAndReplayBinary):
+                // seeding can synchronously trigger _loadOlderHistory, which
+                // reads _decodeMode to pick its path.
                 this._decodeMode = 'json';
+                this._seedChartWithHistory(marketId, bars, volBars);
                 this.client.log?.(
                     `Chart history loaded (JSON fallback): ${bars.length} bars for ${marketId}`,
                     'info'
@@ -853,8 +951,14 @@
                     return this._loadAndReplayJson(sub, marketId, token);
                 }
 
-                this._seedChartWithHistory(marketId, bars, volBars);
+                // Set the decode mode BEFORE seeding. _seedChartWithHistory
+                // calls setData + focusRecentDay, which synchronously fires the
+                // visible-range callback -> _loadOlderHistory. That loader reads
+                // _decodeMode to decide useBinary; if it's still null here the
+                // first older chunk silently loads as JSON (no binary attempt),
+                // which is why older history kept "drawing JSON forward".
                 this._decodeMode = 'binary';
+                this._seedChartWithHistory(marketId, bars, volBars);
                 this._setOverlay(null);
             } catch (err) {
                 if (token !== this._loadToken || this.activeMarketId !== marketId) return;
@@ -883,6 +987,12 @@
             this._historyVolBars = volBars;
             this.renderer.candleSeries.setData(bars);
             this.renderer.volumeSeries.setData(volBars);
+            // Re-enable vertical auto-fit (and restore interaction/edges any
+            // feature may have left mutated) BEFORE reframing the time axis, so
+            // the new market's bars are framed on their own price range instead of
+            // staying stuck on the previous market's. focusRecentDay's
+            // setVisibleRange then recomputes the price range to fit.
+            this.renderer.lockToData();
             // Continuous-chart mode: always zoom to the most recent day so the
             // first paint is snappy and the lazy history loader can fetch older
             // chunks as the user pans/drags left.
@@ -1025,11 +1135,15 @@
                                     barPeriod: spec.barPeriod,
                                     tradeDateStart: formatNoTz(start),
                                     tradeDateEnd: formatNoTz(end),
-                                    // Older windows may never warm the binary
-                                    // cache; fail-fast so we fall back to JSON
-                                    // and keep the gesture responsive instead
-                                    // of blocking ~14s per chunk on retries.
-                                    maxAttempts: 2
+                                    // Older windows aren't prewarmed (only the
+                                    // initial window calls _prewarmBinary), so
+                                    // the binary cache is cold here. The request
+                                    // itself warms it, so give enough attempts to
+                                    // warm-then-read and keep binary as the mode.
+                                    // Backoff is a flat 200ms, so this is ~1s
+                                    // worst case per cold chunk, not 14s; the
+                                    // JSON catch below is still the last resort.
+                                    maxAttempts: 5
                                 }
                             );
                             norm = this._normalizeBinaryBars(decoded);

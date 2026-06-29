@@ -5,7 +5,7 @@
  * plus the scale-18 quantize used by Price. Rounding mode is set to
  * ROUND_HALF_EVEN to match Java BigDecimal.HALF_EVEN.
  */
-import DecimalCtor from './vendor/decimal.mjs';
+import DecimalCtor from './vendor/decimal.js';
 
 const Decimal = DecimalCtor.clone({
   precision: 40,
