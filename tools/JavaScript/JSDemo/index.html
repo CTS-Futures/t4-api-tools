@@ -163,6 +163,43 @@
         </div>
     </div>
 
+    <!-- Batch Orders (atomic OrderBatch) -->
+    <div class="section">
+        <h2>Batch Orders</h2>
+        <p class="batch-hint">
+            Stage flat entry orders from the form above (Side / Type / Volume / Price),
+            then edit Side / Type / Vol / Price directly in the table before submitting
+            them as one <strong>atomic</strong> batch — if any order fails validation,
+            none are sent. Switch account and/or contract between adds to build a
+            multi-account batch.
+        </p>
+        <div class="form-group submit-btn-container">
+            <button id="addToBatchBtn" class="submit-order-btn">Add Current Order to Batch</button>
+        </div>
+        <div class="table-container">
+            <table id="batchTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Account</th>
+                        <th>Market</th>
+                        <th>Side</th>
+                        <th>Type</th>
+                        <th>Vol</th>
+                        <th>Price</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="form-group submit-btn-container">
+            <button id="submitBatchBtn" class="submit-order-btn" disabled>Submit Batch (0)</button>
+            <button id="clearBatchBtn" class="submit-order-btn batch-clear-btn">Clear</button>
+        </div>
+        <div id="batchStatus" class="batch-status" hidden></div>
+    </div>
+
     <!-- Positions -->
     <div class="section">
         <h2>Positions</h2>
@@ -350,6 +387,11 @@
             orderVolume: document.getElementById('orderVolume'),
             orderPrice: document.getElementById('orderPrice'),
             submitOrderBtn: document.getElementById('submitOrderBtn'),
+            addToBatchBtn: document.getElementById('addToBatchBtn'),
+            submitBatchBtn: document.getElementById('submitBatchBtn'),
+            clearBatchBtn: document.getElementById('clearBatchBtn'),
+            batchStatus: document.getElementById('batchStatus'),
+            batchTable: document.getElementById('batchTable').querySelector('tbody'),
             positionsTable: document.getElementById('positionsTable').querySelector('tbody'),
             ordersTable: document.getElementById('ordersTable').querySelector('tbody'),
             console: document.getElementById('console')
@@ -917,6 +959,7 @@
             elements.connectBtn.disabled = connected;
             elements.disconnectBtn.disabled = !connected;
             elements.submitOrderBtn.disabled = !connected || !client.selectedAccount;
+            if (typeof renderBatch === 'function') renderBatch();
         }
 
         function updateAccountSelect(accounts) {
@@ -1101,6 +1144,7 @@
             await client.subscribeAccount(accountId);
             renderAccountsTable();
             elements.submitOrderBtn.disabled = !client.isConnected || !accountId;
+            if (typeof renderBatch === 'function') renderBatch();
             syncChartOverlays();
         }
 
@@ -1131,6 +1175,15 @@
             updateOrdersTable([]);
             updateAccountSelect([]);
             renderAccountsTable();
+        }
+
+        // Current last-trade price for a market as a Number, or null if no trade
+        // has printed yet. The client's stored snapshot is refreshed on every depth
+        // tick (handleMarketDepth), so this reflects the live price at call time.
+        function getLiveLastTrade(marketId) {
+            const v = client.getMarketSnapshot(marketId)?.tradeData?.lastTradePrice?.value;
+            const n = parseFloat(v);
+            return Number.isFinite(n) ? n : null;
         }
 
         // Update limit price field based on last trade price from market snapshot
@@ -1199,10 +1252,299 @@
             }
         }
 
+        // ----- Atomic batch ordering -----
+        // Staged rows; each is one flat entry order. Snapshotting the form + the
+        // currently selected account/market means switching account or contract
+        // between "Add" clicks naturally produces a multi-account batch.
+        const batchRows = [];
+
+        const BATCH_SIZE_WARN = 10;        // advisory only — NOT a cap; real limit is server-side
+        const BATCH_ACK_TIMEOUT_MS = 6000; // if no ack/reject arrives, assume a silent server drop
+        const batchTimers = new Map();     // batchId -> timeout handle
+
+        // Show/clear the batch status banner. kind: info | warn | error | success.
+        function setBatchStatus(msg, kind = 'info') {
+            const el = elements.batchStatus;
+            if (!msg) { el.hidden = true; el.textContent = ''; return; }
+            el.hidden = false;
+            el.textContent = msg;
+            el.className = `batch-status batch-status--${kind}`;
+        }
+
+        function accountLabel(accountId) {
+            const a = client.accounts?.get(accountId);
+            return a?.displayName || a?.accountName || accountId || '-';
+        }
+
+        // A staged batch row renders as editable controls (Side / Type / Vol / Price)
+        // bound to the row model by data-index/data-field; the delegated 'change'
+        // handler on #batchTable mutates batchRows[i] in place. Account/Market stay
+        // read-only — they're tied to the live connection/contract at staging time.
+        function renderBatch() {
+            elements.batchTable.innerHTML = '';
+            batchRows.forEach((row, i) => {
+                const tr = document.createElement('tr');
+                if (row.error) { tr.classList.add('batch-row-error'); tr.title = row.error; }
+
+                const isMarket = row.priceType === 'market';
+
+                tr.appendChild(textCell(i + 1));
+                tr.appendChild(textCell(accountLabel(row.accountId), row.accountId));
+                tr.appendChild(textCell(row.marketId));
+
+                // Side: Buy (1) / Sell (-1)
+                tr.appendChild(controlCell(buildSelect(i, 'side', String(row.side), [
+                    { value: '1', label: 'Buy' },
+                    { value: '-1', label: 'Sell' },
+                ])));
+
+                // Type: mirror the main #orderType options (limit / market)
+                tr.appendChild(controlCell(buildSelect(i, 'priceType', row.priceType, [
+                    { value: 'limit', label: 'Limit' },
+                    { value: 'market', label: 'Market' },
+                ])));
+
+                // Volume
+                const vol = document.createElement('input');
+                vol.type = 'number';
+                vol.min = '1';
+                vol.value = row.volume;
+                vol.dataset.index = i;
+                vol.dataset.field = 'volume';
+                tr.appendChild(controlCell(vol));
+
+                // Price — disabled + blank for market orders (no price).
+                const price = document.createElement('input');
+                price.type = 'number';
+                price.step = '0.01';
+                price.dataset.index = i;
+                price.dataset.field = 'price';
+                price.value = isMarket || row.price == null ? '' : row.price;
+                price.disabled = isMarket;
+                tr.appendChild(controlCell(price));
+
+                const removeCell = document.createElement('td');
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'batch-remove-btn';
+                removeBtn.dataset.index = i;
+                removeBtn.textContent = '✕';
+                removeCell.appendChild(removeBtn);
+                tr.appendChild(removeCell);
+
+                elements.batchTable.appendChild(tr);
+            });
+
+            elements.submitBatchBtn.textContent = `Submit Batch (${batchRows.length})`;
+            elements.submitBatchBtn.disabled =
+                batchRows.length === 0 || !client.isConnected || !client.selectedAccount;
+        }
+
+        // --- renderBatch cell helpers ---
+        function textCell(text, title) {
+            const td = document.createElement('td');
+            td.textContent = text;
+            if (title != null) td.title = title;
+            return td;
+        }
+        function controlCell(control) {
+            const td = document.createElement('td');
+            td.appendChild(control);
+            return td;
+        }
+        function buildSelect(index, field, selected, options) {
+            const sel = document.createElement('select');
+            sel.dataset.index = index;
+            sel.dataset.field = field;
+            options.forEach(o => {
+                const opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.label;
+                if (o.value === selected) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            return sel;
+        }
+
+        function addToBatch() {
+            setBatchStatus(null); // editing the batch clears any prior submit result
+            if (!client.selectedAccount || !client.currentMarketId) {
+                log('Select an account and market before staging a batch order.', 'error');
+                return;
+            }
+            const side = parseInt(elements.orderSide.value);
+            const volume = parseInt(elements.orderVolume.value);
+            const priceType = elements.orderType.value; // 'limit' or 'market'
+
+            if (!Number.isFinite(volume) || volume < 1) {
+                log('Batch: volume must be a positive integer.', 'error');
+                return;
+            }
+
+            // Limit orders capture the CURRENT last-trade price for the contract at
+            // the instant of staging (the form field can be stale — it's only auto-
+            // filled once after login). Market orders carry no price.
+            let price = null;
+            if (priceType !== 'market') {
+                price = getLiveLastTrade(client.currentMarketId);
+                if (price === null) {
+                    // No trade has printed yet — fall back to the form field.
+                    const fieldPrice = parseFloat(elements.orderPrice.value);
+                    if (!Number.isFinite(fieldPrice)) {
+                        log('Batch: no live price available yet for this contract; set a price first.', 'error');
+                        return;
+                    }
+                    price = fieldPrice;
+                }
+                elements.orderPrice.value = price; // reflect the staged price for visibility
+            }
+
+            batchRows.push({
+                accountId: client.selectedAccount,
+                marketId: client.currentMarketId,
+                side, volume, price, priceType
+            });
+            renderBatch();
+            const stagedPriceText = priceType === 'market' ? 'Market' : price;
+            log(`Batch: staged ${side === 1 ? 'Buy' : 'Sell'} ${volume} @ ${stagedPriceText} on ${client.currentMarketId} (${batchRows.length} staged)`, 'info');
+        }
+
+        function clearBatch() {
+            batchRows.length = 0;
+            setBatchStatus(null);
+            renderBatch();
+        }
+
+        async function submitBatch() {
+            if (batchRows.length === 0) return;
+            const n = batchRows.length;
+
+            // Catch obviously-bad inline edits before a server round-trip: a limit row
+            // needs a finite price, every row needs volume >= 1. Flag offenders via the
+            // same row.error mechanism the server reject path uses.
+            let invalid = false;
+            batchRows.forEach(r => {
+                const badVol = !Number.isFinite(r.volume) || r.volume < 1;
+                const badPrice = r.priceType !== 'market' && !Number.isFinite(r.price);
+                if (badVol || badPrice) {
+                    r.error = badVol ? 'volume must be >= 1' : 'limit order needs a price';
+                    invalid = true;
+                }
+            });
+            if (invalid) {
+                renderBatch();
+                setBatchStatus('Fix the flagged row(s) before submitting.', 'error');
+                return;
+            }
+
+            // Warn but allow: the server (not the client) caps batch size. Flag a
+            // large batch so a server reject/drop isn't a surprise, then submit anyway.
+            if (n > BATCH_SIZE_WARN) {
+                setBatchStatus(`⚠ Submitting ${n} orders — T4 may reject batches larger than ~${BATCH_SIZE_WARN}.`, 'warn');
+                log(`Batch warning: ${n} orders exceeds the typical server limit (~${BATCH_SIZE_WARN}); submitting anyway.`, 'warning');
+            } else {
+                setBatchStatus(`Submitting ${n} order(s)…`, 'info');
+            }
+
+            try {
+                batchRows.forEach(r => { delete r.error; });
+                renderBatch();
+                const batchId = await client.submitBatch(batchRows.map(({ error, ...spec }) => spec));
+
+                // Detect a silent server drop: if no ack/reject arrives in time, say so.
+                const t = setTimeout(() => {
+                    batchTimers.delete(batchId);
+                    setBatchStatus(`No response from server for batch ${batchId} after ${BATCH_ACK_TIMEOUT_MS / 1000}s — it may have been rejected (e.g. too large). Connection is still active; orders were NOT confirmed.`, 'error');
+                }, BATCH_ACK_TIMEOUT_MS);
+                batchTimers.set(batchId, t);
+            } catch (error) {
+                setBatchStatus(`Batch submission error: ${error.message}`, 'error');
+                log(`Batch submission error: ${error.message}`, 'error');
+            }
+        }
+
+        // Server response: clear the staging table on acknowledge; on reject, surface
+        // the batch-level reason (even when there are no per-order errors) and flag any
+        // offending rows (submissionIndex maps 1:1 to staged-row index).
+        client.onBatchUpdate = (evt) => {
+            const t = batchTimers.get(evt.batchId);
+            if (t) { clearTimeout(t); batchTimers.delete(evt.batchId); }
+
+            if (evt.status === 'acknowledged') {
+                const count = (evt.ack?.accepted || []).reduce((s, a) => s + (a.uniqueId?.length || 0), 0);
+                setBatchStatus(`Batch ${evt.batchId} accepted — ${count} order(s) working.`, 'success');
+                clearBatch();
+            } else if (evt.status === 'rejected') {
+                const reason = evt.reject?.reason || 'validation failed';
+                const errs = evt.reject?.errors || [];
+                errs.forEach(err => {
+                    const row = batchRows[err.submissionIndex];
+                    if (row) row.error = err.reason || 'rejected';
+                });
+                const detail = errs.length ? ` (${errs.length} order error(s) flagged below)` : '';
+                setBatchStatus(`Batch ${evt.batchId} rejected: ${reason}${detail}`, 'error');
+                renderBatch();
+            }
+        };
+
         // Event listeners
         elements.connectBtn.addEventListener('click', connect);
         elements.disconnectBtn.addEventListener('click', disconnect);
         elements.submitOrderBtn.addEventListener('click', submitOrder);
+        elements.addToBatchBtn.addEventListener('click', addToBatch);
+        elements.submitBatchBtn.addEventListener('click', submitBatch);
+        elements.clearBatchBtn.addEventListener('click', clearBatch);
+        elements.batchTable.addEventListener('click', (e) => {
+            const btn = e.target.closest('.batch-remove-btn');
+            if (!btn) return;
+            batchRows.splice(parseInt(btn.dataset.index), 1);
+            setBatchStatus(null);
+            renderBatch();
+        });
+
+        // Inline editing: a Side/Type/Vol/Price control changed. Mutate the row model
+        // in place (no renderBatch — that would rebuild the table and drop focus) and
+        // do targeted DOM toggling on the price input when the type flips.
+        elements.batchTable.addEventListener('change', (e) => {
+            const el = e.target;
+            const field = el.dataset && el.dataset.field;
+            if (!field) return;
+            const index = parseInt(el.dataset.index, 10);
+            const row = batchRows[index];
+            if (!row) return;
+
+            if (field === 'side') {
+                row.side = parseInt(el.value, 10);
+            } else if (field === 'volume') {
+                row.volume = Math.max(1, parseInt(el.value, 10) || 1);
+                el.value = row.volume;
+            } else if (field === 'price') {
+                const p = parseFloat(el.value);
+                row.price = Number.isFinite(p) ? p : null;
+            } else if (field === 'priceType') {
+                row.priceType = el.value;
+                const priceInput = el.closest('tr').querySelector('input[data-field="price"]');
+                if (row.priceType === 'market') {
+                    // Market = no price.
+                    row.price = null;
+                    if (priceInput) { priceInput.value = ''; priceInput.disabled = true; }
+                } else if (priceInput) {
+                    priceInput.disabled = false;
+                    // Seed from the live last-trade if the cell is empty.
+                    if (!priceInput.value) {
+                        const live = getLiveLastTrade(row.marketId);
+                        if (live !== null) { row.price = live; priceInput.value = live; }
+                    }
+                }
+            }
+
+            // Any edit invalidates a prior server reject on this row / the banner.
+            if (row.error) {
+                delete row.error;
+                const tr = el.closest('tr');
+                if (tr) { tr.classList.remove('batch-row-error'); tr.removeAttribute('title'); }
+            }
+            setBatchStatus(null);
+        });
 
         // Click on bid/ask/last to set limit price
         ['bestBid', 'bestOffer', 'lastTrade'].forEach(id => {

@@ -75,6 +75,15 @@ class T4APIClient {
         this.onMessageReceived = null;
         this.onError = null;
         this.onLog = null;
+        // Fan-out for atomic batch results. Receives { status: 'acknowledged' |
+        // 'rejected', batchId, ack?, reject?, batch? } so the batch UI can clear
+        // or flag the offending rows. Optional; null when unused.
+        this.onBatchUpdate = null;
+
+        // In-flight OrderBatch submissions keyed by client batch_id, so the
+        // ack/reject handlers can correlate the server response to the rows that
+        // were sent. Populated by submitBatch, cleared on ack/reject.
+        this.pendingBatches = new Map();
 
         // Connection retry
         this.reconnectAttempts = 0;
@@ -236,12 +245,19 @@ class T4APIClient {
         this.startHeartbeat();
     }
 
-    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars') {
-        if (!this.selectedAccount || !this.currentMarketId) {
+    // Build a single OrderSubmit (entry order + optional TP/SL bracket) for the
+    // given account/market. Shared by submitOrder (single send) and submitBatch
+    // (atomic multi-submission). Returns { submission, info }; info carries the
+    // derived values submitOrder needs for its log lines.
+    buildOrderSubmit({ accountId, marketId, side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars' }) {
+        if (!accountId || !marketId) {
             throw new Error('No account or market selected');
         }
 
-        const marketDetails = this.getMarketDetails(this.currentMarketId);
+        const marketDetails = this.getMarketDetails(marketId);
+        if (!marketDetails) {
+            throw new Error(`No market details available for ${marketId}`);
+        }
 
         // Convert string price type to enum value.
         // 'market' -> MARKET, 'stop' -> STOP_MARKET (stop-market entry), else LIMIT.
@@ -318,7 +334,7 @@ class T4APIClient {
                 // AOCO_P mode: user provides absolute price directly
                 takeProfitLimitPrice = takeProfitDollars; // In price mode, the value IS the absolute price
             } else if (!Number.isFinite(pointValue) || pointValue <= 0) {
-                this.log(`Skipping take profit: missing/invalid point value for market ${this.currentMarketId}`, 'error');
+                this.log(`Skipping take profit: missing/invalid point value for market ${marketId}`, 'error');
                 takeProfitLimitPrice = null;
             } else {
                 // Dollar mode: convert the dollar amount to a price distance from the
@@ -355,7 +371,7 @@ class T4APIClient {
                 // AOCO_P mode: user provides absolute price directly
                 stopLossStopPrice = stopLossDollars; // In price mode, the value IS the absolute price
             } else if (!Number.isFinite(pointValue) || pointValue <= 0) {
-                this.log(`Skipping stop loss: missing/invalid point value for market ${this.currentMarketId}`, 'error');
+                this.log(`Skipping stop loss: missing/invalid point value for market ${marketId}`, 'error');
                 stopLossStopPrice = null;
             } else {
                 // Dollar mode: convert the dollar amount to a price distance from the
@@ -402,19 +418,37 @@ class T4APIClient {
             }
         }
 
-        // Create the order submit message
-        const orderSubmit = {
-            orderSubmit: {
-                accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
-                orderLink: orderLinkValue,
-                manualOrderIndicator: true,
-                orders: orders
-            }
+        // Assemble the OrderSubmit. account/market come from the caller so a batch
+        // can target multiple accounts/markets in one atomic submission.
+        const submission = {
+            accountId,
+            marketId,
+            orderLink: orderLinkValue,
+            manualOrderIndicator: true,
+            orders: orders
         };
 
+        return {
+            submission,
+            info: { buySellValue, priceTypeValue, protectionSide, hasBracketOrders }
+        };
+    }
+
+    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars') {
+        if (!this.selectedAccount || !this.currentMarketId) {
+            throw new Error('No account or market selected');
+        }
+
+        const { submission, info } = this.buildOrderSubmit({
+            accountId: this.selectedAccount,
+            marketId: this.currentMarketId,
+            side, volume, price, priceType,
+            takeProfitDollars, stopLossDollars, trailingStop, bracketMode
+        });
+        const { buySellValue, priceTypeValue, protectionSide, hasBracketOrders } = info;
+
         // Send the order
-        await this.sendMessage(orderSubmit);
+        await this.sendMessage({ orderSubmit: submission });
 
         // Log order details
         const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
@@ -436,6 +470,50 @@ class T4APIClient {
             const linkType = bracketMode === 'price' ? 'OCO (AOCO_P - Absolute Price)' : 'OCO (AOCO - Distance)';
             this.log(`${linkType} bracket order applied`, 'info');
         }
+    }
+
+    // Submit an atomic batch of orders (proto OrderBatch). `rows` is an array of
+    // order specs; each row accepts the same fields as submitOrder plus optional
+    // per-row accountId/marketId, so one batch can span accounts/markets (i.e. a
+    // multi-user batch). The server validates all submissions together: if any
+    // fails, none are submitted (OrderBatchReject); otherwise OrderBatchAcknowledge
+    // arrives and each order then proceeds via the normal OrderUpdate stream.
+    async submitBatch(rows, batchId = null) {
+        if (!Array.isArray(rows) || rows.length === 0) {
+            throw new Error('submitBatch: no orders provided');
+        }
+
+        // Build every submission first; a builder throw (bad market, etc.) aborts
+        // the whole batch before anything is sent, mirroring the atomic semantics.
+        const submissions = rows.map((row, i) => {
+            try {
+                const { submission } = this.buildOrderSubmit({
+                    accountId: row.accountId || this.selectedAccount,
+                    marketId: row.marketId || this.currentMarketId,
+                    side: row.side,
+                    volume: row.volume,
+                    price: row.price,
+                    priceType: row.priceType || 'limit',
+                    takeProfitDollars: row.takeProfitDollars ?? null,
+                    stopLossDollars: row.stopLossDollars ?? null,
+                    trailingStop: row.trailingStop ?? false,
+                    bracketMode: row.bracketMode || 'dollars'
+                });
+                return submission;
+            } catch (e) {
+                throw new Error(`Batch row ${i + 1}: ${e.message}`);
+            }
+        });
+
+        // Always send a client batch_id so the ack/reject (which echoes it) can be
+        // correlated back to these rows. Kept simple and unique per session.
+        const id = batchId || `b-${Date.now()}-${this.pendingBatches.size}`;
+        this.pendingBatches.set(id, { rows, submissions, sentAt: Date.now() });
+
+        await this.sendMessage({ orderBatch: { batchId: id, submissions } });
+
+        this.log(`Batch submitted: ${submissions.length} order(s), batchId ${id}`, 'info');
+        return id;
     }
 
     async pullOrder(orderId) {
@@ -636,6 +714,10 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             this.handleAccountSnapshot(message.accountSnapshot);
         } else if (message.orderUpdateMulti) {
             this.handleOrderUpdateMulti(message.orderUpdateMulti);
+        } else if (message.orderBatchAcknowledge) {
+            this.handleOrderBatchAcknowledge(message.orderBatchAcknowledge);
+        } else if (message.orderBatchReject) {
+            this.handleOrderBatchReject(message.orderBatchReject);
         } else if (message.authenticationToken) {
             this.handleAuthenticationToken(message.authenticationToken);
         } else if (message.marketSnapshot) {
@@ -1104,6 +1186,39 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         } else {
             this.log(`Order update multi received: ${updateMulti.uniqueId}, updates: ${updateMulti.updates.length}, processed: ${updatesProcessed}`, 'info');
         }
+    }
+
+    // Batch accepted: every submission passed validation. The individual orders
+    // still arrive afterward as normal OrderUpdate messages, so there's no order
+    // state to set up here — this is purely confirmation/correlation.
+    handleOrderBatchAcknowledge(ack) {
+        const pending = this.pendingBatches.get(ack.batchId);
+        const total = (ack.accepted || []).reduce((n, a) => n + (a.uniqueId?.length || 0), 0);
+        this.log(`Batch acknowledged: ${ack.batchId} — ${total} order(s) accepted`, 'info');
+
+        if (this.onBatchUpdate) {
+            this.onBatchUpdate({ status: 'acknowledged', batchId: ack.batchId, ack, batch: pending });
+        }
+        this.pendingBatches.delete(ack.batchId);
+    }
+
+    // Batch rejected: at least one order failed validation, so NONE were submitted.
+    // No order state was created, so there's nothing to roll back — we just surface
+    // the per-order errors so the batch UI can flag the offending rows.
+    handleOrderBatchReject(reject) {
+        const pending = this.pendingBatches.get(reject.batchId);
+        this.log(`Batch rejected: ${reject.batchId} — ${reject.reason || 'validation failed'}`, 'error');
+        (reject.errors || []).forEach(err => {
+            const where = err.orderIndex === -1
+                ? `submission ${err.submissionIndex}`
+                : `submission ${err.submissionIndex}, order ${err.orderIndex}`;
+            this.log(`  ${where}: ${err.reason}`, 'error');
+        });
+
+        if (this.onBatchUpdate) {
+            this.onBatchUpdate({ status: 'rejected', batchId: reject.batchId, reject, batch: pending });
+        }
+        this.pendingBatches.delete(reject.batchId);
     }
 
     handleOrderUpdate(orderUpdate) {
