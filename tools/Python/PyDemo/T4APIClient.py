@@ -465,13 +465,15 @@ class Client:
         # message carries no side, so we look it up from the cached order.
         if self.on_account_update:
             order = self.orders.get(trade_update.unique_id)
+            if order is None or not hasattr(order, "buy_sell"):
+                return  # can't infer side -> don't emit a misleading marker event
             self.on_account_update({
                 "type": "fill",
                 "market_id": trade_update.market_id,
                 "unique_id": trade_update.unique_id,
                 "price": trade_update.price.value if trade_update.HasField("price") else None,
                 "volume": getattr(trade_update, "volume", 0),
-                "buy_sell": getattr(order, "buy_sell", 0) if order else 0,
+                "buy_sell": getattr(order, "buy_sell"),
                 "time": trade_update.time.seconds if trade_update.HasField("time") else None,
             })
 
