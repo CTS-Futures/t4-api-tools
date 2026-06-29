@@ -35,7 +35,7 @@
         range(marketId, fromSec = -Infinity) {
             const buf = this.byMarket.get(marketId);
             if (!buf || buf.length === 0) return [];
-            if (fromSec === -Infinity) return buf;
+            if (fromSec === -Infinity) return buf.slice();
             // Lower bound: first index with time >= fromSec (buf ascending by time).
             let lo = 0, hi = buf.length;
             while (lo < hi) {
