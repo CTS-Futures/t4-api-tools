@@ -32,11 +32,11 @@ class SimBroker:
     def __init__(self, config: dict | None = None) -> None:
         config = config or {}
         self.config = config
-        self.slippage = config.get("slippage") or 0     # price units, adverse
+        self.slippage = float(config.get("slippage") or 0.0)     # price units, adverse
         self.portfolio = Portfolio(
-            point_value=config.get("point_value", 1),
-            commission=config.get("commission", 0),
-            starting_cash=config.get("starting_cash", 100000),
+            point_value=float(config.get("point_value", 1) or 1),
+            commission=float(config.get("commission", 0) or 0),
+            starting_cash=float(config.get("starting_cash", 100000) or 100000),
         )
 
         self._pending = []        # market orders awaiting next open
