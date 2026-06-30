@@ -1197,10 +1197,14 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         const total = (ack.accepted || []).reduce((n, a) => n + (a.uniqueId?.length || 0), 0);
         this.log(`Batch acknowledged: ${ack.batchId} — ${total} order(s) accepted`, 'info');
 
-        if (this.onBatchUpdate) {
-            this.onBatchUpdate({ status: 'acknowledged', batchId: ack.batchId, ack, batch: pending });
+        try {
+            if (this.onBatchUpdate) {
+                this.onBatchUpdate({ status: 'acknowledged', batchId: ack.batchId, ack, batch: pending });
+            }
+        } finally {
+            if (pending?.cleanupTimer) clearTimeout(pending.cleanupTimer);
+            this.pendingBatches.delete(ack.batchId);
         }
-        this.pendingBatches.delete(ack.batchId);
     }
 
     // Batch rejected: at least one order failed validation, so NONE were submitted.
