@@ -508,7 +508,8 @@ class T4APIClient {
         // Always send a client batch_id so the ack/reject (which echoes it) can be
         // correlated back to these rows. Kept simple and unique per session.
         const id = batchId || `b-${Date.now()}-${this.pendingBatches.size}`;
-        this.pendingBatches.set(id, { rows, submissions, sentAt: Date.now() });
+        const cleanupTimer = setTimeout(() => this.pendingBatches.delete(id), 60_000);
+        this.pendingBatches.set(id, { rows, submissions, sentAt: Date.now(), cleanupTimer });
 
         await this.sendMessage({ orderBatch: { batchId: id, submissions } });
 
