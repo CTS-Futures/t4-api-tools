@@ -693,5 +693,3 @@ This revision adds documentation for the binary transport and the reference deco
 ``tools/Python/t4-pythonConversion-api/src/t4login``. If the format version constants
 (``CVAL_T4BIN_VERSION`` / ``CVAL_T4BINAGGR_VERSION``) change, regenerate the tag tables from
 ``ChartFormat`` / ``ChartFormatAggr``.
-</content>
-</invoke>
