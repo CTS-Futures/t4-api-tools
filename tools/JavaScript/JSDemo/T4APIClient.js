@@ -1215,10 +1215,14 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             this.log(`  ${where}: ${err.reason}`, 'error');
         });
 
-        if (this.onBatchUpdate) {
-            this.onBatchUpdate({ status: 'rejected', batchId: reject.batchId, reject, batch: pending });
+        try {
+            if (this.onBatchUpdate) {
+                this.onBatchUpdate({ status: 'rejected', batchId: reject.batchId, reject, batch: pending });
+            }
+        } finally {
+            if (pending?.cleanupTimer) clearTimeout(pending.cleanupTimer);
+            this.pendingBatches.delete(reject.batchId);
         }
-        this.pendingBatches.delete(reject.batchId);
     }
 
     handleOrderUpdate(orderUpdate) {
