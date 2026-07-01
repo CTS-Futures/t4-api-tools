@@ -315,12 +315,25 @@ class T4APIClient {
         // Determine if we need OCO order linking
         const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
 
-        // Use AUTO_OCO for dollar-distance mode, AUTO_OCO_P for absolute price mode
+        // We know the entry price for a limit or stop entry, so we can express the
+        // bracket as absolute child prices — held orders then show the real price
+        // instead of a raw offset. Market entries have no price until fill, so they
+        // keep AUTO_OCO offset semantics (offset shows only until the immediate fill).
+        const entryPriceKnown =
+            (priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
+             || priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET)
+            && Number.isFinite(Number(price));
+
+        // Child prices are absolute when the user typed absolute prices ('price' mode)
+        // or when we can derive them from a known entry (offset mode + known entry).
+        const useAbsoluteBracket = bracketMode === 'price' || entryPriceKnown;
+
+        // AUTO_OCO_P carries absolute child prices; AUTO_OCO carries raw offsets.
         const orderLinkValue = hasBracketOrders
-            ? (bracketMode === 'price'
-                ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO_P  // 3
-                : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)   // 2
-            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;           // 0
+            ? (useAbsoluteBracket
+                ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO_P
+                : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)
+            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;
 
         // Create orders array with main order first
         const orders = [{
@@ -349,11 +362,9 @@ class T4APIClient {
             ? marketDetails.decimals
             : marketDetails.realDecimals;
 
-        // Contract specs for dollar-mode bracket math. pointValue is dollars per
-        // 1.0 price point (e.g. ES = $50); tickSize is the minimum price increment
-        // (e.g. ES = 0.25). Same metadata DragOrder reads for its risk/reward badges.
+        // tickSize is the minimum price increment (e.g. ES = 0.25). Used only to
+        // snap the offset-mode bracket distance onto a tradable price grid.
         const tickSize = Number(marketDetails.minPriceIncrement?.value);
-        const pointValue = Number(marketDetails.pointValue?.value);
 
         // Snap a price offset to the nearest valid tick so the bracket lands on a
         // tradable price. No-op when tick size is unknown.
@@ -370,21 +381,17 @@ class T4APIClient {
             if (bracketMode === 'price') {
                 // AOCO_P mode: user provides absolute price directly
                 takeProfitLimitPrice = takeProfitDollars; // In price mode, the value IS the absolute price
-            } else if (!Number.isFinite(pointValue) || pointValue <= 0) {
-                this.log(`Skipping take profit: missing/invalid point value for market ${marketId}`, 'error');
-                takeProfitLimitPrice = null;
             } else {
-                // Dollar mode: convert the dollar amount to a price distance from the
-                // fill — offset = |dollars| / (qty * pointValue) — then snap to tick.
-                let takeProfitPoints = snapToTick(Math.abs(takeProfitDollars / volume) / pointValue);
+                // Offset mode: the entered value is a price distance off the entry
+                // (e.g. 100 = 100 price units away). Buy: TP above (+); Sell: TP below (−).
+                let off = snapToTick(Math.abs(takeProfitDollars));
+                off = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? off : -off;
 
-                // Buy main order: TP is above fill (add), Sell main order: TP is below fill (subtract)
-                takeProfitPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
-                    ? takeProfitPoints
-                    : -takeProfitPoints;
-
-                // AOCO uses distance in price
-                takeProfitLimitPrice = takeProfitPoints;
+                // Known entry -> absolute price (held order shows the real price via
+                // AUTO_OCO_P). Market entry -> raw offset (AUTO_OCO applies it at fill).
+                takeProfitLimitPrice = entryPriceKnown
+                    ? snapToTick(Number(price) + off)
+                    : off;
             }
 
             if (takeProfitLimitPrice !== null) {
@@ -407,28 +414,21 @@ class T4APIClient {
             if (bracketMode === 'price') {
                 // AOCO_P mode: user provides absolute price directly
                 stopLossStopPrice = stopLossDollars; // In price mode, the value IS the absolute price
-            } else if (!Number.isFinite(pointValue) || pointValue <= 0) {
-                this.log(`Skipping stop loss: missing/invalid point value for market ${marketId}`, 'error');
-                stopLossStopPrice = null;
             } else {
-                // Dollar mode: convert the dollar amount to a price distance from the
-                // fill — offset = |dollars| / (qty * pointValue) — then snap to tick.
-                let stopLossPoints = snapToTick(Math.abs(stopLossDollars / volume) / pointValue);
+                // Offset mode: price distance off the entry. Buy: SL below (−); Sell: SL above (+).
+                let off = snapToTick(Math.abs(stopLossDollars));
+                off = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? -off : off;
 
-                // Buy main order: SL is below fill (-), Sell main order: SL is above fill (+)
-                stopLossPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
-                    ? - stopLossPoints
-                    : + stopLossPoints;
-
-                // AOCO uses distance in price
-                stopLossStopPrice = stopLossPoints;
+                // Known entry -> absolute price (held order shows the real price via
+                // AUTO_OCO_P). Market entry -> raw offset (AUTO_OCO applies it at fill).
+                stopLossStopPrice = entryPriceKnown
+                    ? snapToTick(Number(price) + off)
+                    : off;
             }
 
-            if (stopLossStopPrice === null) {
-                // skip: invalid point value already logged
-            } else if (trailingStop) {
-                const trailDistance = bracketMode === 'price'
-                    ? Math.abs(price - stopLossStopPrice).toFixed(priceDecimals)
+            if (trailingStop) {
+                const trailDistance = useAbsoluteBracket
+                    ? Math.abs(Number(price) - stopLossStopPrice).toFixed(priceDecimals)
                     : Math.abs(stopLossStopPrice).toFixed(priceDecimals);
 
                 orders.push({
