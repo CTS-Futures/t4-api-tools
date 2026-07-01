@@ -705,6 +705,22 @@ th {
         cursor: pointer;
     }
 
+/* ---------- OCO builder (two-leg one-cancels-other) ------------------ */
+#ocoGroup {
+    grid-column: 1 / -1; /* span the full 2-column .order-form grid */
+}
+
+.oco-leg-fields {
+    display: flex;
+    gap: 8px;
+}
+
+    .oco-leg-fields select,
+    .oco-leg-fields input {
+        flex: 1;
+        min-width: 0;
+    }
+
 /* ---------- Trade History blotter ------------------------------------ */
 .th-session-badge {
     font-size: 11px;

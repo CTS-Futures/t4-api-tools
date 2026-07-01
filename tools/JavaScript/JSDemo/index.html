@@ -119,6 +119,7 @@
                 <select id="orderType">
                     <option value="limit">Limit</option>
                     <option value="market">Market</option>
+                    <option value="oco">OCO</option>
                 </select>
             </div>
             <div class="form-group">
@@ -157,6 +158,42 @@
                     <label for="trailingStopToggle">Trailing</label>
                 </div>
             </div>
+            <!-- OCO builder: two independent, simultaneously-working legs (one cancels the other).
+                 Shown only when Type = OCO; the standard single-order fields above are hidden. -->
+            <div id="ocoGroup" style="display: none;">
+                <div class="form-group oco-leg" data-leg="1">
+                    <label>Leg 1:</label>
+                    <div class="oco-leg-fields">
+                        <select id="ocoLeg1Side">
+                            <option value="1">Buy</option>
+                            <option value="-1">Sell</option>
+                        </select>
+                        <select id="ocoLeg1Type">
+                            <option value="limit">Limit</option>
+                            <option value="market">Market</option>
+                            <option value="stop">Stop</option>
+                        </select>
+                        <input type="number" id="ocoLeg1Volume" value="1" min="1" placeholder="Vol">
+                        <input type="number" id="ocoLeg1Price" step="0.01" value="100" placeholder="Price">
+                    </div>
+                </div>
+                <div class="form-group oco-leg" data-leg="2">
+                    <label>Leg 2:</label>
+                    <div class="oco-leg-fields">
+                        <select id="ocoLeg2Side">
+                            <option value="1">Buy</option>
+                            <option value="-1">Sell</option>
+                        </select>
+                        <select id="ocoLeg2Type">
+                            <option value="limit">Limit</option>
+                            <option value="market">Market</option>
+                            <option value="stop">Stop</option>
+                        </select>
+                        <input type="number" id="ocoLeg2Volume" value="1" min="1" placeholder="Vol">
+                        <input type="number" id="ocoLeg2Price" step="0.01" value="100" placeholder="Price">
+                    </div>
+                </div>
+            </div>
             <div class="form-group submit-btn-container">
                 <button id="submitOrderBtn" class="submit-order-btn">Submit Order</button>
             </div>
@@ -167,9 +204,11 @@
     <div class="section">
         <h2>Batch Orders</h2>
         <p class="batch-hint">
-            Stage flat entry orders from the form above (Side / Type / Volume / Price),
-            then edit Side / Type / Vol / Price directly in the table before submitting
-            them as one <strong>atomic</strong> batch — if any order fails validation,
+            Stage orders from the form above (Side / Type / Volume / Price); set a
+            Take Profit / Stop Loss there first to stage an <strong>AOCO bracket</strong>
+            (parent + offspring) row. Edit Side / Type / Vol / Price directly in the
+            table (brackets are read-only — remove and re-stage to change them), then
+            submit as one <strong>atomic</strong> batch — if any order fails validation,
             none are sent. Switch account and/or contract between adds to build a
             multi-account batch.
         </p>
@@ -187,6 +226,7 @@
                         <th>Type</th>
                         <th>Vol</th>
                         <th>Price</th>
+                        <th>Bracket</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -222,7 +262,7 @@
     </div>
 
     <!-- Orders -->
-    <div class="section">
+    <div class="section full-width">
         <h2>Orders</h2>
         <div class="table-container">
             <table id="ordersTable">
@@ -386,6 +426,16 @@
             orderSide: document.getElementById('orderSide'),
             orderVolume: document.getElementById('orderVolume'),
             orderPrice: document.getElementById('orderPrice'),
+            // OCO builder
+            ocoGroup: document.getElementById('ocoGroup'),
+            ocoLeg1Side: document.getElementById('ocoLeg1Side'),
+            ocoLeg1Type: document.getElementById('ocoLeg1Type'),
+            ocoLeg1Volume: document.getElementById('ocoLeg1Volume'),
+            ocoLeg1Price: document.getElementById('ocoLeg1Price'),
+            ocoLeg2Side: document.getElementById('ocoLeg2Side'),
+            ocoLeg2Type: document.getElementById('ocoLeg2Type'),
+            ocoLeg2Volume: document.getElementById('ocoLeg2Volume'),
+            ocoLeg2Price: document.getElementById('ocoLeg2Price'),
             submitOrderBtn: document.getElementById('submitOrderBtn'),
             addToBatchBtn: document.getElementById('addToBatchBtn'),
             submitBatchBtn: document.getElementById('submitBatchBtn'),
@@ -595,9 +645,21 @@
                 // call stay consistent with the right-click context menu.
                 if (window.ChartFeatures?.DragOrder) {
                     const dragOrder = new window.ChartFeatures.DragOrder();
-                    dragOrder.onOrder = ({ side, priceType, price, volume, anchor, label, takeProfitPrice, stopLossPrice, isBracket }) => {
+                    dragOrder.onOrder = (intent) => {
+                        const { side, priceType, price, volume, anchor, label,
+                                takeProfitPrice, stopLossPrice, isBracket, isOco, legs } = intent;
                         if (!client.selectedAccount) {
                             log('Select an account before trading from the chart', 'error');
+                            return;
+                        }
+                        // OCO: two independent legs; the setup + Submit bar is the
+                        // confirmation step, so fire directly (like the bracket flow).
+                        if (isOco) {
+                            client.submitOcoOrder(legs);
+                            const summary = legs
+                                .map(l => `${l.side === 1 ? 'BUY' : 'SELL'} ${l.volume} ${l.priceType} @ ${l.price}`)
+                                .join(' / ');
+                            log(`Chart OCO: ${summary}`, 'info');
                             return;
                         }
                         const qty = Math.max(1, parseInt(volume, 10) || 1);
@@ -1196,6 +1258,23 @@
             }
         }
 
+        // Order type toggle: when OCO is chosen, hide the standard single-order
+        // fields (they don't apply) and reveal the two-leg OCO builder; restore
+        // them for Limit/Market.
+        const standardOrderGroups = [
+            elements.orderSide.closest('.form-group'),
+            elements.orderVolume.closest('.form-group'),
+            document.getElementById('priceGroup'),
+            document.querySelector('.bracket-mode-group'),
+            document.getElementById('takeProfitPrice').closest('.form-group'),
+            document.getElementById('stopLossPrice').closest('.form-group'),
+        ];
+        elements.orderType.addEventListener('change', () => {
+            const isOco = elements.orderType.value === 'oco';
+            standardOrderGroups.forEach(g => { if (g) g.style.display = isOco ? 'none' : ''; });
+            elements.ocoGroup.style.display = isOco ? '' : 'none';
+        });
+
         // Bracket mode toggle handler
         document.querySelectorAll('input[name="bracketMode"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
@@ -1229,6 +1308,18 @@
 
         async function submitOrder() {
             try {
+                // OCO mode: build two independent legs and submit as one-cancels-other.
+                if (elements.orderType.value === 'oco') {
+                    const buildLeg = (n) => ({
+                        side: parseInt(elements[`ocoLeg${n}Side`].value),
+                        priceType: elements[`ocoLeg${n}Type`].value,
+                        volume: parseInt(elements[`ocoLeg${n}Volume`].value),
+                        price: parseFloat(elements[`ocoLeg${n}Price`].value),
+                    });
+                    await client.submitOcoOrder([buildLeg(1), buildLeg(2)]);
+                    return;
+                }
+
                 const side = parseInt(elements.orderSide.value);
                 const volume = parseInt(elements.orderVolume.value);
                 const priceType = elements.orderType.value; // 'limit' or 'market'
@@ -1323,6 +1414,10 @@
                 price.disabled = isMarket;
                 tr.appendChild(controlCell(price));
 
+                // Read-only bracket badge (edit by removing + re-staging from the form).
+                const summary = bracketSummary(row);
+                tr.appendChild(textCell(summary, summary === '—' ? null : summary));
+
                 const removeCell = document.createElement('td');
                 const removeBtn = document.createElement('button');
                 removeBtn.className = 'batch-remove-btn';
@@ -1340,6 +1435,19 @@
         }
 
         // --- renderBatch cell helpers ---
+        // One-line summary of a row's AOCO bracket for the read-only Bracket column.
+        // Returns '—' for flat rows (no TP/SL). Mode tag: '$' = dollar-distance
+        // (AUTO_OCO), 'price' = absolute price (AUTO_OCO_P).
+        function bracketSummary(row) {
+            const hasTp = row.takeProfitDollars != null;
+            const hasSl = row.stopLossDollars != null;
+            if (!hasTp && !hasSl) return '—';
+            const parts = [];
+            if (hasTp) parts.push(`TP ${row.takeProfitDollars}`);
+            if (hasSl) parts.push(`SL ${row.stopLossDollars}${row.trailingStop ? ' (trail)' : ''}`);
+            const mode = row.bracketMode === 'price' ? 'price' : '$';
+            return `${parts.join(' / ')} · ${mode}`;
+        }
         function textCell(text, title) {
             const td = document.createElement('td');
             td.textContent = text;
@@ -1398,14 +1506,32 @@
                 elements.orderPrice.value = price; // reflect the staged price for visibility
             }
 
+            // Carry the single-order bracket controls onto the row so it stages as an
+            // AOCO parent+offspring group (same inputs submitOrder reads). Bracket
+            // fields are only attached when a TP/SL is set, keeping flat rows clean.
+            const bracketMode = document.querySelector('input[name="bracketMode"]:checked').value;
+            const tpEl = document.getElementById('takeProfitPrice');
+            const slEl = document.getElementById('stopLossPrice');
+            const trailEl = document.getElementById('trailingStopToggle');
+            const takeProfitDollars = tpEl && tpEl.value ? parseFloat(tpEl.value) : null;
+            const stopLossDollars   = slEl && slEl.value ? parseFloat(slEl.value) : null;
+            const trailingStop      = trailEl ? trailEl.checked : false;
+
             batchRows.push({
                 accountId: client.selectedAccount,
                 marketId: client.currentMarketId,
-                side, volume, price, priceType
+                side, volume, price, priceType,
+                ...(takeProfitDollars !== null ? { takeProfitDollars } : {}),
+                ...(stopLossDollars   !== null ? { stopLossDollars }   : {}),
+                ...(takeProfitDollars !== null || stopLossDollars !== null
+                    ? { trailingStop, bracketMode } : {}),
             });
             renderBatch();
             const stagedPriceText = priceType === 'market' ? 'Market' : price;
-            log(`Batch: staged ${side === 1 ? 'Buy' : 'Sell'} ${volume} @ ${stagedPriceText} on ${client.currentMarketId} (${batchRows.length} staged)`, 'info');
+            const bracketText = (takeProfitDollars !== null || stopLossDollars !== null)
+                ? ` | ${bracketSummary(batchRows[batchRows.length - 1])}`
+                : '';
+            log(`Batch: staged ${side === 1 ? 'Buy' : 'Sell'} ${volume} @ ${stagedPriceText} on ${client.currentMarketId}${bracketText} (${batchRows.length} staged)`, 'info');
         }
 
         function clearBatch() {

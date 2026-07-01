@@ -70,6 +70,7 @@
 
             this._toolMode = null;       // null | 'buy' | 'sell'
             this._bracketMode = false;
+            this._orderType = 'auto';    // 'auto' | 'limit' | 'stop' | 'market' | 'oco'
             this._onToolChange = null;
             this._onStateChange = null;
             this._dragging = false;
@@ -84,6 +85,11 @@
             //     tStart, tEnd, tpLine, slLine, entryLine, tpFill, slFill,
             //     tpBadge, slBadge, confirmBar }
             this._setup = null;
+            // OCO setup state. Null when not building an OCO. Two independent,
+            // simultaneously-working legs (one cancels the other):
+            //   { side, leg1, leg2, qty, decimals, leg1Line, leg2Line,
+            //     confirmBar, anchor }
+            this._oco = null;
             this._edgeDrag = null;       // null | 'tp' | 'sl'
             this._edgeStartY = NaN;      // grab anchor for sensitivity scaling
             this._edgeStartPrice = NaN;
@@ -118,6 +124,7 @@
             // contract with different tick size / decimals.
             this._unsubSymbol = ctx.bus.on('symbol:changed', () => {
                 this._exitSetup(true);
+                this._exitOco(true);
                 this.cancelTool();
             });
         }
@@ -144,12 +151,24 @@
             // they can still Submit/Cancel the current bracket.
         }
 
+        // Force the order type for chart-placed entries. 'auto' keeps the
+        // drop-vs-last inference (_inferType); 'limit'/'stop'/'market' force it;
+        // 'oco' makes a drop open the two-line OCO builder.
+        setOrderType(type) {
+            const t = (typeof type === 'string' ? type : 'auto').toLowerCase();
+            this._orderType = ['auto', 'limit', 'stop', 'market', 'oco'].includes(t) ? t : 'auto';
+            // Leaving OCO mode with a build open: tear it down so a stale
+            // overlay doesn't linger.
+            if (this._orderType !== 'oco') this._exitOco(true);
+        }
+
         // ---------- arm / disarm -----------------------------------------
         beginTool(mode) {
             if (mode !== 'buy' && mode !== 'sell') return;
             if (this._toolMode === mode) return;
             // Switching mode mid-flight: clean current drag + setup first.
             this._exitSetup(true);
+            this._exitOco(true);
             this._endDrag(true);
             this._toolMode = mode;
             this._armChart();
@@ -159,6 +178,7 @@
         cancelTool() {
             if (!this._toolMode) return;
             this._exitSetup(true);
+            this._exitOco(true);
             this._endDrag(true);
             this._disarmChart();
             this._toolMode = null;
@@ -174,7 +194,7 @@
 
         _emitStateChange() {
             if (this._onStateChange) {
-                const state = this._setup ? 'setup' : (this._toolMode ? 'armed' : 'idle');
+                const state = (this._setup || this._oco) ? 'setup' : (this._toolMode ? 'armed' : 'idle');
                 try { this._onStateChange(state); }
                 catch (err) { console.error('[DragOrder] onStateChange failed:', err); }
             }
@@ -233,10 +253,27 @@
                 e.preventDefault();
                 e.stopPropagation();
                 if (this._setup) this._exitSetup(true);
+                else if (this._oco) this._exitOco(true);
                 else this.cancelTool();
                 return;
             }
             if (e.button !== 0) return;
+
+            // In OCO setup: only leg-line grabs are allowed, same as bracket setup.
+            if (this._oco) {
+                const rect = this._container.getBoundingClientRect();
+                const y = e.clientY - rect.top;
+                const edge = this._hitTestEdge(y);
+                if (!edge) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this._edgeDrag = edge;              // 'leg1' | 'leg2'
+                this._edgeStartY = y;
+                this._edgeStartPrice = (edge === 'leg1') ? this._oco.leg1 : this._oco.leg2;
+                this._activePointerId = e.pointerId;
+                try { this._container.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+                return;
+            }
 
             // In setup mode: only edge grabs are allowed. Other clicks are
             // ignored so the user can't accidentally start a new entry drag
@@ -281,7 +318,7 @@
                 return;
             }
             // Hover feedback over an edge while in setup: ns-resize cursor.
-            if (this._setup && !this._dragging) {
+            if ((this._setup || this._oco) && !this._dragging) {
                 const rect = this._container.getBoundingClientRect();
                 const y = e.clientY - rect.top;
                 const edge = this._hitTestEdge(y);
@@ -317,7 +354,9 @@
             if (e.type === 'pointercancel') return;
             if (!Number.isFinite(price)) return;
 
-            if (this._bracketMode) {
+            if (this._orderType === 'oco') {
+                this._enterOcoSetup(price, anchor);
+            } else if (this._bracketMode) {
                 this._enterSetup(price, anchor);
             } else {
                 this._fireOrder(price, anchor);
@@ -335,6 +374,10 @@
             }
             if (this._setup) {
                 this._exitSetup(true);
+                return;
+            }
+            if (this._oco) {
+                this._exitOco(true);
                 return;
             }
             if (this._dragging) {
@@ -387,11 +430,15 @@
         _updatePreview(price) {
             if (!this._series) return;
             const side = this._toolMode === 'buy' ? 1 : -1;
-            const type = this._inferType(side, price);
+            const type = this._effectiveType(side, price);
             const color = side === 1 ? '#26a69a' : '#ef5350';
             const decimals = this._host?.knownDecimals ?? 2;
             const sideText = side === 1 ? 'BUY' : 'SELL';
-            const title = `${sideText} ${type.toUpperCase()} @ ${Number(price).toFixed(decimals)}`;
+            // Market has no working price — label it as such but still track the
+            // cursor line so the gesture has visual feedback.
+            const title = type === 'market'
+                ? `${sideText} MARKET`
+                : `${sideText} ${type.toUpperCase()} @ ${Number(price).toFixed(decimals)}`;
 
             const LS = global.LightweightCharts?.LineStyle;
             const dashed = LS?.Dashed ?? 2;
@@ -422,6 +469,16 @@
             return price >= last ? 'limit' : 'stop';
         }
 
+        // Effective type for a simple drag entry: honour a forced Type from the
+        // toolbar (limit/stop/market), else fall back to drop-vs-last inference.
+        // 'oco' never reaches here (it opens the OCO builder instead).
+        _effectiveType(side, price) {
+            if (this._orderType === 'limit' || this._orderType === 'stop' || this._orderType === 'market') {
+                return this._orderType;
+            }
+            return this._inferType(side, price);
+        }
+
         _lastPrice() {
             const id = this._host?.activeMarketId;
             if (!id || !this._client?.getMarketSnapshot) return NaN;
@@ -446,13 +503,17 @@
         _fireOrder(price, anchor) {
             if (typeof this.onOrder !== 'function') return;
             const side = this._toolMode === 'buy' ? 1 : -1;
-            const priceType = this._inferType(side, price);
+            const priceType = this._effectiveType(side, price);
             const volume = this._readQty();
             const decimals = this._host?.knownDecimals ?? 2;
             const sideText = side === 1 ? 'BUY' : 'SELL';
-            const label = `${sideText} ${priceType.toUpperCase()} @ ${Number(price).toFixed(decimals)}`;
+            // Market ignores the drop price (submitOrder sends no limit/stop price).
+            const orderPrice = priceType === 'market' ? null : price;
+            const label = priceType === 'market'
+                ? `${sideText} MARKET`
+                : `${sideText} ${priceType.toUpperCase()} @ ${Number(price).toFixed(decimals)}`;
             try {
-                this.onOrder({ side, priceType, price, volume, anchor, label });
+                this.onOrder({ side, priceType, price: orderPrice, volume, anchor, label });
             } catch (err) {
                 console.error('[DragOrder] onOrder failed:', err);
             }
@@ -785,8 +846,18 @@
 
         // ---------- edge drag --------------------------------------------
         _hitTestEdge(yPx) {
+            if (!this._series) return null;
+            // OCO build: two independent leg lines.
+            if (this._oco) {
+                const y1 = this._series.priceToCoordinate(this._oco.leg1);
+                const y2 = this._series.priceToCoordinate(this._oco.leg2);
+                const d1 = y1 != null ? Math.abs(y1 - yPx) : Infinity;
+                const d2 = y2 != null ? Math.abs(y2 - yPx) : Infinity;
+                if (Math.min(d1, d2) > EDGE_HIT_PX) return null;
+                return d1 <= d2 ? 'leg1' : 'leg2';
+            }
             const s = this._setup;
-            if (!s || !this._series) return null;
+            if (!s) return null;
             const yTp = this._series.priceToCoordinate(s.tp);
             const ySl = this._series.priceToCoordinate(s.sl);
             const dTp = yTp != null ? Math.abs(yTp - yPx) : Infinity;
@@ -797,6 +868,12 @@
         }
 
         _updateEdge(which, rawPrice) {
+            // OCO leg lines move freely (no entry-relative clamping); each just
+            // snaps to tick and relabels with its side + inferred type.
+            if (this._oco) {
+                this._updateOcoLeg(which, rawPrice);
+                return;
+            }
             const s = this._setup;
             if (!s) return;
             const tick = this._tickSize();
@@ -897,6 +974,158 @@
             } catch (err) {
                 console.error('[DragOrder] bracket onOrder failed:', err);
             }
+        }
+
+        // ================================================================
+        // OCO setup mode (two independent, simultaneously-working legs)
+        // ================================================================
+
+        _enterOcoSetup(dropPrice, anchor) {
+            if (!this._series || !this._chart) return;
+            if (this._oco) this._exitOco(true);
+            const side = this._toolMode === 'buy' ? 1 : -1;
+            const qty = this._readQty();
+            const decimals = this._host?.knownDecimals ?? 2;
+            const tick = this._tickSize();
+            const offset = Number.isFinite(tick) && tick > 0
+                ? tick * DEFAULT_OFFSET_TICKS
+                : dropPrice * 0.0005;
+
+            // Leg 1 at the drop; leg 2 a few ticks below it so both lines are
+            // visible and grabbable right away. Each is freely draggable after.
+            this._oco = {
+                side, leg1: dropPrice, leg2: dropPrice - offset, qty, decimals,
+                anchor, leg1Line: null, leg2Line: null, confirmBar: null, labelEl: null
+            };
+            this._renderOco();
+            this._emitStateChange();
+        }
+
+        _renderOco() {
+            const o = this._oco;
+            if (!o || !this._series || !this._chart) return;
+            const LS = global.LightweightCharts?.LineStyle;
+            const solid = LS?.Solid ?? 0;
+            const color = o.side === 1 ? '#26a69a' : '#ef5350';
+
+            o.leg1Line = this._series.createPriceLine({
+                price: o.leg1, color, lineWidth: 2, lineStyle: solid,
+                axisLabelVisible: true, title: this._ocoLegLabel(o.leg1)
+            });
+            o.leg2Line = this._series.createPriceLine({
+                price: o.leg2, color, lineWidth: 2, lineStyle: solid,
+                axisLabelVisible: true, title: this._ocoLegLabel(o.leg2)
+            });
+
+            o.confirmBar = this._mkOcoConfirmBar();
+            this._container.appendChild(o.confirmBar);
+        }
+
+        _ocoLegLabel(price) {
+            const o = this._oco;
+            const sideText = o.side === 1 ? 'BUY' : 'SELL';
+            const type = this._inferType(o.side, price).toUpperCase();
+            return `${sideText} ${type} @ ${this._fmt(price)}`;
+        }
+
+        _ocoConfirmText() {
+            const o = this._oco;
+            const sideText = o.side === 1 ? 'BUY' : 'SELL';
+            const t1 = this._inferType(o.side, o.leg1).toUpperCase();
+            const t2 = this._inferType(o.side, o.leg2).toUpperCase();
+            return `OCO ${sideText} × ${o.qty}:  ${t1} @ ${this._fmt(o.leg1)}  /  ${t2} @ ${this._fmt(o.leg2)}`;
+        }
+
+        _updateOcoConfirmText() {
+            if (this._oco?.labelEl) this._oco.labelEl.textContent = this._ocoConfirmText();
+        }
+
+        _mkOcoConfirmBar() {
+            const o = this._oco;
+            const sideCls = o.side === 1 ? 'cbc-buy' : 'cbc-sell';
+
+            const bar = document.createElement('div');
+            bar.className = 'chart-bracket-confirm';
+
+            const label = document.createElement('span');
+            label.className = 'cbc-label';
+            label.textContent = this._ocoConfirmText();
+            o.labelEl = label;
+
+            const submit = document.createElement('button');
+            submit.type = 'button';
+            submit.className = `cbc-btn cbc-submit ${sideCls}`;
+            submit.textContent = 'Submit OCO';
+            submit.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this._submitOco();
+            });
+
+            const cancel = document.createElement('button');
+            cancel.type = 'button';
+            cancel.className = 'cbc-btn cbc-cancel';
+            cancel.textContent = 'Cancel';
+            cancel.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this._exitOco(true);
+            });
+
+            bar.appendChild(label);
+            bar.appendChild(submit);
+            bar.appendChild(cancel);
+            // Keep pointerdown on the bar from reaching the chart drag handler.
+            bar.addEventListener('pointerdown', (e) => e.stopPropagation(), true);
+            return bar;
+        }
+
+        _updateOcoLeg(which, rawPrice) {
+            const o = this._oco;
+            if (!o) return;
+            // rawPrice is already tick-snapped by _edgePriceFromEvent.
+            if (which === 'leg1') {
+                o.leg1 = rawPrice;
+                o.leg1Line?.applyOptions({ price: rawPrice, title: this._ocoLegLabel(rawPrice) });
+            } else {
+                o.leg2 = rawPrice;
+                o.leg2Line?.applyOptions({ price: rawPrice, title: this._ocoLegLabel(rawPrice) });
+            }
+            this._updateOcoConfirmText();
+        }
+
+        _submitOco() {
+            const o = this._oco;
+            if (!o) return;
+            if (typeof this.onOrder !== 'function') { this._exitOco(true); return; }
+            const legs = [o.leg1, o.leg2].map(p => ({
+                side: o.side,
+                priceType: this._inferType(o.side, p),
+                price: p,
+                volume: o.qty
+            }));
+            const label = this._ocoConfirmText();
+            const anchor = o.anchor;
+            // Tear down BEFORE firing so a handler that hits the API doesn't race
+            // the next pointer event into a half-cleaned setup (mirrors bracket).
+            this._exitOco(false);
+            try {
+                this.onOrder({ isOco: true, legs, anchor, label });
+            } catch (err) {
+                console.error('[DragOrder] OCO onOrder failed:', err);
+            }
+        }
+
+        _exitOco(/* canceled */) {
+            if (!this._oco) return;
+            const o = this._oco;
+            if (o.leg1Line && this._series) { try { this._series.removePriceLine(o.leg1Line); } catch (_) { /* gone */ } }
+            if (o.leg2Line && this._series) { try { this._series.removePriceLine(o.leg2Line); } catch (_) { /* gone */ } }
+            if (o.confirmBar?.parentNode) o.confirmBar.parentNode.removeChild(o.confirmBar);
+            this._container?.classList.remove('chart-bracket-edge-hover');
+            this._oco = null;
+            this._edgeDrag = null;
+            this._emitStateChange();
         }
 
         // ---------- math helpers -----------------------------------------
