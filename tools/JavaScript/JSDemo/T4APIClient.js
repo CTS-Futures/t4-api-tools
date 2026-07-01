@@ -28,6 +28,7 @@ class T4APIClient {
         this.loginResponse = null;
         this.accounts = new Map();
         this.selectedAccount = null;
+        this.subscribedAccounts = new Set(); // accounts with an active AccountSubscribe
 
         // JWT token management
         this.jwtToken = null;
@@ -84,6 +85,10 @@ class T4APIClient {
         // ack/reject handlers can correlate the server response to the rows that
         // were sent. Populated by submitBatch, cleared on ack/reject.
         this.pendingBatches = new Map();
+
+        // Resolvers awaiting the next AccountSubscribeResponse, so a subscribe issued
+        // before a batch can be confirmed before the orders are sent.
+        this._subscribeWaiters = [];
 
         // Connection retry
         this.reconnectAttempts = 0;
@@ -172,6 +177,7 @@ class T4APIClient {
                     uplMode: 0
                 }
             });
+            this.subscribedAccounts.delete(this.selectedAccount);
         }
 
         this.selectedAccount = accountId;
@@ -185,8 +191,39 @@ class T4APIClient {
                     uplMode: 1
                 }
             });
+            this.subscribedAccounts.add(accountId);
             this.log(`Subscribed to account: ${accountId}`, 'info');
         }
+    }
+
+    // Subscribe to any accounts not already subscribed, in a single AccountSubscribe.
+    // Used before a multi-account batch so the server doesn't reject "not subscribed".
+    async ensureAccountsSubscribed(accountIds) {
+        if (this.config.autoSubscribeAccounts) return; // all accounts already subscribed
+        const missing = [...new Set(accountIds)]
+            .filter(Boolean)
+            .filter(id => !this.subscribedAccounts.has(id));
+        if (missing.length === 0) return;
+
+        const ack = this._awaitNextSubscribeResponse(); // resolve on server ack
+        await this.sendMessage({
+            accountSubscribe: {
+                subscribe: 2,               // ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES
+                subscribeAllAccounts: false,
+                accountId: missing,
+                uplMode: 1                  // UPL_MODE_AVERAGE
+            }
+        });
+        missing.forEach(id => this.subscribedAccounts.add(id));
+        this.log(`Subscribed to accounts for batch: ${missing.join(', ')}`, 'info');
+        await ack; // ensure the server has registered the subscription before we submit
+    }
+
+    _awaitNextSubscribeResponse(timeoutMs = 3000) {
+        return new Promise(resolve => {
+            this._subscribeWaiters.push(resolve);
+            setTimeout(() => resolve(null), timeoutMs); // fall through on message-order guarantee
+        });
     }
 
     async subscribeMarket(exchangeId, contractId, marketId) {
@@ -505,6 +542,12 @@ class T4APIClient {
             }
         });
 
+        // Every account referenced by the batch must be subscribed or the server
+        // rejects the whole batch ("Account … is not subscribed"). In per-account
+        // mode only the selected account is subscribed, so subscribe the rest first.
+        const accts = rows.map(r => r.accountId || this.selectedAccount);
+        await this.ensureAccountsSubscribed(accts);
+
         // Always send a client batch_id so the ack/reject (which echoes it) can be
         // correlated back to these rows. Kept simple and unique per session.
         const id = batchId || `b-${Date.now()}-${this.pendingBatches.size}`;
@@ -515,6 +558,79 @@ class T4APIClient {
 
         this.log(`Batch submitted: ${submissions.length} order(s), batchId ${id}`, 'info');
         return id;
+    }
+
+    // Submit a true OCO (One-Cancels-Other): two or more independent, simultaneously
+    // working orders linked by ORDER_LINK_OCO. Whichever fills first cancels the rest.
+    // Unlike the AUTO_OCO brackets in submitOrder(), each leg carries its own real
+    // volume and is live immediately (no ACTIVATION_TYPE_HOLD / parent entry).
+    //
+    // legs: array of { side, priceType, price, volume }
+    //   side:      'buy'|'sell' or 1/-1
+    //   priceType: 'limit'|'market'|'stop'
+    //   price:     absolute price (ignored for market legs)
+    //   volume:    per-leg quantity
+    async submitOcoOrder(legs) {
+        if (!this.selectedAccount || !this.currentMarketId) {
+            throw new Error('No account or market selected');
+        }
+        if (!Array.isArray(legs) || legs.length < 2) {
+            throw new Error('OCO requires at least two legs');
+        }
+
+        const orders = legs.map(leg => {
+            // Convert string price type to enum value (same mapping as submitOrder).
+            const ptLower = (typeof leg.priceType === 'string' ? leg.priceType : 'limit').toLowerCase();
+            const priceTypeValue = ptLower === 'market'
+                ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET       // 0
+                : ptLower === 'stop'
+                    ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
+                    : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;       // 1
+
+            // Convert buy/sell string or number to enum value (same as submitOrder).
+            const buySellValue = typeof leg.side === 'string'
+                ? (leg.side.toLowerCase() === 'buy'
+                    ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY    // 1
+                    : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL)  // -1
+                : (leg.side === 1
+                    ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY
+                    : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL);
+
+            return {
+                buySell: buySellValue,
+                priceType: priceTypeValue,
+                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
+                volume: leg.volume,
+                // Limit/stop price set only when the order type requires it.
+                limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
+                    ? { value: leg.price.toString() }
+                    : null,
+                stopPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET
+                    ? { value: leg.price.toString() }
+                    : null,
+                // No activationType: both legs are live working orders immediately.
+            };
+        });
+
+        const orderSubmit = {
+            orderSubmit: {
+                accountId: this.selectedAccount,
+                marketId: this.currentMarketId,
+                orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_OCO, // 1
+                manualOrderIndicator: true,
+                orders: orders
+            }
+        };
+
+        await this.sendMessage(orderSubmit);
+
+        this.log(`OCO order submitted: ${legs.length} legs (one-cancels-other)`, 'info');
+        legs.forEach((leg, i) => {
+            const sideText = orders[i].buySell === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+            const ptLower = (typeof leg.priceType === 'string' ? leg.priceType : 'limit').toLowerCase();
+            const priceText = ptLower === 'market' ? 'Market' : leg.price;
+            this.log(`  Leg ${i + 1}: ${sideText} ${leg.volume} @ ${priceText} (${ptLower})`, 'info');
+        });
     }
 
     async pullOrder(orderId) {
@@ -864,8 +980,11 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         if (response.success) {
             this.log('Account subscribe: Success', 'info');
         } else {
-            this.log(`Account subscribe failed: ${response.errors.join(', ')}`, 'error');
+            this.log(`Account subscribe failed: ${(response.errors || []).join(', ')}`, 'error');
         }
+        const waiters = this._subscribeWaiters;
+        this._subscribeWaiters = [];
+        waiters.forEach(w => w(response));
     }
 
     handleAccountDetails(details) {

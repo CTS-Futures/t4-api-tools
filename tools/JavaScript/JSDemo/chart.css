@@ -350,6 +350,26 @@
     margin-left: 4px;
 }
 
+/* Chart order-type selector — matches the .order-btn look. */
+.chart-section .order-type-select {
+    background: #2a2a2a;
+    color: #d0d0d0;
+    border: 1px solid #444;
+    border-radius: 3px;
+    padding: 3px 6px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.chart-section .order-type-select:hover {
+    border-color: #666;
+}
+
+.chart-section .order-type-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 /* While the drag-to-place tool is armed, use a crosshair so users know the
    chart is in "place an order" mode rather than its normal pan mode. */
 .chart-section .chart-container.chart-drag-armed,
