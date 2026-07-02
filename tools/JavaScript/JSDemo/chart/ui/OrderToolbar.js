@@ -45,6 +45,36 @@
             this._btnSell = mkBtn('Sell Order', 'order-btn-sell',
                 () => this._toggle('sell'));
 
+            // Type selector: 'auto' keeps the drop-vs-last inference; limit/stop/
+            // market force the type for the simple drag entry; 'oco' turns a drop
+            // into a two-line OCO builder. Market/OCO are incompatible with the
+            // Bracket flow, so Bracket is disabled while either is selected.
+            this._typeSelect = document.createElement('select');
+            this._typeSelect.className = 'order-type-select';
+            this._typeSelect.title = 'Order type for chart-placed orders';
+            [
+                ['auto', 'Auto'], ['limit', 'Limit'], ['stop', 'Stop'],
+                ['market', 'Market'], ['oco', 'OCO']
+            ].forEach(([value, text]) => {
+                const opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = text;
+                this._typeSelect.appendChild(opt);
+            });
+            this._typeSelect.addEventListener('change', () => {
+                const type = this._typeSelect.value;
+                this._feature.setOrderType(type);
+                const incompatible = type === 'market' || type === 'oco';
+                if (this._bracketChk) {
+                    this._bracketChk.disabled = incompatible;
+                    if (incompatible && this._bracketChk.checked) {
+                        this._bracketChk.checked = false;
+                        this._feature.setBracketMode(false);
+                    }
+                }
+                this._updateHint();
+            });
+
             // Bracket toggle: when on, entry drop opens the TP/SL setup
             // overlay instead of submitting an immediate order.
             const bracketWrap = document.createElement('label');
@@ -66,6 +96,7 @@
 
             root.appendChild(this._btnBuy);
             root.appendChild(this._btnSell);
+            root.appendChild(this._typeSelect);
             root.appendChild(bracketWrap);
             root.appendChild(this._hint);
             this.host.appendChild(root);
@@ -95,8 +126,19 @@
                 this._hint.textContent = '';
                 return;
             }
+            const type = this._typeSelect?.value || 'auto';
             if (this._state === 'setup') {
-                this._hint.textContent = 'Adjust TP/SL, then Submit (Esc cancels)';
+                this._hint.textContent = type === 'oco'
+                    ? 'Drag the two OCO lines, then Submit OCO (Esc cancels)'
+                    : 'Adjust TP/SL, then Submit (Esc cancels)';
+                return;
+            }
+            if (type === 'oco') {
+                this._hint.textContent = 'Drag on chart to place two OCO lines (Esc to cancel)';
+                return;
+            }
+            if (type === 'market') {
+                this._hint.textContent = 'Click chart to place at Market (Esc to cancel)';
                 return;
             }
             this._hint.textContent = this._bracketChk?.checked

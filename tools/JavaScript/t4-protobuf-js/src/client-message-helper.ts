@@ -12,6 +12,7 @@ export class ClientMessageHelper {
         else if (message.orderSubmit) clientMessage.orderSubmit = message.orderSubmit;
         else if (message.orderRevise) clientMessage.orderRevise = message.orderRevise;
         else if (message.orderPull) clientMessage.orderPull = message.orderPull;
+        else if (message.orderBatch) clientMessage.orderBatch = message.orderBatch;
         else if (message.createUds) clientMessage.createUds = message.createUds;
         else if (message.heartbeat) clientMessage.heartbeat = message.heartbeat;
         else throw new Error(`Unsupported message type: ${Object.keys(message)[0]}`);
