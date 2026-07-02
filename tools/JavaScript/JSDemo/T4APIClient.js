@@ -315,18 +315,9 @@ class T4APIClient {
         // Determine if we need OCO order linking
         const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
 
-        // We know the entry price for a limit or stop entry, so we can express the
-        // bracket as absolute child prices — held orders then show the real price
-        // instead of a raw offset. Market entries have no price until fill, so they
-        // keep AUTO_OCO offset semantics (offset shows only until the immediate fill).
-        const entryPriceKnown =
-            (priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
-             || priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET)
-            && Number.isFinite(Number(price));
-
-        // Child prices are absolute when the user typed absolute prices ('price' mode)
-        // or when we can derive them from a known entry (offset mode + known entry).
-        const useAbsoluteBracket = bracketMode === 'price' || entryPriceKnown;
+        // Dollars mode sends raw offsets (AUTO_OCO); Price mode sends absolute child
+        // prices (AUTO_OCO_P). Keeps the "$" bracket a true AOCO order in all cases.
+        const useAbsoluteBracket = bracketMode === 'price';
 
         // AUTO_OCO_P carries absolute child prices; AUTO_OCO carries raw offsets.
         const orderLinkValue = hasBracketOrders
@@ -362,17 +353,6 @@ class T4APIClient {
             ? marketDetails.decimals
             : marketDetails.realDecimals;
 
-        // tickSize is the minimum price increment (e.g. ES = 0.25). Used only to
-        // snap the offset-mode bracket distance onto a tradable price grid.
-        const tickSize = Number(marketDetails.minPriceIncrement?.value);
-
-        // Snap a price offset to the nearest valid tick so the bracket lands on a
-        // tradable price. No-op when tick size is unknown.
-        const snapToTick = (offset) =>
-            (Number.isFinite(tickSize) && tickSize > 0)
-                ? Math.round(offset / tickSize) * tickSize
-                : offset;
-
         // Add take profit order if specified
         if (takeProfitDollars !== null) {
 
@@ -382,28 +362,20 @@ class T4APIClient {
                 // AOCO_P mode: user provides absolute price directly
                 takeProfitLimitPrice = takeProfitDollars; // In price mode, the value IS the absolute price
             } else {
-                // Offset mode: the entered value is a price distance off the entry
-                // (e.g. 100 = 100 price units away). Buy: TP above (+); Sell: TP below (−).
-                let off = snapToTick(Math.abs(takeProfitDollars));
-                off = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? off : -off;
-
-                // Known entry -> absolute price (held order shows the real price via
-                // AUTO_OCO_P). Market entry -> raw offset (AUTO_OCO applies it at fill).
-                takeProfitLimitPrice = entryPriceKnown
-                    ? snapToTick(Number(price) + off)
-                    : off;
+                // Offset mode: the entered value IS a price distance off the fill.
+                // AUTO_OCO applies it at fill. Buy: TP above (+); Sell: TP below (−).
+                const dist = Math.abs(takeProfitDollars);
+                takeProfitLimitPrice = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? dist : -dist;
             }
 
-            if (takeProfitLimitPrice !== null) {
-                orders.push({
-                    buySell: protectionSide,
-                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT,
-                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
-                    volume: 0,
-                    limitPrice: { value: takeProfitLimitPrice.toString() },
-                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
-                });
-            }
+            orders.push({
+                buySell: protectionSide,
+                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT,
+                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                volume: 0,
+                limitPrice: { value: takeProfitLimitPrice.toString() },
+                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
+            });
         }
 
         // Add stop loss order if specified
@@ -415,20 +387,15 @@ class T4APIClient {
                 // AOCO_P mode: user provides absolute price directly
                 stopLossStopPrice = stopLossDollars; // In price mode, the value IS the absolute price
             } else {
-                // Offset mode: price distance off the entry. Buy: SL below (−); Sell: SL above (+).
-                let off = snapToTick(Math.abs(stopLossDollars));
-                off = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? -off : off;
-
-                // Known entry -> absolute price (held order shows the real price via
-                // AUTO_OCO_P). Market entry -> raw offset (AUTO_OCO applies it at fill).
-                stopLossStopPrice = entryPriceKnown
-                    ? snapToTick(Number(price) + off)
-                    : off;
+                // Offset mode: the entered value IS a price distance off the fill.
+                // Buy: SL below (−); Sell: SL above (+).
+                const dist = Math.abs(stopLossDollars);
+                stopLossStopPrice = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? -dist : dist;
             }
 
             if (trailingStop) {
-                const trailDistance = useAbsoluteBracket
-                    ? Math.abs(Number(price) - stopLossStopPrice).toFixed(priceDecimals)
+                const trailDistance = bracketMode === 'price'
+                    ? Math.abs(price - stopLossStopPrice).toFixed(priceDecimals)
                     : Math.abs(stopLossStopPrice).toFixed(priceDecimals);
 
                 orders.push({
@@ -494,12 +461,12 @@ class T4APIClient {
         this.log(`Order submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType}, Bracket: ${bracketMode})`, 'info');
 
         if (takeProfitDollars !== null) {
-            const tpLabel = bracketMode === 'price' ? `Price ${takeProfitDollars}` : `$${takeProfitDollars}`;
+            const tpLabel = bracketMode === 'price' ? `Price ${takeProfitDollars}` : `Distance ${takeProfitDollars}`;
             this.log(`Take profit: ${tpLabel} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (stopLossDollars !== null) {
-            const slLabel = bracketMode === 'price' ? `Price ${stopLossDollars}` : `$${stopLossDollars}`;
+            const slLabel = bracketMode === 'price' ? `Price ${stopLossDollars}` : `Distance ${stopLossDollars}`;
             this.log(`Stop loss: ${slLabel}${trailingStop ? ' (Trailing)' : ''} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 

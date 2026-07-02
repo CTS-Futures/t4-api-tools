@@ -141,18 +141,18 @@
                 <label>Bracket Mode:</label>
                 <div class="bracket-toggle">
                     <input type="radio" name="bracketMode" id="bracketModeDollars" value="dollars" checked>
-                    <label for="bracketModeDollars">Dollars ($)</label>
+                    <label for="bracketModeDollars">Distance</label>
                     <input type="radio" name="bracketMode" id="bracketModePrice" value="price">
                     <label for="bracketModePrice">Price (AOCO_P)</label>
                 </div>
             </div>
             <div class="form-group">
-                <label for="takeProfitPrice" id="takeProfitLabel">Take Profit ($):</label>
-                <input type="number" id="takeProfitPrice" step="1" placeholder="Optional">
+                <label for="takeProfitPrice" id="takeProfitLabel">Take Profit (Distance):</label>
+                <input type="number" id="takeProfitPrice" step="0.01" placeholder="Optional">
             </div>
             <div class="form-group">
-                <label for="stopLossPrice" id="stopLossLabel">Stop Loss ($):</label>
-                <input type="number" id="stopLossPrice" step="1" placeholder="Optional">
+                <label for="stopLossPrice" id="stopLossLabel">Stop Loss (Distance):</label>
+                <input type="number" id="stopLossPrice" step="0.01" placeholder="Optional">
                 <div class="trailing-toggle">
                     <input type="checkbox" id="trailingStopToggle">
                     <label for="trailingStopToggle">Trailing</label>
@@ -1293,12 +1293,12 @@
                 const slInput = document.getElementById('stopLossPrice');
 
                 if (mode === 'dollars') {
-                    tpLabel.textContent = 'Take Profit ($):';
-                    slLabel.textContent = 'Stop Loss ($):';
-                    tpInput.step = '1';
-                    slInput.step = '1';
-                    tpInput.placeholder = 'Optional';
-                    slInput.placeholder = 'Optional';
+                    tpLabel.textContent = 'Take Profit (Distance):';
+                    slLabel.textContent = 'Stop Loss (Distance):';
+                    tpInput.step = '0.01';
+                    slInput.step = '0.01';
+                    tpInput.placeholder = 'Price distance';
+                    slInput.placeholder = 'Price distance';
                 } else {
                     tpLabel.textContent = 'Take Profit (Price):';
                     slLabel.textContent = 'Stop Loss (Price):';
@@ -1494,7 +1494,7 @@
             const parts = [];
             if (hasTp) parts.push(`TP ${row.takeProfitDollars}`);
             if (hasSl) parts.push(`SL ${row.stopLossDollars}${row.trailingStop ? ' (trail)' : ''}`);
-            const mode = row.bracketMode === 'price' ? 'price' : '$';
+            const mode = row.bracketMode === 'price' ? 'price' : 'dist';
             return `${parts.join(' / ')} · ${mode}`;
         }
         // One-line summary of a staged true-OCO row (independent legs, one-cancels-other)
