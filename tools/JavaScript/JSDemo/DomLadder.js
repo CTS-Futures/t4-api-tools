@@ -98,6 +98,11 @@
             title.textContent = 'Order Book';
             this._posLabel = document.createElement('span');
             this._posLabel.className = 'dom-ladder-pos';
+            // Shown only when the row cap clips away one of the user's own working
+            // orders, so a far resting order is never silently hidden (see _render).
+            this._oovLabel = document.createElement('span');
+            this._oovLabel.className = 'dom-ladder-oov';
+            this._oovLabel.style.display = 'none';
             this._recenterBtn = document.createElement('button');
             this._recenterBtn.type = 'button';
             this._recenterBtn.className = 'dom-ladder-recenter';
@@ -124,6 +129,7 @@
 
             header.appendChild(title);
             header.appendChild(this._posLabel);
+            header.appendChild(this._oovLabel);
             header.appendChild(qtyWrap);
             header.appendChild(this._recenterBtn);
 
@@ -164,7 +170,14 @@
                 const price = Number(cell.dataset.price);
                 if (!Number.isFinite(price)) return;
                 const side = cell.dataset.side === 'sell' ? -1 : 1;
-                this._onOrder({ side, price, volume: this._getQty() });
+                // Reject an empty/invalid Qty instead of silently trading a 1-lot;
+                // draw the user's attention to the field they need to fill in.
+                const volume = this._getQty();
+                if (!Number.isFinite(volume)) {
+                    if (this._qtyInput) { this._qtyInput.focus(); this._qtyInput.select(); }
+                    return;
+                }
+                this._onOrder({ side, price, volume });
             });
 
             this._empty = document.createElement('div');
@@ -236,6 +249,7 @@
             this._posPrice = null; this._posNet = 0;
             this._autoFollow = true;
             this._recenterBtn.style.display = 'none';
+            if (this._oovLabel) { this._oovLabel.style.display = 'none'; this._oovLabel.textContent = ''; }
             this._scheduleRender();
         }
 
@@ -332,6 +346,7 @@
             this._body.innerHTML = '';
             this._body.appendChild(frag);
             this._updatePosLabel();
+            this._updateOovLabel(loKey, hiKey);
 
             if (this._autoFollow) this._centerOnMid();
         }
@@ -377,9 +392,40 @@
             return cell;
         }
 
+        // Return the click-to-trade quantity, or NaN if the box is empty/invalid — the
+        // caller rejects the trade rather than silently firing a 1-lot (see mousedown).
         _getQty() {
             const q = parseInt(this._qtyInput && this._qtyInput.value, 10);
-            return Math.max(1, Number.isFinite(q) ? q : 1);
+            return (Number.isFinite(q) && q >= 1) ? q : NaN;
+        }
+
+        // The MAX_ROWS cap can clip the visible tick window [loKey, hiKey]. Count the
+        // user's OWN working orders resting outside it (above / below) and surface them,
+        // so a far resting order is never silently hidden by the cap. Far *book* levels
+        // are intentionally ignored — only the user's own orders matter here.
+        _updateOovLabel(loKey, hiKey) {
+            if (!this._oovLabel) return;
+            let above = 0, below = 0;
+            const tally = (m) => {
+                for (const k of m.keys()) {
+                    if (k > hiKey) above++;
+                    else if (k < loKey) below++;
+                }
+            };
+            tally(this._buys); tally(this._sells);
+
+            if (above === 0 && below === 0) {
+                this._oovLabel.style.display = 'none';
+                this._oovLabel.textContent = '';
+                this._oovLabel.title = '';
+                return;
+            }
+            const parts = [];
+            if (above > 0) parts.push(`▲${above}`);
+            if (below > 0) parts.push(`▼${below}`);
+            this._oovLabel.style.display = '';
+            this._oovLabel.textContent = `⚠ ${parts.join(' ')} order(s) out of view`;
+            this._oovLabel.title = `${above + below} of your working order(s) rest beyond the visible ±${Math.floor(MAX_ROWS / 2)}-tick window — zoom or scroll to see them.`;
         }
 
         _updatePosLabel() {

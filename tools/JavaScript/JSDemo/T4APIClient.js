@@ -524,6 +524,17 @@ class T4APIClient {
         // the whole batch before anything is sent, mirroring the atomic semantics.
         const submissions = rows.map((row, i) => {
             try {
+                // OCO rows carry independent legs and link via ORDER_LINK_OCO; flat /
+                // AOCO-bracket rows go through buildOrderSubmit. Either way the result
+                // is a plain OrderSubmit, so a batch can mix all three atomically.
+                if (row.isOco) {
+                    const { submission } = this.buildOcoSubmit(
+                        row.legs,
+                        row.accountId || this.selectedAccount,
+                        row.marketId || this.currentMarketId
+                    );
+                    return submission;
+                }
                 const { submission } = this.buildOrderSubmit({
                     accountId: row.accountId || this.selectedAccount,
                     marketId: row.marketId || this.currentMarketId,
@@ -559,26 +570,28 @@ class T4APIClient {
         return id;
     }
 
-    // Submit a true OCO (One-Cancels-Other): two or more independent, simultaneously
-    // working orders linked by ORDER_LINK_OCO. Whichever fills first cancels the rest.
-    // Unlike the AUTO_OCO brackets in submitOrder(), each leg carries its own real
-    // volume and is live immediately (no ACTIVATION_TYPE_HOLD / parent entry).
+    // Build a true-OCO OrderSubmit (One-Cancels-Other): two or more independent,
+    // simultaneously-working orders linked by ORDER_LINK_OCO. Whichever fills first
+    // cancels the rest. Unlike the AUTO_OCO brackets in buildOrderSubmit(), each leg
+    // carries its own real volume and is live immediately (no ACTIVATION_TYPE_HOLD /
+    // parent entry). account/market come from the caller so a batch can target
+    // multiple accounts/markets. Returns { submission } (same shape as buildOrderSubmit).
     //
     // legs: array of { side, priceType, price, volume }
     //   side:      'buy'|'sell' or 1/-1
     //   priceType: 'limit'|'market'|'stop'
     //   price:     absolute price (ignored for market legs)
     //   volume:    per-leg quantity
-    async submitOcoOrder(legs) {
-        if (!this.selectedAccount || !this.currentMarketId) {
+    buildOcoSubmit(legs, accountId, marketId) {
+        if (!accountId || !marketId) {
             throw new Error('No account or market selected');
         }
         if (!Array.isArray(legs) || legs.length < 2) {
             throw new Error('OCO requires at least two legs');
         }
 
-        const orders = legs.map(leg => {
-            // Convert string price type to enum value (same mapping as submitOrder).
+        const orders = legs.map((leg, i) => {
+            // Convert string price type to enum value (same mapping as buildOrderSubmit).
             const ptLower = (typeof leg.priceType === 'string' ? leg.priceType : 'limit').toLowerCase();
             const priceTypeValue = ptLower === 'market'
                 ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET       // 0
@@ -586,7 +599,19 @@ class T4APIClient {
                     ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
                     : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;       // 1
 
-            // Convert buy/sell string or number to enum value (same as submitOrder).
+            // Validate before building: an unvalidated leg would otherwise send a
+            // "NaN" price/volume string to the server. Limit/stop legs need a price;
+            // market legs don't. Every leg needs a positive integer volume.
+            const volume = Number(leg.volume);
+            if (!Number.isFinite(volume) || volume < 1) {
+                throw new Error(`Leg ${i + 1}: volume must be a positive integer`);
+            }
+            const needsPrice = priceTypeValue !== T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET;
+            if (needsPrice && !Number.isFinite(Number(leg.price))) {
+                throw new Error(`Leg ${i + 1}: ${ptLower} leg needs a price`);
+            }
+
+            // Convert buy/sell string or number to enum value (same as buildOrderSubmit).
             const buySellValue = typeof leg.side === 'string'
                 ? (leg.side.toLowerCase() === 'buy'
                     ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY    // 1
@@ -599,33 +624,42 @@ class T4APIClient {
                 buySell: buySellValue,
                 priceType: priceTypeValue,
                 timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
-                volume: leg.volume,
+                volume: volume,
                 // Limit/stop price set only when the order type requires it.
                 limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
-                    ? { value: leg.price.toString() }
+                    ? { value: Number(leg.price).toString() }
                     : null,
                 stopPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET
-                    ? { value: leg.price.toString() }
+                    ? { value: Number(leg.price).toString() }
                     : null,
                 // No activationType: both legs are live working orders immediately.
             };
         });
 
-        const orderSubmit = {
-            orderSubmit: {
-                accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
-                orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_OCO, // 1
-                manualOrderIndicator: true,
-                orders: orders
-            }
+        const submission = {
+            accountId,
+            marketId,
+            orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_OCO, // 1
+            manualOrderIndicator: true,
+            orders: orders
         };
 
-        await this.sendMessage(orderSubmit);
+        return { submission };
+    }
+
+    // Build + send a single true-OCO submission for the selected account/market.
+    // Shared build logic lives in buildOcoSubmit (also used by submitBatch).
+    async submitOcoOrder(legs) {
+        if (!this.selectedAccount || !this.currentMarketId) {
+            throw new Error('No account or market selected');
+        }
+
+        const { submission } = this.buildOcoSubmit(legs, this.selectedAccount, this.currentMarketId);
+        await this.sendMessage({ orderSubmit: submission });
 
         this.log(`OCO order submitted: ${legs.length} legs (one-cancels-other)`, 'info');
         legs.forEach((leg, i) => {
-            const sideText = orders[i].buySell === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+            const sideText = submission.orders[i].buySell === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
             const ptLower = (typeof leg.priceType === 'string' ? leg.priceType : 'limit').toLowerCase();
             const priceText = ptLower === 'market' ? 'Market' : leg.price;
             this.log(`  Leg ${i + 1}: ${sideText} ${leg.volume} @ ${priceText} (${ptLower})`, 'info');
@@ -637,10 +671,19 @@ class T4APIClient {
             throw new Error('No account selected');
         }
 
+        // Use the order's own market (falling back to the current market) so a cancel
+        // still works after a mid-session market switch — orders carry marketId (see
+        // handleOrderUpdate). Sending a null marketId makes the server silently reject.
+        const order = this.orders.get(orderId);
+        const marketId = order?.marketId || this.currentMarketId;
+        if (!marketId) {
+            throw new Error('No market selected');
+        }
+
         const orderPull = {
             orderPull: {
                 accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
+                marketId: marketId,
                 manualOrderIndicator: true,
                 pulls: [{
                     uniqueId: orderId
@@ -656,6 +699,15 @@ class T4APIClient {
 async reviseOrder(orderId, volume, price, priceType = 'limit') {
     if (!this.selectedAccount) {
         throw new Error('No account selected');
+    }
+
+    // Source-of-truth guard for every caller (dialog + chart-drag revise): a non-finite
+    // volume/price would otherwise be sent as "NaN" (Number(NaN).toFixed() === "NaN").
+    if (!Number.isFinite(Number(volume)) || Number(volume) < 1) {
+        throw new Error('Revise: volume must be a positive integer');
+    }
+    if (!Number.isFinite(Number(price))) {
+        throw new Error('Revise: price must be a number');
     }
 
     const isStop = priceType === 'stop';
@@ -698,6 +750,9 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     async flattenPosition(accountId, marketId, netPosition) {
         if (!accountId) {
             throw new Error('No account specified for flatten');
+        }
+        if (!marketId) {
+            throw new Error('No market specified for flatten');
         }
 
         if (netPosition === 0) {
@@ -1118,7 +1173,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         // Fan the full book out to the chart heatmap (if wired). Defensive: a
         // throwing consumer must not break depth processing for the panel.
         if (this.onDepth) {
-            try { this.onDepth(depth); } catch (err) { this.log(`onDepth handler threw: ${err?.message || err}`, 'error'); }
+            try { this.onDepth(depth); } catch (err) { this.log(`onDepth handler threw: ${err?.stack || err?.message || err}`, 'error'); }
         }
 
         const marketDetails = this.getMarketDetails(depth.marketId);

@@ -120,6 +120,16 @@
     border-radius: 3px;
     cursor: pointer;
 }
+.dom-ladder-oov {
+    font-size: 10px;
+    padding: 1px 5px;
+    background: #4a3b1f;
+    color: #f0d38a;
+    border: 1px solid #c79a3a;
+    border-radius: 3px;
+    white-space: nowrap;
+    cursor: default;
+}
 .dom-ladder-cols,
 .dl-row {
     display: grid;
