@@ -206,11 +206,12 @@
         <p class="batch-hint">
             Stage orders from the form above (Side / Type / Volume / Price); set a
             Take Profit / Stop Loss there first to stage an <strong>AOCO bracket</strong>
-            (parent + offspring) row. Edit Side / Type / Vol / Price directly in the
-            table (brackets are read-only — remove and re-stage to change them), then
-            submit as one <strong>atomic</strong> batch — if any order fails validation,
-            none are sent. Switch account and/or contract between adds to build a
-            multi-account batch.
+            (parent + offspring) row, or select Type = <strong>OCO</strong> to stage a
+            true one-cancels-other row (two independent legs). Edit Side / Type / Vol /
+            Price directly in the table (bracket and OCO rows are read-only — remove and
+            re-stage to change them), then submit as one <strong>atomic</strong> batch —
+            if any order fails validation, none are sent. Switch account and/or contract
+            between adds to build a multi-account batch.
         </p>
         <div class="form-group submit-btn-container">
             <button id="addToBatchBtn" class="submit-order-btn">Add Current Order to Batch</button>
@@ -1313,17 +1314,24 @@
             });
         });
 
+        // Read the two OCO legs off the form. Shared by submitOrder (single send) and
+        // addToBatch (staging), so both build identical leg specs. Validation lives in
+        // client.buildOcoSubmit — this only snapshots the fields.
+        function readOcoLegsFromForm() {
+            const buildLeg = (n) => ({
+                side: parseInt(elements[`ocoLeg${n}Side`].value),
+                priceType: elements[`ocoLeg${n}Type`].value,
+                volume: parseInt(elements[`ocoLeg${n}Volume`].value),
+                price: parseFloat(elements[`ocoLeg${n}Price`].value),
+            });
+            return [buildLeg(1), buildLeg(2)];
+        }
+
         async function submitOrder() {
             try {
                 // OCO mode: build two independent legs and submit as one-cancels-other.
                 if (elements.orderType.value === 'oco') {
-                    const buildLeg = (n) => ({
-                        side: parseInt(elements[`ocoLeg${n}Side`].value),
-                        priceType: elements[`ocoLeg${n}Type`].value,
-                        volume: parseInt(elements[`ocoLeg${n}Volume`].value),
-                        price: parseFloat(elements[`ocoLeg${n}Price`].value),
-                    });
-                    await client.submitOcoOrder([buildLeg(1), buildLeg(2)]);
+                    await client.submitOcoOrder(readOcoLegsFromForm());
                     return;
                 }
 
@@ -1331,6 +1339,17 @@
                 const volume = parseInt(elements.orderVolume.value);
                 const priceType = elements.orderType.value; // 'limit' or 'market'
                 const price = parseFloat(elements.orderPrice.value);
+
+                // Guard before sending: a cleared field parses to NaN, which would reach
+                // buildOrderSubmit and serialize as a "NaN" volume/price string.
+                if (!Number.isFinite(volume) || volume < 1) {
+                    log('Order: volume must be a positive integer.', 'error');
+                    return;
+                }
+                if (priceType !== 'market' && !Number.isFinite(price)) {
+                    log('Order: enter a valid price for a limit order.', 'error');
+                    return;
+                }
 
                 // Get bracket mode
                 const bracketMode = document.querySelector('input[name="bracketMode"]:checked').value;
@@ -1384,11 +1403,34 @@
                 const tr = document.createElement('tr');
                 if (row.error) { tr.classList.add('batch-row-error'); tr.title = row.error; }
 
-                const isMarket = row.priceType === 'market';
-
                 tr.appendChild(textCell(i + 1));
                 tr.appendChild(textCell(accountLabel(row.accountId), row.accountId));
                 tr.appendChild(textCell(row.marketId));
+
+                // OCO rows are read-only (two legs don't map onto the single-order
+                // Side/Type/Vol/Price cells): show a summary spanning those columns +
+                // the Bracket column, then the Remove button. Remove and re-stage to edit.
+                if (row.isOco) {
+                    const summary = ocoSummary(row);
+                    const legCell = document.createElement('td');
+                    legCell.colSpan = 5; // Side, Type, Vol, Price, Bracket
+                    legCell.textContent = summary;
+                    legCell.title = summary;
+                    tr.appendChild(legCell);
+
+                    const removeCellOco = document.createElement('td');
+                    const removeBtnOco = document.createElement('button');
+                    removeBtnOco.className = 'batch-remove-btn';
+                    removeBtnOco.dataset.index = i;
+                    removeBtnOco.textContent = '✕';
+                    removeCellOco.appendChild(removeBtnOco);
+                    tr.appendChild(removeCellOco);
+
+                    elements.batchTable.appendChild(tr);
+                    return;
+                }
+
+                const isMarket = row.priceType === 'market';
 
                 // Side: Buy (1) / Sell (-1)
                 tr.appendChild(controlCell(buildSelect(i, 'side', String(row.side), [
@@ -1455,6 +1497,16 @@
             const mode = row.bracketMode === 'price' ? 'price' : '$';
             return `${parts.join(' / ')} · ${mode}`;
         }
+        // One-line summary of a staged true-OCO row (independent legs, one-cancels-other)
+        // for the read-only OCO batch row, e.g. "OCO: BUY 1 limit @ 4200 / SELL 1 stop @ 4180".
+        function ocoSummary(row) {
+            const legText = (row.legs || []).map(l => {
+                const side = l.side === 1 ? 'BUY' : 'SELL';
+                const price = l.priceType === 'market' ? 'Market' : l.price;
+                return `${side} ${l.volume} ${l.priceType} @ ${price}`;
+            }).join(' / ');
+            return `OCO: ${legText}`;
+        }
         function textCell(text, title) {
             const td = document.createElement('td');
             td.textContent = text;
@@ -1486,6 +1538,30 @@
                 log('Select an account and market before staging a batch order.', 'error');
                 return;
             }
+
+            // OCO: stage two independent legs as one read-only row (linked ORDER_LINK_OCO
+            // at submit). Account/market are snapshotted like flat rows so an OCO row can
+            // join a multi-account batch. Light client check here; buildOcoSubmit validates.
+            if (elements.orderType.value === 'oco') {
+                const legs = readOcoLegsFromForm();
+                const bad = legs.findIndex(l =>
+                    !Number.isFinite(l.volume) || l.volume < 1 ||
+                    (l.priceType !== 'market' && !Number.isFinite(l.price)));
+                if (bad !== -1) {
+                    log(`Batch: OCO leg ${bad + 1} needs a positive volume and (for limit/stop) a price.`, 'error');
+                    return;
+                }
+                batchRows.push({
+                    isOco: true,
+                    accountId: client.selectedAccount,
+                    marketId: client.currentMarketId,
+                    legs,
+                });
+                renderBatch();
+                log(`Batch: staged ${ocoSummary(batchRows[batchRows.length - 1])} on ${client.currentMarketId} (${batchRows.length} staged)`, 'info');
+                return;
+            }
+
             const side = parseInt(elements.orderSide.value);
             const volume = parseInt(elements.orderVolume.value);
             const priceType = elements.orderType.value; // 'limit' or 'market'
@@ -1556,6 +1632,18 @@
             // same row.error mechanism the server reject path uses.
             let invalid = false;
             batchRows.forEach(r => {
+                if (r.isOco) {
+                    // OCO rows are read-only, so bad values can only come from staging —
+                    // re-check each leg (volume >= 1; limit/stop leg needs a price).
+                    const bad = (r.legs || []).findIndex(l =>
+                        !Number.isFinite(l.volume) || l.volume < 1 ||
+                        (l.priceType !== 'market' && !Number.isFinite(l.price)));
+                    if ((r.legs || []).length < 2 || bad !== -1) {
+                        r.error = bad !== -1 ? `OCO leg ${bad + 1} is invalid` : 'OCO needs two legs';
+                        invalid = true;
+                    }
+                    return;
+                }
                 const badVol = !Number.isFinite(r.volume) || r.volume < 1;
                 const badPrice = r.priceType !== 'market' && !Number.isFinite(r.price);
                 if (badVol || badPrice) {

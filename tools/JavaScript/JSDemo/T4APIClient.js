@@ -315,12 +315,25 @@ class T4APIClient {
         // Determine if we need OCO order linking
         const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
 
-        // Use AUTO_OCO for dollar-distance mode, AUTO_OCO_P for absolute price mode
+        // We know the entry price for a limit or stop entry, so we can express the
+        // bracket as absolute child prices — held orders then show the real price
+        // instead of a raw offset. Market entries have no price until fill, so they
+        // keep AUTO_OCO offset semantics (offset shows only until the immediate fill).
+        const entryPriceKnown =
+            (priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
+             || priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET)
+            && Number.isFinite(Number(price));
+
+        // Child prices are absolute when the user typed absolute prices ('price' mode)
+        // or when we can derive them from a known entry (offset mode + known entry).
+        const useAbsoluteBracket = bracketMode === 'price' || entryPriceKnown;
+
+        // AUTO_OCO_P carries absolute child prices; AUTO_OCO carries raw offsets.
         const orderLinkValue = hasBracketOrders
-            ? (bracketMode === 'price'
-                ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO_P  // 3
-                : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)   // 2
-            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;           // 0
+            ? (useAbsoluteBracket
+                ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO_P
+                : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)
+            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;
 
         // Create orders array with main order first
         const orders = [{
@@ -349,11 +362,9 @@ class T4APIClient {
             ? marketDetails.decimals
             : marketDetails.realDecimals;
 
-        // Contract specs for dollar-mode bracket math. pointValue is dollars per
-        // 1.0 price point (e.g. ES = $50); tickSize is the minimum price increment
-        // (e.g. ES = 0.25). Same metadata DragOrder reads for its risk/reward badges.
+        // tickSize is the minimum price increment (e.g. ES = 0.25). Used only to
+        // snap the offset-mode bracket distance onto a tradable price grid.
         const tickSize = Number(marketDetails.minPriceIncrement?.value);
-        const pointValue = Number(marketDetails.pointValue?.value);
 
         // Snap a price offset to the nearest valid tick so the bracket lands on a
         // tradable price. No-op when tick size is unknown.
@@ -370,21 +381,17 @@ class T4APIClient {
             if (bracketMode === 'price') {
                 // AOCO_P mode: user provides absolute price directly
                 takeProfitLimitPrice = takeProfitDollars; // In price mode, the value IS the absolute price
-            } else if (!Number.isFinite(pointValue) || pointValue <= 0) {
-                this.log(`Skipping take profit: missing/invalid point value for market ${marketId}`, 'error');
-                takeProfitLimitPrice = null;
             } else {
-                // Dollar mode: convert the dollar amount to a price distance from the
-                // fill — offset = |dollars| / (qty * pointValue) — then snap to tick.
-                let takeProfitPoints = snapToTick(Math.abs(takeProfitDollars / volume) / pointValue);
+                // Offset mode: the entered value is a price distance off the entry
+                // (e.g. 100 = 100 price units away). Buy: TP above (+); Sell: TP below (−).
+                let off = snapToTick(Math.abs(takeProfitDollars));
+                off = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? off : -off;
 
-                // Buy main order: TP is above fill (add), Sell main order: TP is below fill (subtract)
-                takeProfitPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
-                    ? takeProfitPoints
-                    : -takeProfitPoints;
-
-                // AOCO uses distance in price
-                takeProfitLimitPrice = takeProfitPoints;
+                // Known entry -> absolute price (held order shows the real price via
+                // AUTO_OCO_P). Market entry -> raw offset (AUTO_OCO applies it at fill).
+                takeProfitLimitPrice = entryPriceKnown
+                    ? snapToTick(Number(price) + off)
+                    : off;
             }
 
             if (takeProfitLimitPrice !== null) {
@@ -407,28 +414,21 @@ class T4APIClient {
             if (bracketMode === 'price') {
                 // AOCO_P mode: user provides absolute price directly
                 stopLossStopPrice = stopLossDollars; // In price mode, the value IS the absolute price
-            } else if (!Number.isFinite(pointValue) || pointValue <= 0) {
-                this.log(`Skipping stop loss: missing/invalid point value for market ${marketId}`, 'error');
-                stopLossStopPrice = null;
             } else {
-                // Dollar mode: convert the dollar amount to a price distance from the
-                // fill — offset = |dollars| / (qty * pointValue) — then snap to tick.
-                let stopLossPoints = snapToTick(Math.abs(stopLossDollars / volume) / pointValue);
+                // Offset mode: price distance off the entry. Buy: SL below (−); Sell: SL above (+).
+                let off = snapToTick(Math.abs(stopLossDollars));
+                off = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? -off : off;
 
-                // Buy main order: SL is below fill (-), Sell main order: SL is above fill (+)
-                stopLossPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
-                    ? - stopLossPoints
-                    : + stopLossPoints;
-
-                // AOCO uses distance in price
-                stopLossStopPrice = stopLossPoints;
+                // Known entry -> absolute price (held order shows the real price via
+                // AUTO_OCO_P). Market entry -> raw offset (AUTO_OCO applies it at fill).
+                stopLossStopPrice = entryPriceKnown
+                    ? snapToTick(Number(price) + off)
+                    : off;
             }
 
-            if (stopLossStopPrice === null) {
-                // skip: invalid point value already logged
-            } else if (trailingStop) {
-                const trailDistance = bracketMode === 'price'
-                    ? Math.abs(price - stopLossStopPrice).toFixed(priceDecimals)
+            if (trailingStop) {
+                const trailDistance = useAbsoluteBracket
+                    ? Math.abs(Number(price) - stopLossStopPrice).toFixed(priceDecimals)
                     : Math.abs(stopLossStopPrice).toFixed(priceDecimals);
 
                 orders.push({
@@ -524,6 +524,17 @@ class T4APIClient {
         // the whole batch before anything is sent, mirroring the atomic semantics.
         const submissions = rows.map((row, i) => {
             try {
+                // OCO rows carry independent legs and link via ORDER_LINK_OCO; flat /
+                // AOCO-bracket rows go through buildOrderSubmit. Either way the result
+                // is a plain OrderSubmit, so a batch can mix all three atomically.
+                if (row.isOco) {
+                    const { submission } = this.buildOcoSubmit(
+                        row.legs,
+                        row.accountId || this.selectedAccount,
+                        row.marketId || this.currentMarketId
+                    );
+                    return submission;
+                }
                 const { submission } = this.buildOrderSubmit({
                     accountId: row.accountId || this.selectedAccount,
                     marketId: row.marketId || this.currentMarketId,
@@ -560,26 +571,28 @@ class T4APIClient {
         return id;
     }
 
-    // Submit a true OCO (One-Cancels-Other): two or more independent, simultaneously
-    // working orders linked by ORDER_LINK_OCO. Whichever fills first cancels the rest.
-    // Unlike the AUTO_OCO brackets in submitOrder(), each leg carries its own real
-    // volume and is live immediately (no ACTIVATION_TYPE_HOLD / parent entry).
+    // Build a true-OCO OrderSubmit (One-Cancels-Other): two or more independent,
+    // simultaneously-working orders linked by ORDER_LINK_OCO. Whichever fills first
+    // cancels the rest. Unlike the AUTO_OCO brackets in buildOrderSubmit(), each leg
+    // carries its own real volume and is live immediately (no ACTIVATION_TYPE_HOLD /
+    // parent entry). account/market come from the caller so a batch can target
+    // multiple accounts/markets. Returns { submission } (same shape as buildOrderSubmit).
     //
     // legs: array of { side, priceType, price, volume }
     //   side:      'buy'|'sell' or 1/-1
     //   priceType: 'limit'|'market'|'stop'
     //   price:     absolute price (ignored for market legs)
     //   volume:    per-leg quantity
-    async submitOcoOrder(legs) {
-        if (!this.selectedAccount || !this.currentMarketId) {
+    buildOcoSubmit(legs, accountId, marketId) {
+        if (!accountId || !marketId) {
             throw new Error('No account or market selected');
         }
         if (!Array.isArray(legs) || legs.length < 2) {
             throw new Error('OCO requires at least two legs');
         }
 
-        const orders = legs.map(leg => {
-            // Convert string price type to enum value (same mapping as submitOrder).
+        const orders = legs.map((leg, i) => {
+            // Convert string price type to enum value (same mapping as buildOrderSubmit).
             const ptLower = (typeof leg.priceType === 'string' ? leg.priceType : 'limit').toLowerCase();
             const priceTypeValue = ptLower === 'market'
                 ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET       // 0
@@ -587,7 +600,19 @@ class T4APIClient {
                     ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
                     : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;       // 1
 
-            // Convert buy/sell string or number to enum value (same as submitOrder).
+            // Validate before building: an unvalidated leg would otherwise send a
+            // "NaN" price/volume string to the server. Limit/stop legs need a price;
+            // market legs don't. Every leg needs a positive integer volume.
+            const volume = Number(leg.volume);
+            if (!Number.isFinite(volume) || volume < 1) {
+                throw new Error(`Leg ${i + 1}: volume must be a positive integer`);
+            }
+            const needsPrice = priceTypeValue !== T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET;
+            if (needsPrice && !Number.isFinite(Number(leg.price))) {
+                throw new Error(`Leg ${i + 1}: ${ptLower} leg needs a price`);
+            }
+
+            // Convert buy/sell string or number to enum value (same as buildOrderSubmit).
             const buySellValue = typeof leg.side === 'string'
                 ? (leg.side.toLowerCase() === 'buy'
                     ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY    // 1
@@ -600,33 +625,42 @@ class T4APIClient {
                 buySell: buySellValue,
                 priceType: priceTypeValue,
                 timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
-                volume: leg.volume,
+                volume: volume,
                 // Limit/stop price set only when the order type requires it.
                 limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
-                    ? { value: leg.price.toString() }
+                    ? { value: Number(leg.price).toString() }
                     : null,
                 stopPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET
-                    ? { value: leg.price.toString() }
+                    ? { value: Number(leg.price).toString() }
                     : null,
                 // No activationType: both legs are live working orders immediately.
             };
         });
 
-        const orderSubmit = {
-            orderSubmit: {
-                accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
-                orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_OCO, // 1
-                manualOrderIndicator: true,
-                orders: orders
-            }
+        const submission = {
+            accountId,
+            marketId,
+            orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_OCO, // 1
+            manualOrderIndicator: true,
+            orders: orders
         };
 
-        await this.sendMessage(orderSubmit);
+        return { submission };
+    }
+
+    // Build + send a single true-OCO submission for the selected account/market.
+    // Shared build logic lives in buildOcoSubmit (also used by submitBatch).
+    async submitOcoOrder(legs) {
+        if (!this.selectedAccount || !this.currentMarketId) {
+            throw new Error('No account or market selected');
+        }
+
+        const { submission } = this.buildOcoSubmit(legs, this.selectedAccount, this.currentMarketId);
+        await this.sendMessage({ orderSubmit: submission });
 
         this.log(`OCO order submitted: ${legs.length} legs (one-cancels-other)`, 'info');
         legs.forEach((leg, i) => {
-            const sideText = orders[i].buySell === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+            const sideText = submission.orders[i].buySell === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
             const ptLower = (typeof leg.priceType === 'string' ? leg.priceType : 'limit').toLowerCase();
             const priceText = ptLower === 'market' ? 'Market' : leg.price;
             this.log(`  Leg ${i + 1}: ${sideText} ${leg.volume} @ ${priceText} (${ptLower})`, 'info');
@@ -638,10 +672,19 @@ class T4APIClient {
             throw new Error('No account selected');
         }
 
+        // Use the order's own market (falling back to the current market) so a cancel
+        // still works after a mid-session market switch — orders carry marketId (see
+        // handleOrderUpdate). Sending a null marketId makes the server silently reject.
+        const order = this.orders.get(orderId);
+        const marketId = order?.marketId || this.currentMarketId;
+        if (!marketId) {
+            throw new Error('No market selected');
+        }
+
         const orderPull = {
             orderPull: {
                 accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
+                marketId: marketId,
                 manualOrderIndicator: true,
                 pulls: [{
                     uniqueId: orderId
@@ -657,6 +700,15 @@ class T4APIClient {
 async reviseOrder(orderId, volume, price, priceType = 'limit') {
     if (!this.selectedAccount) {
         throw new Error('No account selected');
+    }
+
+    // Source-of-truth guard for every caller (dialog + chart-drag revise): a non-finite
+    // volume/price would otherwise be sent as "NaN" (Number(NaN).toFixed() === "NaN").
+    if (!Number.isFinite(Number(volume)) || Number(volume) < 1) {
+        throw new Error('Revise: volume must be a positive integer');
+    }
+    if (!Number.isFinite(Number(price))) {
+        throw new Error('Revise: price must be a number');
     }
 
     const isStop = priceType === 'stop';
@@ -699,6 +751,9 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     async flattenPosition(accountId, marketId, netPosition) {
         if (!accountId) {
             throw new Error('No account specified for flatten');
+        }
+        if (!marketId) {
+            throw new Error('No market specified for flatten');
         }
 
         if (netPosition === 0) {
@@ -1119,7 +1174,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         // Fan the full book out to the chart heatmap (if wired). Defensive: a
         // throwing consumer must not break depth processing for the panel.
         if (this.onDepth) {
-            try { this.onDepth(depth); } catch (err) { this.log(`onDepth handler threw: ${err?.message || err}`, 'error'); }
+            try { this.onDepth(depth); } catch (err) { this.log(`onDepth handler threw: ${err?.stack || err?.message || err}`, 'error'); }
         }
 
         const marketDetails = this.getMarketDetails(depth.marketId);
