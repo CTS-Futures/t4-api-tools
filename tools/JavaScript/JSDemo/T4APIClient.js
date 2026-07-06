@@ -461,12 +461,12 @@ class T4APIClient {
         this.log(`Order submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType}, Bracket: ${bracketMode})`, 'info');
 
         if (takeProfitDollars !== null) {
-            const tpLabel = bracketMode === 'price' ? `Price ${takeProfitDollars}` : `Distance ${takeProfitDollars}`;
+            const tpLabel = bracketMode === 'price' ? `Price ${takeProfitDollars}` : `Dollar Distance ${takeProfitDollars}`;
             this.log(`Take profit: ${tpLabel} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (stopLossDollars !== null) {
-            const slLabel = bracketMode === 'price' ? `Price ${stopLossDollars}` : `Distance ${stopLossDollars}`;
+            const slLabel = bracketMode === 'price' ? `Price ${stopLossDollars}` : `Dollar Distance ${stopLossDollars}`;
             this.log(`Stop loss: ${slLabel}${trailingStop ? ' (Trailing)' : ''} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 

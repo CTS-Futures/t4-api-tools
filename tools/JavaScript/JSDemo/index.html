@@ -147,11 +147,11 @@
                 </div>
             </div>
             <div class="form-group">
-                <label for="takeProfitPrice" id="takeProfitLabel">Take Profit (Distance):</label>
+                <label for="takeProfitPrice" id="takeProfitLabel">Take Profit (Distance in Dollars):</label>
                 <input type="number" id="takeProfitPrice" step="0.01" placeholder="Optional">
             </div>
             <div class="form-group">
-                <label for="stopLossPrice" id="stopLossLabel">Stop Loss (Distance):</label>
+                <label for="stopLossPrice" id="stopLossLabel">Stop Loss (Distance in Dollars):</label>
                 <input type="number" id="stopLossPrice" step="0.01" placeholder="Optional">
                 <div class="trailing-toggle">
                     <input type="checkbox" id="trailingStopToggle">
@@ -1293,12 +1293,12 @@
                 const slInput = document.getElementById('stopLossPrice');
 
                 if (mode === 'dollars') {
-                    tpLabel.textContent = 'Take Profit (Distance):';
-                    slLabel.textContent = 'Stop Loss (Distance):';
+                    tpLabel.textContent = 'Take Profit (Distance in Dollars):';
+                    slLabel.textContent = 'Stop Loss (Distance in Dollars):';
                     tpInput.step = '0.01';
                     slInput.step = '0.01';
-                    tpInput.placeholder = 'Price distance';
-                    slInput.placeholder = 'Price distance';
+                    tpInput.placeholder = 'Dollar distance';
+                    slInput.placeholder = 'Dollar distance';
                 } else {
                     tpLabel.textContent = 'Take Profit (Price):';
                     slLabel.textContent = 'Stop Loss (Price):';
