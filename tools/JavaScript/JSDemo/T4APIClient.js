@@ -362,10 +362,11 @@ class T4APIClient {
                 // AOCO_P mode: user provides absolute price directly
                 takeProfitLimitPrice = takeProfitDollars; // In price mode, the value IS the absolute price
             } else {
-                // Offset mode: the entered value IS a price distance off the fill.
-                // AUTO_OCO applies it at fill. Buy: TP above (+); Sell: TP below (−).
-                const dist = Math.abs(takeProfitDollars);
-                takeProfitLimitPrice = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? dist : -dist;
+                // Dollars mode: convert the $ P&L into a price offset off the fill —
+                // (|$|/volume)/pointValue/(10**decimals) — then sign per side.
+                // AUTO_OCO applies the offset at fill. Buy: TP above (+); Sell: TP below (−).
+                let tpOffset = (Math.abs(takeProfitDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+                takeProfitLimitPrice = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? tpOffset : -tpOffset;
             }
 
             orders.push({
@@ -387,10 +388,11 @@ class T4APIClient {
                 // AOCO_P mode: user provides absolute price directly
                 stopLossStopPrice = stopLossDollars; // In price mode, the value IS the absolute price
             } else {
-                // Offset mode: the entered value IS a price distance off the fill.
+                // Dollars mode: convert the $ P&L into a price offset off the fill —
+                // (|$|/volume)/pointValue/(10**decimals) — then sign per side.
                 // Buy: SL below (−); Sell: SL above (+).
-                const dist = Math.abs(stopLossDollars);
-                stopLossStopPrice = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? -dist : dist;
+                let slOffset = (Math.abs(stopLossDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+                stopLossStopPrice = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? -slOffset : slOffset;
             }
 
             if (trailingStop) {
@@ -461,12 +463,12 @@ class T4APIClient {
         this.log(`Order submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType}, Bracket: ${bracketMode})`, 'info');
 
         if (takeProfitDollars !== null) {
-            const tpLabel = bracketMode === 'price' ? `Price ${takeProfitDollars}` : `Dollar Distance ${takeProfitDollars}`;
+            const tpLabel = bracketMode === 'price' ? `Price ${takeProfitDollars}` : `$${takeProfitDollars}`;
             this.log(`Take profit: ${tpLabel} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (stopLossDollars !== null) {
-            const slLabel = bracketMode === 'price' ? `Price ${stopLossDollars}` : `Dollar Distance ${stopLossDollars}`;
+            const slLabel = bracketMode === 'price' ? `Price ${stopLossDollars}` : `$${stopLossDollars}`;
             this.log(`Stop loss: ${slLabel}${trailingStop ? ' (Trailing)' : ''} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 

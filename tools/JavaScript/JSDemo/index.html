@@ -141,20 +141,18 @@
                 <label>Bracket Mode:</label>
                 <div class="bracket-toggle">
                     <input type="radio" name="bracketMode" id="bracketModeDollars" value="dollars" checked>
-                    <label for="bracketModeDollars">Distance</label>
-                    <input type="radio" name="bracketMode" id="bracketModeCalc" value="calculated">
-                    <label for="bracketModeCalc">Calculated Distance</label>
+                    <label for="bracketModeDollars">Dollars ($)</label>
                     <input type="radio" name="bracketMode" id="bracketModePrice" value="price">
                     <label for="bracketModePrice">Price (AOCO_P)</label>
                 </div>
             </div>
             <div class="form-group">
-                <label for="takeProfitPrice" id="takeProfitLabel">Take Profit (Distance in Dollars):</label>
-                <input type="number" id="takeProfitPrice" step="0.01" placeholder="Dollar distance">
+                <label for="takeProfitPrice" id="takeProfitLabel">Take Profit ($):</label>
+                <input type="number" id="takeProfitPrice" step="1" placeholder="Optional">
             </div>
             <div class="form-group">
-                <label for="stopLossPrice" id="stopLossLabel">Stop Loss (Distance in Dollars):</label>
-                <input type="number" id="stopLossPrice" step="0.01" placeholder="Dollar distance">
+                <label for="stopLossPrice" id="stopLossLabel">Stop Loss ($):</label>
+                <input type="number" id="stopLossPrice" step="1" placeholder="Optional">
                 <div class="trailing-toggle">
                     <input type="checkbox" id="trailingStopToggle">
                     <label for="trailingStopToggle">Trailing</label>
@@ -1295,39 +1293,26 @@
                 const slInput = document.getElementById('stopLossPrice');
 
                 if (mode === 'dollars') {
-                    tpLabel.textContent = 'Take Profit (Distance in Dollars):';
-                    slLabel.textContent = 'Stop Loss (Distance in Dollars):';
-                    tpInput.placeholder = 'Dollar distance';
-                    slInput.placeholder = 'Dollar distance';
-                } else if (mode === 'calculated') {
-                    tpLabel.textContent = 'Take Profit (Calculated Distance):';
-                    slLabel.textContent = 'Stop Loss (Calculated Distance):';
-                    tpInput.placeholder = 'Dollar P&L → price offset';
-                    slInput.placeholder = 'Dollar P&L → price offset';
+                    tpLabel.textContent = 'Take Profit ($):';
+                    slLabel.textContent = 'Stop Loss ($):';
+                    tpInput.step = '1';
+                    slInput.step = '1';
+                    tpInput.placeholder = 'Optional';
+                    slInput.placeholder = 'Optional';
                 } else {
                     tpLabel.textContent = 'Take Profit (Price):';
                     slLabel.textContent = 'Stop Loss (Price):';
+                    tpInput.step = '0.01';
+                    slInput.step = '0.01';
                     tpInput.placeholder = 'Absolute price';
                     slInput.placeholder = 'Absolute price';
                 }
 
-                tpInput.step = '0.01';
-                slInput.step = '0.01';
+                // Clear values on mode switch
                 tpInput.value = '';
                 slInput.value = '';
             });
         });
-
-        // Converts a dollar P&L amount to a price offset using market metadata.
-        // Formula matches C++/Python demos: price_distance = (dollars / pointValue) * minTick
-        function calcDollarToPrice(dollarAmt) {
-            const mId = client.currentMarketId;
-            const details = mId ? client.getMarketDetails?.(mId) : null;
-            const pointValue = Number(details?.pointValue?.value ?? details?.point_value?.value ?? 0);
-            const minTick    = Number(details?.minPriceIncrement?.value ?? 0);
-            if (!Number.isFinite(dollarAmt) || pointValue <= 0 || minTick <= 0) return null;
-            return (dollarAmt / pointValue) * minTick;
-        }
 
         // Read the two OCO legs off the form. Shared by submitOrder (single send) and
         // addToBatch (staging), so both build identical leg specs. Validation lives in
@@ -1374,23 +1359,15 @@
                 const stopLossElement = document.getElementById('stopLossPrice');
                 const trailingStopElement = document.getElementById('trailingStopToggle');
 
-                let takeProfit = takeProfitElement && takeProfitElement.value ? parseFloat(takeProfitElement.value) : null;
-                let stopLoss = stopLossElement && stopLossElement.value ? parseFloat(stopLossElement.value) : null;
                 const trailingStop = trailingStopElement ? trailingStopElement.checked : false;
 
-                // 'calculated' mode: convert dollar P&L → price offset via ($/pointValue)*minTick
-                const effectiveBracketMode = bracketMode === 'calculated' ? 'dollars' : bracketMode;
-                if (bracketMode === 'calculated') {
-                    takeProfit = takeProfit !== null ? calcDollarToPrice(takeProfit) : null;
-                    stopLoss   = stopLoss   !== null ? calcDollarToPrice(stopLoss)   : null;
-                    if ((takeProfitElement.value && takeProfit === null) ||
-                        (stopLossElement.value   && stopLoss   === null)) {
-                        log('Calculated Distance: market data (point value / tick size) not yet available.', 'error');
-                        return;
-                    }
-                }
+                // Both modes pass the raw typed value straight through; buildOrderSubmit
+                // does the conversion (dollars → signed AUTO_OCO offset) or takes the
+                // value as an absolute price (AOCO_P). Keeps a single source of truth.
+                const takeProfit = takeProfitElement && takeProfitElement.value ? parseFloat(takeProfitElement.value) : null;
+                const stopLoss   = stopLossElement   && stopLossElement.value   ? parseFloat(stopLossElement.value)   : null;
 
-                await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss, trailingStop, effectiveBracketMode);
+                await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss, trailingStop, bracketMode);
             } catch (error) {
                 log(`Order submission error: ${error.message}`, 'error');
             }
@@ -1623,21 +1600,13 @@
             const tpEl = document.getElementById('takeProfitPrice');
             const slEl = document.getElementById('stopLossPrice');
             const trailEl = document.getElementById('trailingStopToggle');
-            let takeProfitDollars = tpEl && tpEl.value ? parseFloat(tpEl.value) : null;
-            let stopLossDollars   = slEl && slEl.value ? parseFloat(slEl.value) : null;
-            const trailingStop    = trailEl ? trailEl.checked : false;
+            const trailingStop = trailEl ? trailEl.checked : false;
 
-            // 'calculated' mode: convert dollar P&L → price offset before staging
-            const effectiveBracketMode = bracketMode === 'calculated' ? 'dollars' : bracketMode;
-            if (bracketMode === 'calculated') {
-                takeProfitDollars = takeProfitDollars !== null ? calcDollarToPrice(takeProfitDollars) : null;
-                stopLossDollars   = stopLossDollars   !== null ? calcDollarToPrice(stopLossDollars)   : null;
-                if ((tpEl.value && takeProfitDollars === null) ||
-                    (slEl.value && stopLossDollars   === null)) {
-                    log('Calculated Distance: market data (point value / tick size) not yet available.', 'error');
-                    return;
-                }
-            }
+            // Stage the raw typed values; buildOrderSubmit converts them at submit time
+            // (dollars → signed AUTO_OCO offset, or absolute price for AOCO_P), so a
+            // staged row matches exactly what submitOrder would send.
+            const takeProfitDollars = tpEl && tpEl.value ? parseFloat(tpEl.value) : null;
+            const stopLossDollars   = slEl && slEl.value ? parseFloat(slEl.value) : null;
 
             batchRows.push({
                 accountId: client.selectedAccount,
@@ -1646,7 +1615,7 @@
                 ...(takeProfitDollars !== null ? { takeProfitDollars } : {}),
                 ...(stopLossDollars   !== null ? { stopLossDollars }   : {}),
                 ...(takeProfitDollars !== null || stopLossDollars !== null
-                    ? { trailingStop, bracketMode: effectiveBracketMode } : {}),
+                    ? { trailingStop, bracketMode } : {}),
             });
             renderBatch();
             const stagedPriceText = priceType === 'market' ? 'Market' : price;
