@@ -1359,9 +1359,13 @@
                 const stopLossElement = document.getElementById('stopLossPrice');
                 const trailingStopElement = document.getElementById('trailingStopToggle');
 
-                const takeProfit = takeProfitElement && takeProfitElement.value ? parseFloat(takeProfitElement.value) : null;
-                const stopLoss = stopLossElement && stopLossElement.value ? parseFloat(stopLossElement.value) : null;
                 const trailingStop = trailingStopElement ? trailingStopElement.checked : false;
+
+                // Both modes pass the raw typed value straight through; buildOrderSubmit
+                // does the conversion (dollars → signed AUTO_OCO offset) or takes the
+                // value as an absolute price (AOCO_P). Keeps a single source of truth.
+                const takeProfit = takeProfitElement && takeProfitElement.value ? parseFloat(takeProfitElement.value) : null;
+                const stopLoss   = stopLossElement   && stopLossElement.value   ? parseFloat(stopLossElement.value)   : null;
 
                 await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss, trailingStop, bracketMode);
             } catch (error) {
@@ -1494,7 +1498,7 @@
             const parts = [];
             if (hasTp) parts.push(`TP ${row.takeProfitDollars}`);
             if (hasSl) parts.push(`SL ${row.stopLossDollars}${row.trailingStop ? ' (trail)' : ''}`);
-            const mode = row.bracketMode === 'price' ? 'price' : '$';
+            const mode = row.bracketMode === 'price' ? 'price' : 'dist';
             return `${parts.join(' / ')} · ${mode}`;
         }
         // One-line summary of a staged true-OCO row (independent legs, one-cancels-other)
@@ -1596,9 +1600,13 @@
             const tpEl = document.getElementById('takeProfitPrice');
             const slEl = document.getElementById('stopLossPrice');
             const trailEl = document.getElementById('trailingStopToggle');
+            const trailingStop = trailEl ? trailEl.checked : false;
+
+            // Stage the raw typed values; buildOrderSubmit converts them at submit time
+            // (dollars → signed AUTO_OCO offset, or absolute price for AOCO_P), so a
+            // staged row matches exactly what submitOrder would send.
             const takeProfitDollars = tpEl && tpEl.value ? parseFloat(tpEl.value) : null;
             const stopLossDollars   = slEl && slEl.value ? parseFloat(slEl.value) : null;
-            const trailingStop      = trailEl ? trailEl.checked : false;
 
             batchRows.push({
                 accountId: client.selectedAccount,
