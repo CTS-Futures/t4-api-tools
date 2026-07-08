@@ -1,3 +1,6 @@
 config/config.yaml
 __pycache__/
 *.py[cod]
+
+# Runtime artifact: per-symbol chart drawings persisted by the chart window.
+config/chart_drawings.json

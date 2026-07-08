@@ -2,6 +2,7 @@ import asyncio
 import websockets
 import yaml
 import os
+import logging
 from T4APIClient import Client
 from t4_gui import T4_GUI
 import tkinter as tk
@@ -22,11 +23,17 @@ def load_config(path="config\\config.yaml"):
         return yaml.safe_load(file)
 
 async def main():
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(name)s %(levelname)s %(message)s")
     config = load_config()
     client = Client(config)
 
     root = tk.Tk()
-    app = T4_GUI(root, client)
+    loop = asyncio.get_running_loop()
+    # The chart is no longer launched at startup; it opens on demand via the
+    # "Chart" button (see t4_gui.T4_GUI.open_chart). The GUI needs the loop to
+    # schedule the chart window's async run() when that button is clicked.
+    app = T4_GUI(root, client, loop)
 
     async def tkinter_loop():
         while True:

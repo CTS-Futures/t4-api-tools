@@ -17,3 +17,32 @@ websocket:
 
   ##optional
   priceFormat: 2
+
+# Companion chart window (TradingView Lightweight Charts). All keys optional.
+chart:
+  enabled: true            # set false to disable the chart window
+  interval_seconds: 60     # default candle interval (15, 60, 300, 900)
+  initial_load_days: 2     # minimum days of history to load (floor)
+  target_bars: 500         # aim for ~this many bars per interval — the load
+                           # window scales with the interval so higher intervals
+                           # don't look truncated (e.g. 15m loads ~6 days, not 2)
+  max_load_days: 120       # ceiling on the scaled INITIAL window (avoids huge fetches)
+  # Infinite scroll-back: older bars load and prepend as you scroll left.
+  chunk_days: 1            # how many days of history to fetch per scroll-back step
+  scroll_buffer_days: 1    # prefetch older bars once fewer than ~this many DAYS of
+                           # bars remain off the left edge. Scales with the interval
+                           # (a 1-day look-ahead at every zoom; JSDemo parity), so
+                           # older bars are loaded before you scroll to them.
+  history_floor: "2000-01-01"  # stop paging older history at this date (ISO)
+  tz_offset_hours: 0       # shift historical bars if they appear time-offset
+                           # from live candles (exchange tz vs UTC calibration)
+
+# Portfolio Study viewer (walk-forward rotation backtest). Runs on the live T4
+# futures basket (ES/NQ/YM/RTY) over the From/To window; requires a T4 login.
+# All keys optional — they prefill the form.
+portfolio_study:
+  lookback_days: 550       # From defaults to today-lookback_days (To = today).
+                           # Needs > warmup(252)+retune(10) trading days (~13 mo);
+                           # 550 calendar days clears that comfortably.
+  start: ''                # explicit From (YYYY-MM-DD); blank = use lookback_days
+  end: ''                  # explicit To   (YYYY-MM-DD); blank = today

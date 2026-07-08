@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Regenerated study artifacts (charts + report) — reproduce via the run_*.py
+# scripts. Covers every output variant (output/, output_pairs/, output_portfolio/…).
+research/output*/
+
+# User-provided market data (not committed); keep the folder's README.
+research/data_csv/*.csv
