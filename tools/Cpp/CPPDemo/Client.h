@@ -1,31 +1,31 @@
 #ifndef CLIENT_H
 #define CLIENT_H
-#include "t4/v1/service.pb.h"
+#include <t4/v1/service.pb.h>
 using t4proto::v1::service::ClientMessage;
-#include "t4/v1/auth/auth.pb.h"
+#include <t4/v1/auth/auth.pb.h>
 using t4proto::v1::auth::LoginRequest;
 using t4proto::v1::auth::AuthenticationTokenRequest;
-#include "t4/v1/account/account.pb.h"
+#include <t4/v1/account/account.pb.h>
 using t4proto::v1::account::AccountSubscribe;
 
-#include "t4/v1/common/enums.pb.h"
+#include <t4/v1/common/enums.pb.h>
 using t4proto::v1::common::AccountSubscribeType_descriptor;
 using t4proto::v1::common::BuySell;
 using t4proto::v1::common::OrderLink;
 using t4proto::v1::common::TimeType;
 using t4proto::v1::common::ActivationType;
 
-#include "t4/v1/market/market.pb.h"
+#include <t4/v1/market/market.pb.h>
 using t4proto::v1::market::MarketDepthSubscribe;
 
-#include "t4/v1/orderrouting/orderrouting.pb.h"
+#include <t4/v1/orderrouting/orderrouting.pb.h>
 using t4proto::v1::orderrouting::OrderSubmit;
 using t4proto::v1::orderrouting::OrderSubmit_Order;
 using t4proto::v1::orderrouting::OrderPull_Pull;
 using t4proto::v1::orderrouting::OrderPull;
 using t4proto::v1::orderrouting::OrderRevise_Revise;
 using t4proto::v1::orderrouting::OrderRevise;
-#include "t4/v1/common/price.pb.h"
+#include <t4/v1/common/price.pb.h>
 using t4proto::v1::common::PriceType;
 using t4proto::v1::common::Price;
 #include <QObject> //signals and slots
@@ -39,6 +39,7 @@ using t4proto::v1::common::Price;
 #include <QUuid>
 #include <QTimer>
 #include <QEventLoop>
+#include <QDate>
 
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -46,6 +47,8 @@ using t4proto::v1::common::Price;
 #include <QUrlQuery>
 #include <QJsonDocument>
 #include <QDebug>
+#include <QSslError>
+#include "ChartTypes.h"
 //object called client inheriting from Qobject (required to use signals and slots))
 class Client : public QObject {
     Q_OBJECT
@@ -97,6 +100,12 @@ class Client : public QObject {
         QString getAuthToken();
         QVector<QJsonObject> handleSearch(const QString& text);
         QString getMarketId(const QString& exchangeId, const QString& contractId);
+        // Fetch + decode historical OHLC bars from the /chart/barchart endpoint.
+        void fetchChartData(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& barInterval, int barPeriod);
+        // Re-fetch the chart for the currently subscribed market at a given interval.
+        void refreshChart(const QString& barInterval, int barPeriod);
+        // Lazily page older history (stepping back past empty days to a floor).
+        void fetchOlderChart();
         /*ClientMessage createClientMessage(const std::map<std::string, google::protobuf::Message*>& message_dict);*/
     signals: // can emit signals to notify other parts of the application 
         void connected();
@@ -110,6 +119,12 @@ class Client : public QObject {
 		void updateMarketTable(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);
 		void ordersUpdated(QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders);
         void contractsUpdated();
+        // Chart: decoded historical bars, live trade ticks, and a market-changed nudge.
+        void chartBarsReceived(const QVector<Candle>& bars);
+        // Older history to prepend; noMore==true means the floor was reached.
+        void chartOlderBarsReceived(const QVector<Candle>& bars, bool noMore);
+        void chartTradeTick(double price, int volume, qint64 timeMs);
+        void marketSubscribed();
 
  //       void marketUpdated(const QString& exchangeId, const QString& contractId, const QString& marketId);
     public slots:
@@ -166,8 +181,26 @@ class Client : public QObject {
         std::function<void()> onMarketSwitch;
 
         // Orders and positions
-        
+
         QMap<QString, QJsonObject> positions;
+
+        // --- Chart history paging ------------------------------------------
+        // Decode a T4BinAggr barchart response body into candles. `source`
+        // labels the caller (e.g. "initial load") for the decoder heartbeat log.
+        QVector<Candle> decodeBars(const QByteArray& response, const QString& source) const;
+        // One async step of the older-history walk (recurses past empty days).
+        void fetchOlderChunk(int gen);
+
+        QNetworkAccessManager* chartNam = nullptr; // owns async older-history replies
+        int chartGen = 0;                          // bumped on every fresh load
+        QString chartExchangeId, chartContractId, chartMarketId, chartInterval;
+        int chartPeriod = 1;
+        int chartIntervalSeconds = 60;
+        QDate chartWindowStart;                    // oldest date boundary requested
+        QDate chartFloor;                          // stop paging past this date
+        bool chartLoadingOlder = false;
+        bool chartNoMore = false;
+        int chartOlderAttempt = 0;
 };
 
 #endif // CLIENT_H

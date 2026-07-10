@@ -15,7 +15,16 @@ MainWindow::MainWindow(QWidget* parent)
 	connect(client, &Client::accountsPositionsUpdated, this, &MainWindow::PositionTableUpdate);
     connect(client, &Client::ordersUpdated, this, &MainWindow::OrderTableUpdate);
 	connect(client, &Client::orderRevised, this, &MainWindow::onOrderRevised);
-    
+
+    // Chart wiring: historical bars replace the series, live ticks extend it,
+    // and a market change triggers a fresh load at the selected interval.
+    connect(client, &Client::chartBarsReceived, chart, &ChartWidget::setBars);
+    connect(client, &Client::chartTradeTick, chart, &ChartWidget::onTrade);
+    connect(client, &Client::marketSubscribed, this, &MainWindow::loadChartForCurrentInterval);
+    // Scroll-back paging: the chart asks for older bars, the client pages them in.
+    connect(chart, &ChartWidget::needOlderHistory, client, &Client::fetchOlderChart);
+    connect(client, &Client::chartOlderBarsReceived, chart, &ChartWidget::prependBars);
+
 
 }
 
@@ -222,9 +231,127 @@ void MainWindow::setupUi() {
     gridLayout->addWidget(positionsGroup, 1, 0);
     gridLayout->addWidget(ordersGroup, 1, 1);
 
-    // Combine all sections
+    // Combine all sections. The connection bar stays global at the top; the
+    // 2x2 trading grid and the chart live under a tab widget below it.
     mainLayout->addWidget(connectGroup);
-    mainLayout->addLayout(gridLayout);
+
+    QTabWidget* tabs = new QTabWidget();
+
+    // --- Trading tab: the existing 2x2 grid, unchanged --------------------
+    QWidget* tradingTab = new QWidget();
+    tradingTab->setLayout(gridLayout);
+    tabs->addTab(tradingTab, "Trading");
+
+    // --- Chart tab: interval selector + Refresh, then the candlestick view -
+    QWidget* chartTab = new QWidget();
+    QVBoxLayout* chartLayout = new QVBoxLayout(chartTab);
+
+    chart = new ChartWidget();
+
+    QHBoxLayout* chartControls = new QHBoxLayout();
+    QLabel* intervalLabel = new QLabel("Interval:");
+    intervalCombo = new QComboBox();
+    intervalCombo->addItem("30s", 30'000);
+    intervalCombo->addItem("1m", 60'000);
+    intervalCombo->addItem("5m", 300'000);
+    intervalCombo->addItem("15m", 900'000);
+    intervalCombo->addItem("1h", 3'600'000);
+    intervalCombo->addItem("4h", 14'400'000);
+    intervalCombo->addItem("1D", 86'400'000LL);
+    intervalCombo->addItem("1W", 604'800'000LL);
+    intervalCombo->setCurrentText("1m");
+
+    // Chart type selector (candles / bars / line / area / Heikin-Ashi).
+    QLabel* typeLabel = new QLabel("Type:");
+    QComboBox* typeCombo = new QComboBox();
+    typeCombo->addItem("Candles",     static_cast<int>(ChartType::Candles));
+    typeCombo->addItem("OHLC Bars",   static_cast<int>(ChartType::OhlcBars));
+    typeCombo->addItem("Line",        static_cast<int>(ChartType::Line));
+    typeCombo->addItem("Area",        static_cast<int>(ChartType::Area));
+    typeCombo->addItem("Heikin-Ashi", static_cast<int>(ChartType::HeikinAshi));
+
+    QCheckBox* volumeCheck = new QCheckBox("Volume");
+
+    // Indicators: a checkable menu of fixed-period presets.
+    QToolButton* indicatorBtn = new QToolButton();
+    indicatorBtn->setText("Indicators");
+    indicatorBtn->setPopupMode(QToolButton::InstantPopup);
+    QMenu* indicatorMenu = new QMenu(indicatorBtn);
+    const QVector<QPair<QString, IndicatorType>> indicatorPresets = {
+        {"SMA 20",           IndicatorType::SMA20},
+        {"SMA 50",           IndicatorType::SMA50},
+        {"EMA 20",           IndicatorType::EMA20},
+        {"VWAP",             IndicatorType::VWAP},
+        {"Bollinger (20,2)", IndicatorType::Bollinger},
+        {"RSI (14)",         IndicatorType::RSI},
+        {"MACD (12,26,9)",   IndicatorType::MACD},
+    };
+    for (const auto& preset : indicatorPresets) {
+        QAction* act = indicatorMenu->addAction(preset.first);
+        act->setCheckable(true);
+        const IndicatorType type = preset.second;
+        connect(act, &QAction::toggled, this,
+                [this, type](bool on) { chart->setIndicatorEnabled(type, on); });
+    }
+    indicatorBtn->setMenu(indicatorMenu);
+
+    // Tier 3: drawing tools, log scale, clear, snapshot.
+    QLabel* toolLabel = new QLabel("Tool:");
+    QComboBox* toolCombo = new QComboBox();
+    toolCombo->addItem("Cursor",          static_cast<int>(ToolMode::Cursor));
+    toolCombo->addItem("Trend Line",      static_cast<int>(ToolMode::TrendLine));
+    toolCombo->addItem("Horizontal Line", static_cast<int>(ToolMode::HorizontalLine));
+    toolCombo->addItem("Measure",         static_cast<int>(ToolMode::Measure));
+    QCheckBox* logCheck = new QCheckBox("Log");
+    QPushButton* clearBtn = new QPushButton("Clear");
+    QPushButton* snapshotBtn = new QPushButton("Save PNG");
+
+    QPushButton* zoomInBtn = new QPushButton("+");
+    QPushButton* zoomOutBtn = new QPushButton("-");
+    QPushButton* latestBtn = new QPushButton("Latest");
+    zoomInBtn->setFixedWidth(32);
+    zoomOutBtn->setFixedWidth(32);
+    chartControls->addWidget(intervalLabel);
+    chartControls->addWidget(intervalCombo);
+    chartControls->addWidget(typeLabel);
+    chartControls->addWidget(typeCombo);
+    chartControls->addWidget(volumeCheck);
+    chartControls->addWidget(indicatorBtn);
+    chartControls->addWidget(toolLabel);
+    chartControls->addWidget(toolCombo);
+    chartControls->addWidget(logCheck);
+    chartControls->addWidget(clearBtn);
+    chartControls->addWidget(snapshotBtn);
+    chartControls->addWidget(zoomOutBtn);
+    chartControls->addWidget(zoomInBtn);
+    chartControls->addWidget(latestBtn);
+    chartControls->addStretch();
+
+    chartLayout->addLayout(chartControls);
+    chartLayout->addWidget(chart, 1);
+    tabs->addTab(chartTab, "Chart");
+
+    // The chart updates live from the tick stream; changing the interval
+    // reloads history. Zoom/Latest/type/volume drive the view directly.
+    connect(intervalCombo, &QComboBox::currentTextChanged, this,
+            [this](const QString&) { loadChartForCurrentInterval(); });
+    connect(typeCombo, &QComboBox::currentIndexChanged, this,
+            [this, typeCombo](int) {
+                chart->setChartType(static_cast<ChartType>(typeCombo->currentData().toInt()));
+            });
+    connect(volumeCheck, &QCheckBox::toggled, chart, &ChartWidget::setShowVolume);
+    connect(toolCombo, &QComboBox::currentIndexChanged, this,
+            [this, toolCombo](int) {
+                chart->setToolMode(static_cast<ToolMode>(toolCombo->currentData().toInt()));
+            });
+    connect(logCheck, &QCheckBox::toggled, chart, &ChartWidget::setLogScale);
+    connect(clearBtn, &QPushButton::clicked, chart, &ChartWidget::clearDrawings);
+    connect(snapshotBtn, &QPushButton::clicked, chart, &ChartWidget::saveSnapshot);
+    connect(zoomInBtn, &QPushButton::clicked, chart, &ChartWidget::zoomIn);
+    connect(zoomOutBtn, &QPushButton::clicked, chart, &ChartWidget::zoomOut);
+    connect(latestBtn, &QPushButton::clicked, chart, &ChartWidget::scrollToLatest);
+
+    mainLayout->addWidget(tabs);
 
     central->setLayout(mainLayout);
     setCentralWidget(central);
@@ -252,6 +379,31 @@ void MainWindow::openExpiryPickerDialog() {
 
     dlg->setAttribute(Qt::WA_DeleteOnClose);  // optional cleanup
     dlg->exec();  // modal; blocks until closed
+}
+
+// Maps the interval combo to a (barInterval, barPeriod) request and reloads the
+// chart for the currently subscribed market. Also keeps the widget's live-bar
+// bucket size in sync with the selected interval.
+void MainWindow::loadChartForCurrentInterval() {
+    if (!intervalCombo || !chart || !client)
+        return;
+
+    const qint64 intervalMs = intervalCombo->currentData().toLongLong();
+    chart->setIntervalMs(intervalMs);
+
+    QString barInterval = "Minute";
+    int barPeriod = 1;
+    const QString key = intervalCombo->currentText();
+    if (key == "30s")      { barInterval = "Second"; barPeriod = 30; }
+    else if (key == "1m")  { barInterval = "Minute"; barPeriod = 1; }
+    else if (key == "5m")  { barInterval = "Minute"; barPeriod = 5; }
+    else if (key == "15m") { barInterval = "Minute"; barPeriod = 15; }
+    else if (key == "1h")  { barInterval = "Hour";   barPeriod = 1; }
+    else if (key == "4h")  { barInterval = "Hour";   barPeriod = 4; }
+    else if (key == "1D")  { barInterval = "Day";    barPeriod = 1; }
+    else if (key == "1W")  { barInterval = "Week";   barPeriod = 1; }
+
+    client->refreshChart(barInterval, barPeriod);
 }
 
 //populates accounts into the account drop down
@@ -467,11 +619,11 @@ void MainWindow::OrderTableUpdate(QMap<QString, t4proto::v1::orderrouting::Order
 
             bool ok = false;
             double val = s.toDouble(&ok);
-            price = ok ? QString::number(val, 'f', 2) : "—";
+            price = ok ? QString::number(val, 'f', 2) : "ï¿½";
         }
         // Null / undefined / wrong type
         else {
-            price = "—";
+            price = "ï¿½";
         }
         
   
