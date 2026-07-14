@@ -8,6 +8,8 @@
 #include <QUuid>
 #include <QDate>
 #include <QDateTime>
+#include <QCoreApplication>
+#include <QDir>
 
 #include "t4decoder/chart_data_stream_reader_aggr.hpp"
 #include "t4decoder/chart_format_aggr.hpp"
@@ -19,6 +21,42 @@
 #include <cmath>
 
 namespace {
+// Human-readable reason for a rejected login (LoginResult enum). Covers the
+// cases a user actually hits — notably LOGGED_IN_ELSEWHERE / ADDITIONAL_USERS_
+// NOT_ALLOWED (another session already holds the account) and credential/lockout
+// failures — so the UI can explain why they couldn't get in.
+QString loginResultToString(int code) {
+    using namespace t4proto::v1::common;
+    switch (code) {
+        case LOGIN_RESULT_SUCCESS:                   return "Success";
+        case LOGIN_RESULT_FAILED:                    return "Login failed (invalid firm, username, or password)";
+        case LOGIN_RESULT_APPLICATION_NOT_VALID:     return "Application not valid (check app_name / app_license)";
+        case LOGIN_RESULT_FIRM_NOT_ALLOWED:          return "Firm not allowed";
+        case LOGIN_RESULT_USER_NOT_ALLOWED:          return "User not allowed";
+        case LOGIN_RESULT_INCORRECT_VERSION:         return "Incorrect version";
+        case LOGIN_RESULT_LOGGED_IN_ELSEWHERE:       return "Already logged in elsewhere";
+        case LOGIN_RESULT_LOGOUT:                    return "Logged out";
+        case LOGIN_RESULT_UNEXPECTED_DISCONNECT:     return "Unexpected disconnect";
+        case LOGIN_RESULT_UNAUTHORIZED:              return "Unauthorized";
+        case LOGIN_RESULT_UNEXPECTED_ERROR:          return "Unexpected server error";
+        case LOGIN_RESULT_ROLE_NOT_SUPPORTED:        return "Role not supported";
+        case LOGIN_RESULT_API_MESSAGE_BACKLOG:       return "API message backlog";
+        case LOGIN_RESULT_SERVER_MESSAGE_BACKLOG:    return "Server message backlog";
+        case LOGIN_RESULT_PASSWORD_EXPIRED:          return "Password expired";
+        case LOGIN_RESULT_PASSWORD_CHANGE_FAILED:    return "Password change failed";
+        case LOGIN_RESULT_PASSWORD_ALREADY_USED:     return "Password already used";
+        case LOGIN_RESULT_LOCKED_OUT:                return "Account locked out";
+        case LOGIN_RESULT_ADDITIONAL_USERS_NOT_ALLOWED: return "Additional users not allowed (account in use elsewhere)";
+        case LOGIN_RESULT_MARKET_DATA_NOT_SETUP:     return "Market data not set up";
+        case LOGIN_RESULT_TWO_FACTOR_NOT_SETUP:      return "Two-factor authentication not set up";
+        case LOGIN_RESULT_TWO_FACTOR_FAILED:         return "Two-factor authentication failed";
+        case LOGIN_RESULT_FIX_SESSION_ERROR:         return "FIX session error";
+        case LOGIN_RESULT_TWO_FACTOR_REQUIRED:       return "Two-factor authentication required";
+        case LOGIN_RESULT_USER_EXISTS:               return "User already exists";
+        default:                                     return QString("Unknown login result (code %1)").arg(code);
+    }
+}
+
 // .NET ticks (100 ns since 0001-01-01) at the Unix epoch (1970-01-01).
 constexpr long long kUnixEpochTicks = 621355968000000000LL;
 
@@ -64,14 +102,34 @@ Client::Client(QObject* parent)
     : QObject(parent)
 
 { //constructor initializes the websocket client
-    loadConfig("config/config.json"); // tries to load the configuration from a JSON file 
+    // Resolve config relative to the executable (not the current working
+    // directory) so the app finds it however it's launched. Try the packaged
+    // layout (config/config.json next to the exe) first, then a flat
+    // config.json fallback. If neither loads, surface it to the UI instead of
+    // silently connecting with empty credentials.
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QString primary  = QDir(appDir).filePath("config/config.json");
+    const QString fallback = QDir(appDir).filePath("config.json");
+    if (!loadConfig(primary) && !loadConfig(fallback)) {
+        const QString msg = QString("Could not load configuration. Looked for:\n%1\n%2")
+                                .arg(primary, fallback);
+        qWarning() << "[config]" << msg;
+        // Queued so the UI (constructed after this) is connected before it fires.
+        QMetaObject::invokeMethod(this, [this, msg]() { emit connectionError(msg); },
+                                  Qt::QueuedConnection);
+    }
 
     connect(&socket, &QWebSocket::connected, this, &Client::onConnected);
     connect(&socket, &QWebSocket::disconnected, this, &Client::onDisconnected);
     connect(&socket, &QWebSocket::binaryMessageReceived, this, &Client::onBinaryMessageReceived);
     connect(&socket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::errorOccurred),
-            this, [](QAbstractSocket::SocketError err) {
-                qWarning() << "[socket] Error:" << err;
+            this, [this](QAbstractSocket::SocketError err) {
+                // Log the error STRING, not just the enum: the enum is often
+                // misleading (e.g. a 301 redirect from a wrong WS URL shows up
+                // as ConnectionRefusedError). errorString() names the real cause.
+                const QString detail = socket.errorString();
+                qWarning() << "[socket] Error:" << err << "-" << detail;
+                emit connectionError(QString("Connection error: %1").arg(detail));
             });
     connect(&socket, &QWebSocket::sslErrors, this, [this](const QList<QSslError>& errors) {
         qWarning() << "[ssl] Errors — ignoring for dev:" << errors;
@@ -112,6 +170,27 @@ Client::Client(QObject* parent)
         mdExchangeId = ws.value("md_exchange_id").toString();
         mdContractId = ws.value("md_contract_id").toString();
         priceFormat = ws.value("priceFormat").toInt();
+
+        // Validate the fields login actually needs. A file that parses but is
+        // missing these (e.g. an untouched sample) would otherwise fail with a
+        // confusing transport error at connect time.
+        const QVector<QPair<QString, QString>> required = {
+            {"url",         websocketUrl.toString()},
+            {"api",         apiUrl.toString()},
+            {"firm",        firm},
+            {"username",    username},
+            {"password",    password},
+            {"app_name",    appName},
+            {"app_license", appLicense},
+        };
+        QStringList missing;
+        for (const auto& field : required)
+            if (field.second.isEmpty())
+                missing << field.first;
+        if (!missing.isEmpty()) {
+            qWarning() << "Config" << path << "missing required field(s):" << missing;
+            return false;
+        }
 
         qDebug() << "Config loaded:\n"
             << websocketUrl << apiUrl << username << mdContractId;
@@ -248,7 +327,13 @@ Client::Client(QObject* parent)
             emit authenticated();
         }
         else {
-            qDebug() << "Login failed";
+            const int code = static_cast<int>(message.result());
+            QString reason = loginResultToString(code);
+            // Prefer the server's own message when it sent one.
+            if (!message.error_message().empty())
+                reason = QString::fromStdString(message.error_message());
+            qWarning() << "[login] Rejected. Code:" << code << "-" << reason;
+            emit loginFailed(code, reason);
         }
 	}
     void Client::handleMarketDetails(const t4proto::v1::market::MarketDetails& detail) {

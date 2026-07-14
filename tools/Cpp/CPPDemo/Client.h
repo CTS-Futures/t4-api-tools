@@ -119,6 +119,11 @@ class Client : public QObject {
 		void updateMarketTable(const QString& exchangeId, const QString& contractId, const QString& marketId, const QString& bestBid, const QString& bestOffer, const QString& lastTrade);
 		void ordersUpdated(QMap<QString, t4proto::v1::orderrouting::OrderUpdate> orders);
         void contractsUpdated();
+        // Diagnostics: surfaced to the UI so connection/login failures aren't silent.
+        // connectionError = config missing or socket/transport failure (carries errorString()).
+        // loginFailed     = server rejected the login (carries the LoginResult code + reason).
+        void connectionError(const QString& message);
+        void loginFailed(int code, const QString& reason);
         // Chart: decoded historical bars, live trade ticks, and a market-changed nudge.
         void chartBarsReceived(const QVector<Candle>& bars);
         // Older history to prepend; noMore==true means the floor was reached.

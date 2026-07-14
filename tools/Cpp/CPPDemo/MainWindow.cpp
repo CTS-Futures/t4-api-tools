@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include <QScreen>
+#include <QMessageBox>
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent) {
     client = new Client(this);
@@ -25,6 +26,14 @@ MainWindow::MainWindow(QWidget* parent)
     connect(chart, &ChartWidget::needOlderHistory, client, &Client::fetchOlderChart);
     connect(client, &Client::chartOlderBarsReceived, chart, &ChartWidget::prependBars);
 
+    // Surface connection/login failures instead of leaving them in the console.
+    connect(client, &Client::connectionError, this, [this](const QString& message) {
+        QMessageBox::critical(this, "Connection Error", message);
+    });
+    connect(client, &Client::loginFailed, this, [this](int code, const QString& reason) {
+        QMessageBox::warning(this, "Login Failed",
+                             QString("%1\n(code %2)").arg(reason).arg(code));
+    });
 
 }
 
