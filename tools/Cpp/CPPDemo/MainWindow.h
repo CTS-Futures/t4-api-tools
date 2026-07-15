@@ -5,14 +5,20 @@
 #include <QGridLayout>
 #include <QLabel>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QPushButton>
+#include <QToolButton>
+#include <QMenu>
+#include <QAction>
 #include <QLineEdit>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QGroupBox>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTabWidget>
 #include "Client.h"
+#include "ChartWidget.h"
 #include "ContractPickerDialog.h"
 #include "ExpiryPickerDialog.h"
 #include <QMainWindow>
@@ -36,9 +42,13 @@ private slots:
         void populateAccounts();
         void onAccountSelected(const QString& text);
 		void onDisconnectClicked();
+        // Load the chart for the active market using the interval combo's selection.
+        void loadChartForCurrentInterval();
     private:
         QGroupBox* marketGroup;
         QComboBox* accountDropdown;
+        ChartWidget* chart;
+        QComboBox* intervalCombo;
         QTableWidget* ordersTable;
         QLabel* bestBidLabel;
         QLabel* bestOfferLabel;
