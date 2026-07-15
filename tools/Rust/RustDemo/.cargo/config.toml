@@ -1,0 +1,21 @@
+# windows-gnu link setup (host-specific — needs MSYS2's UCRT64 mingw toolchain
+# installed at C:/msys64/ucrt64). The `linker` / `dlltool` absolute paths below make
+# this self-sufficient so C:/msys64/ucrt64/bin need NOT be on PATH; gcc locates its
+# own `ld`/`as`/`collect2` relative to itself.
+#
+# rustup's bundled self-contained mingw runtime and MSYS2's (gcc 16.x) are
+# INCOMPATIBLE versions and must not be mixed on one link: rustup's crt2.o wants
+# `_gnu_exception_handler`, MSYS2's wants `_crt_atexit` / `__mingw_SEH_error_handler`,
+# and each side's symbol only exists in its own libmingw32.a. Mixing them (the
+# default: rustup crt2.o + MSYS2 libs) produces undefined-reference link errors.
+#
+# Fix: commit fully to MSYS2. `link-self-contained=no` stops rustc from injecting
+# its own crt objects, so MSYS2's crt2.o + libmingw32.a are used together, and
+# the `-L` supplies the rest of the UCRT64 import libs (mingwex, shlwapi, ...).
+[target.x86_64-pc-windows-gnu]
+linker = "C:\\msys64\\ucrt64\\bin\\x86_64-w64-mingw32-gcc.exe"
+rustflags = [
+    "-C", "link-self-contained=no",
+    "-C", "dlltool=C:/msys64/ucrt64/bin/dlltool.exe",
+    "-L", "C:/msys64/ucrt64/lib",
+]

@@ -1,0 +1,14 @@
+[package]
+name = "t4decoder"
+version = "0.1.0"
+edition = "2021"
+description = "Dependency-free Rust port of the T4 chart-data decoder (T4Bin / T4BinAggr)."
+license = "MIT"
+
+[features]
+# Core is dependency-free. The HTTP ChartClient is opt-in and pulls in `ureq`.
+default = []
+client = ["dep:ureq"]
+
+[dependencies]
+ureq = { version = "2", optional = true }
