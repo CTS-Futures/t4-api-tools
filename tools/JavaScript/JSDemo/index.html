@@ -47,7 +47,16 @@
         <h2 id="marketDataHeader">
             <div class="market-header-container">
                 <span>Market Data - (<span class="market-contract-link">...</span>)</span>
-                <i class="far fa-calendar-alt calendar-icon" title="Change Expiry"></i>
+                <div class="market-header-controls">
+                    <select id="subscriptionType" title="Market Subscription Type">
+                        <option value="smart">Smart</option>
+                        <option value="smart_trade">Smart Trade</option>
+                        <option value="slow_smart" selected>Slow Smart</option>
+                        <option value="slow_trade">Slow Trade</option>
+                        <option value="mbo">MBO</option>
+                    </select>
+                    <i class="far fa-calendar-alt calendar-icon" title="Change Expiry"></i>
+                </div>
             </div>
         </h2>
         <div class="market-data">
@@ -170,6 +179,7 @@
 
 <script src="config.js"></script>
 <script src="t4-proto.js"></script>
+<script src="MarketByOrderBook.js"></script>
 <script src="T4APIClient.js"></script>
 <script src="ContractPicker.js"></script>
 <script src="ExpiryPicker.js"></script>
@@ -189,6 +199,7 @@
             bestBid: document.getElementById('bestBid'),
             bestOffer: document.getElementById('bestOffer'),
             lastTrade: document.getElementById('lastTrade'),
+            subscriptionType: document.getElementById('subscriptionType'),
             orderType: document.getElementById('orderType'), // Add this line
             orderSide: document.getElementById('orderSide'),
             orderVolume: document.getElementById('orderVolume'),
@@ -571,6 +582,17 @@
         elements.connectBtn.addEventListener('click', connect);
         elements.disconnectBtn.addEventListener('click', disconnect);
         elements.submitOrderBtn.addEventListener('click', submitOrder);
+
+        // Market subscription type — unsubscribes the previous subscription and
+        // subscribes the same market with the newly selected type.
+        client.subscriptionType = elements.subscriptionType.value;
+        elements.subscriptionType.addEventListener('change', async () => {
+            try {
+                await client.setSubscriptionType(elements.subscriptionType.value);
+            } catch (error) {
+                log(`Error changing subscription type: ${error.message}`, 'error');
+            }
+        });
 
         // Click on bid/ask/last to set limit price
         ['bestBid', 'bestOffer', 'lastTrade'].forEach(id => {

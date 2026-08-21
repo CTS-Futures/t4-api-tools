@@ -182,6 +182,23 @@ th {
     width: 100%;
 }
 
+.market-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.market-header-controls select {
+    font-size: 13px;
+    font-weight: normal;
+    padding: 5px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #fff;
+    cursor: pointer;
+}
+
 .calendar-icon {
     cursor: pointer;
     color: #007bff;
@@ -190,7 +207,6 @@ th {
     border-radius: 4px;
     transition: all 0.2s;
     border: 1px solid transparent;
-    margin-left: auto;
 }
 
 .calendar-icon:hover {

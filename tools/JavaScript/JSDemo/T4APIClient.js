@@ -36,9 +36,14 @@ class T4APIClient {
 
         // Market data
         this.marketSnapshots = new Map();
+        this.marketByOrderBooks = new Map();
         this.currentSubscription = null;
         this.marketDetails = new Map();
         this.currentMarketId = null;
+
+        // Market subscription type used by subscribeMarket(). One of the keys of
+        // T4APIClient.SubscriptionTypes. Change it via setSubscriptionType().
+        this.subscriptionType = 'slow_smart';
 
         // Order/Position tracking
         this.positions = new Map();
@@ -165,49 +170,108 @@ class T4APIClient {
         }
     }
 
-    async subscribeMarket(exchangeId, contractId, marketId) {
-        const key = `${exchangeId}_${contractId}_${marketId}`;
+    // Returns the descriptor for a subscription type key, falling back to the
+    // default type when the key is unknown.
+    getSubscriptionTypeInfo(type) {
+        return T4APIClient.SubscriptionTypes[type] || T4APIClient.SubscriptionTypes['slow_smart'];
+    }
 
-        // Unsubscribe from existing market subscriptions first
-        if (this.currentSubscription) {
+    // Changes the market subscription type. If a market is currently subscribed,
+    // it is unsubscribed using its existing type and re-subscribed with the new one.
+    async setSubscriptionType(type) {
+        const info = this.getSubscriptionTypeInfo(type);
+
+        if (this.subscriptionType === info.key) {
+            return;
+        }
+
+        this.subscriptionType = info.key;
+        this.log(`Market subscription type: ${info.label}`, 'info');
+
+        const previous = this.currentSubscription;
+        if (previous) {
+            await this.unsubscribeMarket();
+
+            // The new subscription repopulates these; blank them so the previous
+            // subscription's prices are not left on display in the meantime.
+            this.clearMarketValues();
+
+            await this.subscribeMarket(previous.exchangeId, previous.contractId, previous.marketId);
+        }
+    }
+
+    // Unsubscribes the current market using whichever subscription type it was
+    // subscribed with.
+    async unsubscribeMarket() {
+        if (!this.currentSubscription) {
+            return;
+        }
+
+        const { exchangeId, contractId, marketId, type } = this.currentSubscription;
+        const info = this.getSubscriptionTypeInfo(type);
+
+        if (info.mbo) {
+            await this.sendMessage({
+                marketByOrderSubscribe: {
+                    exchangeId,
+                    contractId,
+                    marketId,
+                    subscribe: false
+                }
+            });
+        } else {
             await this.sendMessage({
                 marketDepthSubscribe: {
-                    exchangeId: this.currentSubscription.exchangeId,
-                    contractId: this.currentSubscription.contractId,
-                    marketId: this.currentSubscription.marketId,
+                    exchangeId,
+                    contractId,
+                    marketId,
                     buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
                     depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_UNDEFINED
                 }
             });
-
-            this.log(`Unsubscribed from market: ${this.currentSubscription.marketId}`, 'info');
-
-            this.currentSubscription = null;
         }
 
-        this.currentSubscription = { exchangeId, contractId, marketId };
+        this.log(`Unsubscribed from market: ${marketId} (${info.label})`, 'info');
+
+        // Drop the cached books/snapshots so a later subscription starts clean
+        // rather than resuming from a stale book.
+        this.marketByOrderBooks.delete(marketId);
+        this.marketSnapshots.delete(marketId);
+
+        this.currentSubscription = null;
+    }
+
+    async subscribeMarket(exchangeId, contractId, marketId) {
+        // Unsubscribe from existing market subscriptions first
+        await this.unsubscribeMarket();
+
+        const info = this.getSubscriptionTypeInfo(this.subscriptionType);
+
+        this.currentSubscription = { exchangeId, contractId, marketId, type: info.key };
         this.currentMarketId = marketId;
 
-        await this.sendMessage({
-            marketDepthSubscribe: {
-                exchangeId,
-                contractId,
-                marketId,
-                buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART,
-                depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_BEST_ONLY
-            }
-        });
+        if (info.mbo) {
+            await this.sendMessage({
+                marketByOrderSubscribe: {
+                    exchangeId,
+                    contractId,
+                    marketId,
+                    subscribe: true
+                }
+            });
+        } else {
+            await this.sendMessage({
+                marketDepthSubscribe: {
+                    exchangeId,
+                    contractId,
+                    marketId,
+                    buffer: info.buffer,
+                    depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_BEST_ONLY
+                }
+            });
+        }
 
-        // await this.sendMessage({
-        //     marketByOrderSubscribe: {
-        //         exchangeId,
-        //         contractId,
-        //         marketId,
-        //         subscribe: true
-        //     }
-        // });
-
-        this.log(`Subscribed to market: ${marketId}`, 'info');
+        this.log(`Subscribed to market: ${marketId} (${info.label})`, 'info');
     }
 
     // WebSocket Event Handlers
@@ -508,7 +572,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
 
             // Messages to exclude from logging
-            const excludeFromLogging = ['heartbeat', 'marketDepth', 'accountUpdate', 'accountPosition'];
+            const excludeFromLogging = ['heartbeat', 'marketDepth', 'marketByOrderUpdate', 'marketByOrderTrade', 'accountUpdate', 'accountPosition'];
 
             // Check if message should be logged
             const messageType = Object.keys(message)[0];
@@ -608,6 +672,10 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             this.handleMarketByOrderSnapshot(message.marketByOrderSnapshot);
         } else if (message.marketByOrderUpdate) {
             this.handleMarketByOrderUpdate(message.marketByOrderUpdate);
+        } else if (message.marketByOrderTrade) {
+            this.handleMarketByOrderTrade(message.marketByOrderTrade);
+        } else if (message.marketByOrderSubscribeReject) {
+            this.handleMarketByOrderSubscribeReject(message.marketByOrderSubscribeReject);
         } else if (message.orderUpdate) {
             this.handleOrderUpdate(message.orderUpdate);
         } else if (message.accountSnapshot) {
@@ -908,14 +976,79 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         this.log(`Market Trade: ${trade.marketId} : ${volume} @ ${price}, TTV: ${ttv}`, 'info');
     }
 
-    handleMarketByOrderSnapshot(snashot) {
+    handleMarketByOrderSnapshot(snapshot) {
+        const book = this.getOrCreateMarketByOrderBook(snapshot.marketId);
+        book.processSnapshot(snapshot);
 
-        this.log(`MBO Snapshot: ${snashot.marketId}`, 'info');
+        this.log(`MBO Snapshot: ${snapshot.marketId} (${book.orderCount} orders)`, 'info');
+
+        this.publishMarketByOrder(book);
     }
 
     handleMarketByOrderUpdate(update) {
+        // Not logged per message — updates arrive continuously on an active market.
+        const book = this.getOrCreateMarketByOrderBook(update.marketId);
+        book.processUpdate(update);
 
-        this.log(`MBO Update: ${update.marketId}`, 'info');
+        this.publishMarketByOrder(book);
+    }
+
+    handleMarketByOrderTrade(trade) {
+        // Not logged per message — trades arrive continuously on an active market.
+        const book = this.getOrCreateMarketByOrderBook(trade.marketId);
+        book.processTrade(trade);
+
+        this.publishMarketByOrder(book);
+    }
+
+    handleMarketByOrderSubscribeReject(reject) {
+        this.log(`MBO subscribe rejected: ${reject.marketId} (market mode ${reject.mode})`, 'error');
+    }
+
+    getOrCreateMarketByOrderBook(marketId) {
+        let book = this.marketByOrderBooks.get(marketId);
+
+        if (!book) {
+            book = new MarketByOrderBook(marketId);
+            this.marketByOrderBooks.set(marketId, book);
+        }
+
+        return book;
+    }
+
+    // Pushes the book's best bid/offer and last trade to the UI using the same
+    // shape handleMarketDepth publishes.
+    publishMarketByOrder(book) {
+        const marketDetails = this.getMarketDetails(book.marketId);
+        if (marketDetails && marketDetails.contractId && marketDetails.expiryDate) {
+            this.updateMarketHeader(marketDetails.contractId, marketDetails.expiryDate);
+        }
+
+        if (this.onMarketUpdate) {
+            this.onMarketUpdate({
+                marketId: book.marketId,
+                contractId: marketDetails?.contractId,
+                expiryDate: marketDetails?.expiryDate,
+                bestBid: MarketByOrderBook.formatLevel(book.bestBid),
+                bestOffer: MarketByOrderBook.formatLevel(book.bestOffer),
+                lastTrade: book.lastTradePrice
+                    ? `${book.lastTradeVolume}@${book.lastTradePrice.value}`
+                    : '-'
+            });
+        }
+    }
+
+    // Blanks the market values, used when switching subscription type so stale
+    // prices from the previous subscription are not left on display.
+    clearMarketValues() {
+        if (this.onMarketUpdate) {
+            this.onMarketUpdate({
+                marketId: this.currentMarketId,
+                bestBid: '-',
+                bestOffer: '-',
+                lastTrade: '-'
+            });
+        }
     }
 
     updateMarketHeader(contractId, expiryDate) {
@@ -1384,6 +1517,10 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         return this.marketSnapshots.get(marketId);
     }
 
+    getMarketByOrderBook(marketId) {
+        return this.marketByOrderBooks.get(marketId);
+    }
+
     async getAuthToken() {
         // If using API key, check if we have a valid JWT from login
         if (this.jwtToken && this.jwtExpiration && Date.now() < this.jwtExpiration - 30000) {
@@ -1435,6 +1572,46 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         return `req_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     }
 }
+
+// Market subscription types selectable from the Market Data section.
+// The buffer values are lazy getters so T4Proto only has to be loaded by the
+// time a subscription is actually sent.
+T4APIClient.SubscriptionTypes = {
+    smart: {
+        key: 'smart',
+        label: 'Smart',
+        get buffer() {
+            return T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART;
+        }
+    },
+    smart_trade: {
+        key: 'smart_trade',
+        label: 'Smart Trade',
+        get buffer() {
+            return T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART_TRADE;
+        }
+    },
+    slow_smart: {
+        key: 'slow_smart',
+        label: 'Slow Smart',
+        get buffer() {
+            return T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SLOW_SMART;
+        }
+    },
+    slow_trade: {
+        key: 'slow_trade',
+        label: 'Slow Trade',
+        get buffer() {
+            return T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SLOW_TRADE;
+        }
+    },
+    // MBO uses MarketByOrderSubscribe rather than MarketDepthSubscribe.
+    mbo: {
+        key: 'mbo',
+        label: 'MBO',
+        mbo: true
+    }
+};
 
 // Export for module usage
 if (typeof module !== 'undefined' && module.exports) {
