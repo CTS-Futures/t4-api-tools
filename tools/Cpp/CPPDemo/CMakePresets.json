@@ -1,0 +1,35 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "mingw",
+      "displayName": "MinGW-w64 (MSYS2 UCRT64)",
+      "description": "GCC + Ninja, Qt6/protobuf from MSYS2. Run from a UCRT64 shell (or with /ucrt64/bin on PATH). No Visual Studio required.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/mingw",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_PREFIX_PATH": "C:/msys64/ucrt64"
+      }
+    },
+    {
+      "name": "msvc",
+      "displayName": "MSVC command-line (Build Tools, no IDE)",
+      "description": "cl + Ninja + Qt msvc + vcpkg. Run from an 'x64 Native Tools' prompt. Edit the vcpkg/Qt paths below to match your machine.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/msvc",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.9.1/msvc2022_64"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "mingw", "configurePreset": "mingw" },
+    { "name": "msvc", "configurePreset": "msvc" }
+  ]
+}

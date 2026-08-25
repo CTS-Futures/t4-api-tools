@@ -18,6 +18,7 @@ class Client:
     #initializes core attributes
     def __init__(self, config):
         #config file settings
+        self.config = config   # retained so UI features can read optional blocks (e.g. portfolio_study)
         self.wsUrl = config['websocket']['url']
         self.apiUrl = config['websocket']['api']
         self.apiKey = None 
@@ -212,6 +213,11 @@ class Client:
         self.positions[key] = message
 
         # Convert proto to dict with default values and add P&L fields
+        avg_open_price = (
+            message.average_open_price.value
+            if message.HasField("average_open_price")
+            else None
+        )
         self.positions[key] = {
             "account_id": message.account_id,
             "exchange_id": message.exchange_id,
@@ -221,6 +227,9 @@ class Client:
             "sells": message.sells,
             "working_buys": message.working_buys,
             "working_sells": message.working_sells,
+            # net + average open price drive the chart's position overlay line
+            "net": message.buys - message.sells,
+            "average_open_price": avg_open_price,
             "upl": 0.0,
             "rpl": 0.0,
             "total_pnl": 0.0,
@@ -350,19 +359,43 @@ class Client:
                 if len(message.offers) > 0
                 else "-"
             )
+            has_trade = (
+                message.HasField("trade_data")
+                and message.trade_data.HasField("last_trade_price")
+            )
             last_trade = (
                 f"{message.trade_data.last_trade_volume}@{message.trade_data.last_trade_price.value}"
-                if message.HasField("trade_data") and message.trade_data.HasField("last_trade_price")
+                if has_trade
                 else "-"
+            )
+
+            # Numeric trade fields for the chart. total_traded_volume lets the
+            # chart de-dupe: market-depth updates re-send the same last trade on
+            # every bid/offer change, so the chart only aggregates volume when
+            # the cumulative traded volume advances.
+            last_trade_price = (
+                message.trade_data.last_trade_price.value if has_trade else None
+            )
+            last_trade_volume = (
+                message.trade_data.last_trade_volume if has_trade else 0
+            )
+            total_traded_volume = (
+                getattr(message.trade_data, "total_traded_volume", 0)
+                if message.HasField("trade_data")
+                else 0
             )
 
             self.on_market_update({
                 "market_id": message.market_id,
                 "contract_id": market_detail.contract_id,
+                "exchange_id": getattr(market_detail, "exchange_id", None),
                 "expiry_date": market_detail.expiry_date,
                 "best_bid": best_bid,
                 "best_offer": best_offer,
                 "last_trade": last_trade,
+                "last_trade_price": last_trade_price,
+                "last_trade_volume": last_trade_volume,
+                "total_traded_volume": total_traded_volume,
             })
 
     #subscriber response (debug)
@@ -428,6 +461,21 @@ class Client:
     #debug functions
     def handle_order_update_trade(self, trade_update):
         print(f"Trade update: {trade_update.unique_id}, trade: {trade_update.exchange_trade_id}")
+        # Emit a fill event so the chart can place a buy/sell marker. The trade
+        # message carries no side, so we look it up from the cached order.
+        if self.on_account_update:
+            order = self.orders.get(trade_update.unique_id)
+            if order is None or not hasattr(order, "buy_sell"):
+                return  # can't infer side -> don't emit a misleading marker event
+            self.on_account_update({
+                "type": "fill",
+                "market_id": trade_update.market_id,
+                "unique_id": trade_update.unique_id,
+                "price": trade_update.price.value if trade_update.HasField("price") else None,
+                "volume": getattr(trade_update, "volume", 0),
+                "buy_sell": getattr(order, "buy_sell"),
+                "time": trade_update.time.seconds if trade_update.HasField("time") else None,
+            })
 
     def handle_order_update_trade_leg(self, leg_update):
         print(f"Trade leg update: {leg_update.unique_id}, leg index: {leg_update.leg_index}")

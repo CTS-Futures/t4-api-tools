@@ -6,17 +6,135 @@
 #include <QJsonParseError>
 #include <QWebSocket>
 #include <QUuid>
+#include <QDate>
+#include <QDateTime>
+#include <QCoreApplication>
+#include <QDir>
+
+#include "t4decoder/chart_data_stream_reader_aggr.hpp"
+#include "t4decoder/chart_format_aggr.hpp"
+#include "t4decoder/payload.hpp"
+
+#include <string>
+#include <vector>
+#include <algorithm>
+#include <cmath>
+
+namespace {
+// Human-readable reason for a rejected login (LoginResult enum). Covers the
+// cases a user actually hits — notably LOGGED_IN_ELSEWHERE / ADDITIONAL_USERS_
+// NOT_ALLOWED (another session already holds the account) and credential/lockout
+// failures — so the UI can explain why they couldn't get in.
+QString loginResultToString(int code) {
+    using namespace t4proto::v1::common;
+    switch (code) {
+        case LOGIN_RESULT_SUCCESS:                   return "Success";
+        case LOGIN_RESULT_FAILED:                    return "Login failed (invalid firm, username, or password)";
+        case LOGIN_RESULT_APPLICATION_NOT_VALID:     return "Application not valid (check app_name / app_license)";
+        case LOGIN_RESULT_FIRM_NOT_ALLOWED:          return "Firm not allowed";
+        case LOGIN_RESULT_USER_NOT_ALLOWED:          return "User not allowed";
+        case LOGIN_RESULT_INCORRECT_VERSION:         return "Incorrect version";
+        case LOGIN_RESULT_LOGGED_IN_ELSEWHERE:       return "Already logged in elsewhere";
+        case LOGIN_RESULT_LOGOUT:                    return "Logged out";
+        case LOGIN_RESULT_UNEXPECTED_DISCONNECT:     return "Unexpected disconnect";
+        case LOGIN_RESULT_UNAUTHORIZED:              return "Unauthorized";
+        case LOGIN_RESULT_UNEXPECTED_ERROR:          return "Unexpected server error";
+        case LOGIN_RESULT_ROLE_NOT_SUPPORTED:        return "Role not supported";
+        case LOGIN_RESULT_API_MESSAGE_BACKLOG:       return "API message backlog";
+        case LOGIN_RESULT_SERVER_MESSAGE_BACKLOG:    return "Server message backlog";
+        case LOGIN_RESULT_PASSWORD_EXPIRED:          return "Password expired";
+        case LOGIN_RESULT_PASSWORD_CHANGE_FAILED:    return "Password change failed";
+        case LOGIN_RESULT_PASSWORD_ALREADY_USED:     return "Password already used";
+        case LOGIN_RESULT_LOCKED_OUT:                return "Account locked out";
+        case LOGIN_RESULT_ADDITIONAL_USERS_NOT_ALLOWED: return "Additional users not allowed (account in use elsewhere)";
+        case LOGIN_RESULT_MARKET_DATA_NOT_SETUP:     return "Market data not set up";
+        case LOGIN_RESULT_TWO_FACTOR_NOT_SETUP:      return "Two-factor authentication not set up";
+        case LOGIN_RESULT_TWO_FACTOR_FAILED:         return "Two-factor authentication failed";
+        case LOGIN_RESULT_FIX_SESSION_ERROR:         return "FIX session error";
+        case LOGIN_RESULT_TWO_FACTOR_REQUIRED:       return "Two-factor authentication required";
+        case LOGIN_RESULT_USER_EXISTS:               return "User already exists";
+        default:                                     return QString("Unknown login result (code %1)").arg(code);
+    }
+}
+
+// .NET ticks (100 ns since 0001-01-01) at the Unix epoch (1970-01-01).
+constexpr long long kUnixEpochTicks = 621355968000000000LL;
+
+qint64 ticksToUnixMs(long long ticks) {
+    return static_cast<qint64>((ticks - kUnixEpochTicks) / t4::NDateTime::kTicksPerMillisecond);
+}
+
+double priceToDouble(const t4::Price& price) {
+    try {
+        return std::stod(price.toString());
+    } catch (...) {
+        return 0.0;
+    }
+}
+
+// Bar interval + period -> seconds per bar.
+int intervalToSeconds(const QString& barInterval, int barPeriod) {
+    const int p = barPeriod > 0 ? barPeriod : 1;
+    if (barInterval == "Second") return p;
+    if (barInterval == "Hour")   return 3600 * p;
+    if (barInterval == "Day")    return 86400 * p;
+    if (barInterval == "Week")   return 604800 * p;
+    return 60 * p; // Minute (default)
+}
+
+// Calendar days to request so a fetch yields roughly ~500 bars (mirrors the
+// JS/Py demos' lookback scaling). For sub-day bars this is a few days; for
+// day/week bars it scales up so a weekly view still spans years.
+int lookbackDays(int intervalSeconds) {
+    if (intervalSeconds >= 86400) {
+        const double barsPerDay = 86400.0 / intervalSeconds; // <= 1
+        const int days = static_cast<int>(std::ceil(500.0 / barsPerDay));
+        return std::clamp(days, 120, 4000);
+    }
+    const double barsPerDay = 82800.0 / std::max(1, intervalSeconds); // ~23h trading day
+    const int days = static_cast<int>(std::ceil(500.0 / barsPerDay));
+    return std::clamp(days, 2, 120);
+}
+}  // namespace
 
 
 Client::Client(QObject* parent)
     : QObject(parent)
 
 { //constructor initializes the websocket client
-    loadConfig("config/config.json"); // tries to load the configuration from a JSON file 
+    // Resolve config relative to the executable (not the current working
+    // directory) so the app finds it however it's launched. Try the packaged
+    // layout (config/config.json next to the exe) first, then a flat
+    // config.json fallback. If neither loads, surface it to the UI instead of
+    // silently connecting with empty credentials.
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QString primary  = QDir(appDir).filePath("config/config.json");
+    const QString fallback = QDir(appDir).filePath("config.json");
+    if (!loadConfig(primary) && !loadConfig(fallback)) {
+        const QString msg = QString("Could not load configuration. Looked for:\n%1\n%2")
+                                .arg(primary, fallback);
+        qWarning() << "[config]" << msg;
+        // Queued so the UI (constructed after this) is connected before it fires.
+        QMetaObject::invokeMethod(this, [this, msg]() { emit connectionError(msg); },
+                                  Qt::QueuedConnection);
+    }
 
     connect(&socket, &QWebSocket::connected, this, &Client::onConnected);
     connect(&socket, &QWebSocket::disconnected, this, &Client::onDisconnected);
     connect(&socket, &QWebSocket::binaryMessageReceived, this, &Client::onBinaryMessageReceived);
+    connect(&socket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::errorOccurred),
+            this, [this](QAbstractSocket::SocketError err) {
+                // Log the error STRING, not just the enum: the enum is often
+                // misleading (e.g. a 301 redirect from a wrong WS URL shows up
+                // as ConnectionRefusedError). errorString() names the real cause.
+                const QString detail = socket.errorString();
+                qWarning() << "[socket] Error:" << err << "-" << detail;
+                emit connectionError(QString("Connection error: %1").arg(detail));
+            });
+    connect(&socket, &QWebSocket::sslErrors, this, [this](const QList<QSslError>& errors) {
+        qWarning() << "[ssl] Errors — ignoring for dev:" << errors;
+        socket.ignoreSslErrors();
+    });
 	connect(this, &Client::authenticated, this, &Client::onAuthenticated);
 }
         //LOAD CONFIGURATION FROM JSON FILE
@@ -53,6 +171,27 @@ Client::Client(QObject* parent)
         mdContractId = ws.value("md_contract_id").toString();
         priceFormat = ws.value("priceFormat").toInt();
 
+        // Validate the fields login actually needs. A file that parses but is
+        // missing these (e.g. an untouched sample) would otherwise fail with a
+        // confusing transport error at connect time.
+        const QVector<QPair<QString, QString>> required = {
+            {"url",         websocketUrl.toString()},
+            {"api",         apiUrl.toString()},
+            {"firm",        firm},
+            {"username",    username},
+            {"password",    password},
+            {"app_name",    appName},
+            {"app_license", appLicense},
+        };
+        QStringList missing;
+        for (const auto& field : required)
+            if (field.second.isEmpty())
+                missing << field.first;
+        if (!missing.isEmpty()) {
+            qWarning() << "Config" << path << "missing required field(s):" << missing;
+            return false;
+        }
+
         qDebug() << "Config loaded:\n"
             << websocketUrl << apiUrl << username << mdContractId;
 
@@ -71,7 +210,6 @@ Client::Client(QObject* parent)
         }
         qDebug() << "button pressed!";
         socket.open(websocketUrl);
-
     }
 
     void Client::disconnectFromServer() {
@@ -189,7 +327,13 @@ Client::Client(QObject* parent)
             emit authenticated();
         }
         else {
-            qDebug() << "Login failed";
+            const int code = static_cast<int>(message.result());
+            QString reason = loginResultToString(code);
+            // Prefer the server's own message when it sent one.
+            if (!message.error_message().empty())
+                reason = QString::fromStdString(message.error_message());
+            qWarning() << "[login] Rejected. Code:" << code << "-" << reason;
+            emit loginFailed(code, reason);
         }
 	}
     void Client::handleMarketDetails(const t4proto::v1::market::MarketDetails& detail) {
@@ -266,6 +410,10 @@ Client::Client(QObject* parent)
             QString priceStr = QString::number(lastPrice, 'f', priceFormat);
             QString volumeStr = QString::number(lastVolume);
             lastTrade = volumeStr + "@" + priceStr;
+
+            // Feed the live candle. MarketDepth carries no trade timestamp here,
+            // so bucket by arrival time (bars form in real time).
+            emit chartTradeTick(lastPrice, lastVolume, QDateTime::currentMSecsSinceEpoch());
         }
 
       
@@ -1049,9 +1197,209 @@ Client::Client(QObject* parent)
 		std::string serializedSubscribe = subscribeMessage.SerializeAsString();
 		sendMessage(serializedSubscribe);
 
-        qDebug() << "[subscribe_market] Subscribed to market:" 
+        qDebug() << "[subscribe_market] Subscribed to market:"
 			<< exchangeId << contractId << marketId;
+
+        // Let the UI (re)load the chart for this market at its selected interval.
+        emit marketSubscribed();
 	}
+
+    void Client::refreshChart(const QString& barInterval, int barPeriod) {
+        if (mdExchangeId.isEmpty() || mdContractId.isEmpty() || currentMarketId.isEmpty()) {
+            qWarning() << "[chart] No active market to load a chart for";
+            return;
+        }
+        fetchChartData(mdExchangeId, mdContractId, currentMarketId, barInterval, barPeriod);
+    }
+
+    // Decode a T4BinAggr barchart response body into OHLCV candles.
+    QVector<Candle> Client::decodeBars(const QByteArray& response, const QString& source) const {
+        QVector<Candle> candles;
+        try {
+            const auto* raw = reinterpret_cast<const std::uint8_t*>(response.constData());
+            std::vector<std::uint8_t> bytes(raw, raw + response.size());
+            std::vector<std::uint8_t> payload = t4::extractT4BinPayload(bytes);
+
+            struct BarCollector : t4::AggrHandler {
+                QVector<Candle>* out;
+                void onBar(const t4::Bar& b) override {
+                    Candle c;
+                    c.timeMs = ticksToUnixMs(b.Time.ticks());
+                    c.open = priceToDouble(b.OpenPrice);
+                    c.high = priceToDouble(b.HighPrice);
+                    c.low = priceToDouble(b.LowPrice);
+                    c.close = priceToDouble(b.ClosePrice);
+                    c.volume = b.Volume;
+                    out->push_back(c);
+                }
+            } handler;
+            handler.out = &candles;
+
+            t4::ChartDataStreamReaderAggr::read(payload, handler);
+        } catch (const std::exception& e) {
+            qWarning() << "[chart] decode error:" << e.what()
+                       << "(bytes:" << response.size() << ")";
+        }
+        // Heartbeat: this runs every time the t4decoder is exercised (initial
+        // load + each older-history chunk), so it doubles as a "decoder in use" ping.
+        qDebug().nospace() << "[t4decoder] " << source << ": decoded " << candles.size()
+                           << " bars via binary (T4BinAggr) from " << response.size() << " bytes";
+        return candles;
+    }
+
+    void Client::fetchChartData(const QString& exchangeId, const QString& contractId,
+                                const QString& marketId, const QString& barInterval, int barPeriod) {
+        QString token = getAuthToken();
+        if (token.isEmpty()) {
+            qDebug() << "[chart] token invalid";
+            return;
+        }
+
+        // A fresh load invalidates any in-flight older-history walk and resets
+        // the paging window. State is captured so fetchOlderChart() can continue
+        // stepping back from here.
+        ++chartGen;
+        chartExchangeId = exchangeId;
+        chartContractId = contractId;
+        chartMarketId = marketId;
+        chartInterval = barInterval;
+        chartPeriod = barPeriod;
+        chartIntervalSeconds = intervalToSeconds(barInterval, barPeriod);
+        chartLoadingOlder = false;
+        chartNoMore = false;
+        chartOlderAttempt = 0;
+        chartFloor = QDate(2000, 1, 1);
+
+        const QDate today = QDate::currentDate();
+        const QDate start = today.addDays(-lookbackDays(chartIntervalSeconds));
+        chartWindowStart = start;
+
+        // Base REST url is https://api-sim.t4login.com; the chart service lives
+        // under /chart/barchart. Query keys mirror t4decoder's ChartClient.
+        QUrl url = apiUrl.resolved(QUrl("/chart/barchart"));
+        QUrlQuery query;
+        query.addQueryItem("exchangeId", exchangeId);
+        query.addQueryItem("contractId", contractId);
+        if (!marketId.isEmpty())
+            query.addQueryItem("marketID", marketId);
+        query.addQueryItem("chartType", "Bar");
+        query.addQueryItem("barInterval", barInterval);
+        query.addQueryItem("barPeriod", QString::number(barPeriod));
+        query.addQueryItem("tradeDateStart", start.toString("yyyy-MM-dd"));
+        query.addQueryItem("tradeDateEnd", today.toString("yyyy-MM-dd"));
+        url.setQuery(query);
+
+        QNetworkRequest request(url);
+        request.setRawHeader("Authorization", "Bearer " + token.toUtf8());
+        request.setRawHeader("Accept", "application/octet-stream");
+
+        QNetworkAccessManager manager;
+        QNetworkReply* reply = manager.get(request);
+
+        QEventLoop loop;
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();  // Block until finished (mirrors the other REST helpers).
+
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[chart] Network error:" << reply->errorString();
+            reply->deleteLater();
+            return;
+        }
+
+        const QByteArray response = reply->readAll();
+        reply->deleteLater();
+
+        const QVector<Candle> candles = decodeBars(response, "initial load");
+        emit chartBarsReceived(candles);
+    }
+
+    // Kick off (or ignore, if already running/exhausted) an older-history walk.
+    void Client::fetchOlderChart() {
+        if (chartNoMore || chartLoadingOlder)
+            return;
+        if (chartExchangeId.isEmpty() || chartContractId.isEmpty() || !chartWindowStart.isValid())
+            return;
+        chartLoadingOlder = true;
+        chartOlderAttempt = 0;
+        fetchOlderChunk(chartGen);
+    }
+
+    // Fetch one older chunk [windowStart - lookback, windowStart]. If it comes
+    // back empty (weekend/holiday) and we're not at the floor, step further back
+    // (up to 14 attempts). Emits chartOlderBarsReceived once the walk resolves.
+    void Client::fetchOlderChunk(int gen) {
+        if (gen != chartGen) {              // a newer load superseded us
+            chartLoadingOlder = false;
+            return;
+        }
+
+        const QString token = getAuthToken();
+        if (token.isEmpty()) {
+            chartLoadingOlder = false;
+            emit chartOlderBarsReceived({}, false);
+            return;
+        }
+
+        const QDate end = chartWindowStart;
+        if (!end.isValid() || end <= chartFloor) {
+            chartLoadingOlder = false;
+            chartNoMore = true;
+            emit chartOlderBarsReceived({}, true);
+            return;
+        }
+
+        QDate start = end.addDays(-lookbackDays(chartIntervalSeconds));
+        bool atFloor = false;
+        if (start <= chartFloor) { start = chartFloor; atFloor = true; }
+
+        QUrl url = apiUrl.resolved(QUrl("/chart/barchart"));
+        QUrlQuery query;
+        query.addQueryItem("exchangeId", chartExchangeId);
+        query.addQueryItem("contractId", chartContractId);
+        if (!chartMarketId.isEmpty())
+            query.addQueryItem("marketID", chartMarketId);
+        query.addQueryItem("chartType", "Bar");
+        query.addQueryItem("barInterval", chartInterval);
+        query.addQueryItem("barPeriod", QString::number(chartPeriod));
+        query.addQueryItem("tradeDateStart", start.toString("yyyy-MM-dd"));
+        query.addQueryItem("tradeDateEnd", end.toString("yyyy-MM-dd"));
+        url.setQuery(query);
+
+        QNetworkRequest request(url);
+        request.setRawHeader("Authorization", "Bearer " + token.toUtf8());
+        request.setRawHeader("Accept", "application/octet-stream");
+
+        if (!chartNam)
+            chartNam = new QNetworkAccessManager(this);
+        QNetworkReply* reply = chartNam->get(request);
+
+        connect(reply, &QNetworkReply::finished, this, [this, reply, gen, start, atFloor]() {
+            reply->deleteLater();
+            if (gen != chartGen) {          // superseded while in flight
+                chartLoadingOlder = false;
+                return;
+            }
+            QVector<Candle> bars;
+            if (reply->error() == QNetworkReply::NoError)
+                bars = decodeBars(reply->readAll(), "older history");
+            else
+                qWarning() << "[chart] older-history network error:" << reply->errorString();
+
+            chartWindowStart = start; // advance the walk regardless of content
+
+            if (bars.isEmpty() && !atFloor && ++chartOlderAttempt < 14) {
+                fetchOlderChunk(gen);   // skip the empty window, keep stepping back
+                return;
+            }
+
+            chartLoadingOlder = false;
+            if (atFloor)
+                chartNoMore = true;
+            qDebug() << "[chart] older chunk decoded" << bars.size()
+                     << "bars, noMore=" << atFloor;
+            emit chartOlderBarsReceived(bars, atFloor);
+        });
+    }
 
     void Client::onAuthenticated() {
         qDebug() << "Client authenticated successfully!";

@@ -8,9 +8,12 @@ from expiry_picker_dialog import Expiry_Picker_Dialog
 from contract_picker import Contract_Picker
 class T4_GUI(tk.Tk):
 
-    def __init__(self, root, client):
+    def __init__(self, root, client, loop=None):
         self.root = root
         self.client = client
+        # The asyncio loop, used by open_chart() to schedule the chart window's
+        # async run(). Falls back to asyncio.get_event_loop() if not supplied.
+        self.loop = loop
         self.root.title("T4 API Demo")
         self.root.geometry("1750x1380")
 
@@ -59,44 +62,58 @@ class T4_GUI(tk.Tk):
         self.disconnect_button = tk.Button(self.connect_frame, text="Disconnect", bg="#3b82f6", fg="white", command=self.end_connection)
         self.disconnect_button.grid(row=3, column=3, padx=5)
 
+        #portfolio study (walk-forward rotation backtest viewer). A global tool,
+        #not market-specific (CSV mode needs no market/login), so it lives on the
+        #top connection bar rather than crowding the Market Data box.
+        self.portfolio_study_button = tk.Button(self.connect_frame, text="Portfolio Study", bg="#6b7280", fg="white", command=self.open_portfolio_study)
+        self.portfolio_study_button.grid(row=3, column=4, padx=(20, 5))
+
+        #single-instrument backtester (JSDemo-parity strategies on T4 bars).
+        #Same global tool / guarded-lazy-import pattern as Portfolio Study.
+        self.backtester_button = tk.Button(self.connect_frame, text="Backtester", bg="#6b7280", fg="white", command=self.open_backtester)
+        self.backtester_button.grid(row=3, column=5, padx=5)
+
+        #companion chart window (lightweight-charts). Opens on demand rather than
+        #at startup — same global tool / guarded-lazy-import pattern as the others.
+        self.chart_button = tk.Button(self.connect_frame, text="Chart", bg="#6b7280", fg="white", command=self.open_chart)
+        self.chart_button.grid(row=3, column=6, padx=5)
+
 
         #market frame
         self.market_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
         self.market_frame.place(relx=0.05, rely=0.25, relwidth=0.44, relheight=0.3)
 
-        #allows for resizing
+        #allows for resizing — let the container fill the whole frame, and let the
+        #quotes row (market_inner) absorb the vertical slack.
         self.market_frame.columnconfigure(0, weight=1)
-        self.market_frame.rowconfigure(2, weight=1)
+        self.market_frame.rowconfigure(0, weight=1)
 
         #container for data. ensures things are touching the borders (padx and pady)
         market_container = tk.Frame(self.market_frame, bg="white", padx=20, pady=20)
         market_container.grid(row=0, column=0, sticky="nsew")
+        market_container.columnconfigure(0, weight=1)
+        market_container.rowconfigure(2, weight=1)
 
         market_title = tk.Label(market_container, text="Market Data", font=("Arial", 16, "bold"), bg="white")
         market_title.grid(row=0, column=0, sticky="w", pady=(0, 10))
         
-        tk.Button(
-            self.market_frame,
-            text="Pick a Contract",
-            command=self.open_contract_picker
-        ).grid(row=5, column=0, pady=10)
-
-        #expiry button
-        tk.Button(
-            self.market_frame,
-            text="Expiry",
-            command = self.open_expiry_picker
-        ).grid(row = 6, column = 0, pady= 5)
-        # market header 
+        # market header
         self.market_header_label = tk.Label(market_container, text="...", font=("Arial", 14), bg="white", fg="#3b82f6")
         self.market_header_label.grid(row=0, column=1, sticky="e", padx=(10, 0), pady=(0, 10))
 
         separator = tk.Frame(market_container, height=2, bg="#3b82f6", bd=0)
-        separator.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        separator.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
 
         #we will put the dynamic changing ui within this frame. (the same pattern for the following three big frames)
         self.market_inner = tk.Frame(market_container, bg="#f9f9f9")
-        self.market_inner.grid(row=2, column=0, sticky="nsew")
+        self.market_inner.grid(row=2, column=0, columnspan=2, sticky="nsew")
+
+        #button bar beneath the quotes: contract + expiry side by side, so they no
+        #longer crowd the quote area or sit on stray market_frame rows.
+        button_bar = tk.Frame(market_container, bg="white")
+        button_bar.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        tk.Button(button_bar, text="Pick a Contract", command=self.open_contract_picker).grid(row=0, column=0, padx=(0, 8))
+        tk.Button(button_bar, text="Expiry", command=self.open_expiry_picker).grid(row=0, column=1)
 
 
         #Submit frame
@@ -377,22 +394,26 @@ class T4_GUI(tk.Tk):
 
         # Container for alignment
         box_container = tk.Frame(self.market_inner, bg="white")
-        box_container.pack(expand=True, fill="x", pady=10)
+        box_container.pack(expand=True, fill="both", pady=6)
 
-        # Set up a 3-column grid layout
+        # Set up a 3-column grid layout (equal widths so the boxes share the frame
+        # evenly and never overflow it).
         box_container.columnconfigure(0, weight=1)
         box_container.columnconfigure(1, weight=1)
         box_container.columnconfigure(2, weight=1)
+        box_container.rowconfigure(0, weight=1)
 
         def create_box(parent, col, title, qty, price, color):
-            box = tk.Frame(parent, bg="white", bd=1, relief="solid", padx=20, pady=15)
-            box.grid(row=0, column=col, padx=20, sticky="nsew")
+            # Tight padding + a smaller price font keep three boxes readable inside
+            # the narrow Market Data frame (it can't grow — Submit sits beside it).
+            box = tk.Frame(parent, bg="white", bd=1, relief="solid", padx=8, pady=8)
+            box.grid(row=0, column=col, padx=6, sticky="nsew")
 
-            tk.Label(box, text=title, font=("Arial", 12, "bold"), bg="white").pack()
+            tk.Label(box, text=title, font=("Arial", 11, "bold"), bg="white").pack()
             tk.Label(
                 box,
                 text=f"{qty}@{price}",
-                font=("Arial", 18, "bold"),
+                font=("Arial", 14, "bold"),
                 fg=color,
                 bg="white"
             ).pack()
@@ -444,6 +465,96 @@ class T4_GUI(tk.Tk):
     #opens the expirty dialog
     def open_expiry_picker(self):
         Expiry_Picker_Dialog(master=self.root, client=self.client)
+
+    #opens the walk-forward portfolio study results viewer. Imported lazily and
+    #guarded so a missing matplotlib (or the sibling algo-py package) disables the
+    #feature gracefully instead of breaking the whole GUI — same pattern as
+    #main.py::_start_chart.
+    def open_portfolio_study(self):
+        try:
+            from study.study_window import PortfolioStudyWindow
+        except Exception as exc:  # noqa: BLE001
+            from tkinter import messagebox
+            messagebox.showerror(
+                "Portfolio Study unavailable",
+                f"Could not open the study viewer: {exc}\n\n"
+                "It needs matplotlib installed (pip install matplotlib) and the "
+                "algo-py research package alongside PyDemo.",
+            )
+            return
+        PortfolioStudyWindow(self.root, self.client)
+
+    #opens the single-instrument backtester. Same guarded lazy import as the
+    #portfolio study so a missing matplotlib / algo-py package degrades to a
+    #dialog instead of breaking the GUI.
+    def open_backtester(self):
+        try:
+            from backtest.backtest_window import BacktestWindow
+        except Exception as exc:  # noqa: BLE001
+            from tkinter import messagebox
+            messagebox.showerror(
+                "Backtester unavailable",
+                f"Could not open the backtester: {exc}\n\n"
+                "It needs matplotlib installed (pip install matplotlib).",
+            )
+            return
+        BacktestWindow(self.root, self.client)
+
+    #opens the companion chart window (lightweight-charts) on demand. Previously
+    #launched at startup by main.py::_start_chart; now button-triggered. Builds the
+    #ChartWindow, chains its market/account callbacks onto the GUI's own handlers so
+    #the quote boxes and tables keep updating, exposes it as client.chart_window for
+    #the Backtester/Study, and schedules its async run(). Guarded lazy import like
+    #the other tool buttons; a re-open guard avoids spawning a second window.
+    def open_chart(self):
+        existing = getattr(self.client, "chart_window", None)
+        if existing is not None and existing._chart_live():
+            return  # a chart window is already open
+
+        try:
+            from chart.chart_window import ChartWindow
+        except Exception as exc:  # noqa: BLE001
+            from tkinter import messagebox
+            messagebox.showerror(
+                "Chart unavailable",
+                f"Could not open the chart: {exc}\n\n"
+                "It needs lightweight-charts installed (pip install lightweight-charts).",
+            )
+            return
+
+        config = getattr(self.client, "config", {}) or {}
+        chart_cfg = config.get("chart", {}) if isinstance(config, dict) else {}
+
+        loop = self.loop or asyncio.get_event_loop()
+        cw = ChartWindow(
+            self.client, loop,
+            default_interval_seconds=chart_cfg.get("interval_seconds", 60),
+            initial_load_days=chart_cfg.get("initial_load_days", 2),
+            tz_offset_hours=chart_cfg.get("tz_offset_hours", 0.0),
+            target_bars=chart_cfg.get("target_bars", 500),
+            max_load_days=chart_cfg.get("max_load_days", 120),
+            chunk_days=chart_cfg.get("chunk_days", 1),
+            scroll_buffer_days=chart_cfg.get("scroll_buffer_days", 1.0),
+            history_floor=chart_cfg.get("history_floor", "2000-01-01"),
+        )
+
+        # Chain onto the GUI's OWN handlers (not the current client callbacks) so
+        # re-opening after a close never stacks wrappers — each open rebuilds the
+        # chain from a single, known base.
+        def _mkt(data, _gui=self.update_market_ui, _cw=cw):
+            _gui(data)
+            _cw.on_market_update(data)
+
+        def _acct(data, _gui=self.handle_account_update, _cw=cw):
+            _gui(data)
+            _cw.on_account_update(data)
+
+        self.client.on_market_update = _mkt
+        self.client.on_account_update = _acct
+        # Expose the chart window so other tools (Backtester / Study) can read its
+        # already-loaded bars without refetching.
+        self.client.chart_window = cw
+        asyncio.ensure_future(cw.run(), loop=loop)
 
     async def on_submit_order(self):
         print("Market ID:", self.client.current_market_id)

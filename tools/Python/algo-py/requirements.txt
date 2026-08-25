@@ -1,0 +1,14 @@
+# Research study (research/) — backtest + report
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.7
+# Free, real OHLCV for `--source yahoo` (research only; the live bridge and the
+# csv/t4 paths don't need it).
+yfinance>=0.2
+# Cointegration test (Engle-Granger) for the market-neutral pairs study.
+statsmodels>=0.14
+# The research module also needs the T4 chart client `t4login`. Install the
+# decoder package in editable mode (it has its own pyproject.toml). It lives
+# next to this folder under tools/Python/:
+#   pip install -e ../t4-Python-api
+# (path is relative to this algo-py/ folder)

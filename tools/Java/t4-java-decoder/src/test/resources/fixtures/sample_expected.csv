@@ -1,0 +1,6 @@
+type,market_id,trade_date,time,close_time,open,high,low,close,volume,volume_at_bid,volume_at_offer,trades,trades_at_bid,trades_at_offer,numerator,denominator,price_code,tick_value,vpt,min_cab_price,mode,settlement_price,held,open_interest
+market_definition,ESM25,,,,,,,,,,,,,,1,4,0.25,12.5,,,,,,
+bar,ESM25,2022-09-28 22:13:20.000,2022-09-29 01:00:00.000,2022-09-29 01:01:00.000,5000.250000000000000000,5005.500000000000000000,4998.000000000000000000,5003.750000000000000000,100,50,50,10,5,5,,,,,,,,,,
+mode_change,ESM25,2022-09-28 22:13:20.000,2022-09-29 03:46:40.000,,,,,,,,,,,,,,,,,,2,,,
+settlement,ESM25,2022-09-28 22:13:20.000,2022-09-29 06:33:20.000,,,,,,,,,,,,,,,,,,,5010.000000000000000000,true,
+open_interest,ESM25,2022-09-28 22:13:20.000,2022-09-29 09:20:00.000,,,,,,,,,,,,,,,,,,,,,42000

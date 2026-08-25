@@ -1,0 +1,40 @@
+[package]
+name = "t4demo"
+version = "0.1.0"
+edition = "2021"
+description = "T4 API demo (egui GUI): login, market data, charts, and order entry."
+license = "MIT"
+
+[dependencies]
+# GUI
+eframe = "0.29"
+egui = "0.29"
+egui_plot = "0.29"
+
+# Async runtime + networking
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+# native-tls (SChannel on Windows) avoids OpenSSL and the `ring` C/asm build,
+# which is the reliable choice on the windows-gnu toolchain used on this box.
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", features = ["json"] } # default-tls = native-tls
+
+# Protobuf runtime (types generated in build.rs)
+prost = "0.13"
+prost-types = "0.13"
+
+# Config + misc
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Reused chart-bar decoder (dependency-free core; no `client` feature).
+t4decoder = { path = "../t4-Rust-api" }
+
+[build-dependencies]
+# Pure-Rust proto compilation — no external `protoc` needed.
+prost-build = "0.13"
+protox = "0.7"

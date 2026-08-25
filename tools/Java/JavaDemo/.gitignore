@@ -1,0 +1,9 @@
+.gradle/
+build/
+out/
+*.class
+.idea/
+*.iml
+
+# Local credentials — never commit
+config.json

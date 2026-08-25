@@ -28,6 +28,7 @@ class T4APIClient {
         this.loginResponse = null;
         this.accounts = new Map();
         this.selectedAccount = null;
+        this.subscribedAccounts = new Set(); // accounts with an active AccountSubscribe
 
         // JWT token management
         this.jwtToken = null;
@@ -43,11 +44,16 @@ class T4APIClient {
 
         // Market subscription type used by subscribeMarket(). One of the keys of
         // T4APIClient.SubscriptionTypes. Change it via setSubscriptionType().
-        this.subscriptionType = 'slow_smart';
+        this.subscriptionType = 'smart';
 
         // Order/Position tracking
         this.positions = new Map();
         this.orders = new Map();
+        // Session trade blotter: each executed fill (OrderUpdateTrade) is pushed
+        // here as the same payload handed to onFill. Live-session only — T4 has
+        // no historical-fills backfill on connect. Capped to bound memory.
+        this.fills = [];
+        this.maxFills = 500;
         this.accountProfits = new Map();
         this.accountUpdates = new Map();
         this.accountDetailsCount = 0;
@@ -61,10 +67,33 @@ class T4APIClient {
         this.onAccountUpdate = null;
         this.onMarketHeaderUpdate = null;
         this.onMarketUpdate = null;
+        this.onTrade = null;
+        // Fan-out for the trade-history blotter. Receives the full this.fills
+        // array on every new fill. Independent of onFill (which the chart's
+        // FillMarkers owns) so the two consumers never contend.
+        this.onFillsUpdate = null;
+        // Fan-out for full market-depth snapshots (bids/offers arrays), used by
+        // the chart's DOM liquidity heatmap. Optional; null when unused. Mirrors
+        // onTrade — receives the raw decoded `marketDepth` message.
+        this.onDepth = null;
+        this.onMarketChanged = null;
         this.onMessageSent = null;
         this.onMessageReceived = null;
         this.onError = null;
         this.onLog = null;
+        // Fan-out for atomic batch results. Receives { status: 'acknowledged' |
+        // 'rejected', batchId, ack?, reject?, batch? } so the batch UI can clear
+        // or flag the offending rows. Optional; null when unused.
+        this.onBatchUpdate = null;
+
+        // In-flight OrderBatch submissions keyed by client batch_id, so the
+        // ack/reject handlers can correlate the server response to the rows that
+        // were sent. Populated by submitBatch, cleared on ack/reject.
+        this.pendingBatches = new Map();
+
+        // Resolvers awaiting the next AccountSubscribeResponse, so a subscribe issued
+        // before a batch can be confirmed before the orders are sent.
+        this._subscribeWaiters = [];
 
         // Connection retry
         this.reconnectAttempts = 0;
@@ -153,6 +182,7 @@ class T4APIClient {
                     uplMode: 0
                 }
             });
+            this.subscribedAccounts.delete(this.selectedAccount);
         }
 
         this.selectedAccount = accountId;
@@ -166,14 +196,45 @@ class T4APIClient {
                     uplMode: 1
                 }
             });
+            this.subscribedAccounts.add(accountId);
             this.log(`Subscribed to account: ${accountId}`, 'info');
         }
+    }
+
+    // Subscribe to any accounts not already subscribed, in a single AccountSubscribe.
+    // Used before a multi-account batch so the server doesn't reject "not subscribed".
+    async ensureAccountsSubscribed(accountIds) {
+        if (this.config.autoSubscribeAccounts) return; // all accounts already subscribed
+        const missing = [...new Set(accountIds)]
+            .filter(Boolean)
+            .filter(id => !this.subscribedAccounts.has(id));
+        if (missing.length === 0) return;
+
+        const ack = this._awaitNextSubscribeResponse(); // resolve on server ack
+        await this.sendMessage({
+            accountSubscribe: {
+                subscribe: 2,               // ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES
+                subscribeAllAccounts: false,
+                accountId: missing,
+                uplMode: 1                  // UPL_MODE_AVERAGE
+            }
+        });
+        missing.forEach(id => this.subscribedAccounts.add(id));
+        this.log(`Subscribed to accounts for batch: ${missing.join(', ')}`, 'info');
+        await ack; // ensure the server has registered the subscription before we submit
+    }
+
+    _awaitNextSubscribeResponse(timeoutMs = 3000) {
+        return new Promise(resolve => {
+            this._subscribeWaiters.push(resolve);
+            setTimeout(() => resolve(null), timeoutMs); // fall through on message-order guarantee
+        });
     }
 
     // Returns the descriptor for a subscription type key, falling back to the
     // default type when the key is unknown.
     getSubscriptionTypeInfo(type) {
-        return T4APIClient.SubscriptionTypes[type] || T4APIClient.SubscriptionTypes['slow_smart'];
+        return T4APIClient.SubscriptionTypes[type] || T4APIClient.SubscriptionTypes['smart'];
     }
 
     // Changes the market subscription type. If a market is currently subscribed,
@@ -250,6 +311,10 @@ class T4APIClient {
         this.currentSubscription = { exchangeId, contractId, marketId, type: info.key };
         this.currentMarketId = marketId;
 
+        if (this.onMarketChanged) {
+            this.onMarketChanged({ marketId, contractId, exchangeId });
+        }
+
         if (info.mbo) {
             await this.sendMessage({
                 marketByOrderSubscribe: {
@@ -266,7 +331,16 @@ class T4APIClient {
                     contractId,
                     marketId,
                     buffer: info.buffer,
-                    depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_BEST_ONLY
+                    // ALL = full book, feeding the chart's DOM liquidity heatmap so
+                    // deep walls are visible, not just the inside ~10 levels. The
+                    // Market Data panel still only reads [0] (best bid/offer), so it
+                    // is unaffected. Heavier bandwidth than NORMAL, but the heatmap's
+                    // per-frame cost is bounded client-side: DepthSnapshotBuffer's
+                    // `maxLevelsPerSide` caps how many levels are captured/painted
+                    // (set at the feature registration in index.html), and
+                    // `minIntervalMs` throttles snapshot capture. Tune those rather
+                    // than this subscription so other consumers keep the full book.
+                    depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_ALL
                 }
             });
         }
@@ -281,17 +355,28 @@ class T4APIClient {
         this.startHeartbeat();
     }
 
-    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars') {
-        if (!this.selectedAccount || !this.currentMarketId) {
+    // Build a single OrderSubmit (entry order + optional TP/SL bracket) for the
+    // given account/market. Shared by submitOrder (single send) and submitBatch
+    // (atomic multi-submission). Returns { submission, info }; info carries the
+    // derived values submitOrder needs for its log lines.
+    buildOrderSubmit({ accountId, marketId, side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars' }) {
+        if (!accountId || !marketId) {
             throw new Error('No account or market selected');
         }
 
-        const marketDetails = this.getMarketDetails(this.currentMarketId);
+        const marketDetails = this.getMarketDetails(marketId);
+        if (!marketDetails) {
+            throw new Error(`No market details available for ${marketId}`);
+        }
 
-        // Convert string price type to enum value
-        const priceTypeValue = priceType.toLowerCase() === 'market'
-            ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET  // 0
-            : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;  // 1
+        // Convert string price type to enum value.
+        // 'market' -> MARKET, 'stop' -> STOP_MARKET (stop-market entry), else LIMIT.
+        const ptLower = (typeof priceType === 'string' ? priceType : 'limit').toLowerCase();
+        const priceTypeValue = ptLower === 'market'
+            ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET       // 0
+            : ptLower === 'stop'
+                ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
+                : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;       // 1
 
         // Convert buy/sell string to enum value
         const buySellValue = typeof side === 'string'
@@ -303,25 +388,16 @@ class T4APIClient {
         // Determine if we need OCO order linking
         const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
 
-        // Use AUTO_OCO for dollar-distance mode, AUTO_OCO_P for absolute price mode
+        // Dollars mode sends raw offsets (AUTO_OCO); Price mode sends absolute child
+        // prices (AUTO_OCO_P). Keeps the "$" bracket a true AOCO order in all cases.
+        const useAbsoluteBracket = bracketMode === 'price';
+
+        // AUTO_OCO_P carries absolute child prices; AUTO_OCO carries raw offsets.
         const orderLinkValue = hasBracketOrders
-            ? (bracketMode === 'price'
-                ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO_P  // 3
-                : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)   // 2
-            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;           // 0
-
-        // Get current time in CST
-        const now = new Date();
-        const cstOffset = -6 * 60; // CST is UTC-6 (or -5 for CDT, adjust as needed)
-        const localOffset = now.getTimezoneOffset();
-        const cstTime = new Date(now.getTime() + (localOffset - cstOffset) * 60000);
-
-        // Add 10 seconds
-        const submitTime = new Date(cstTime.getTime() + 10000);
-
-        // Convert to protobuf Timestamp format
-        const seconds = Math.floor(submitTime.getTime() / 1000);
-        const nanos = (submitTime.getTime() % 1000) * 1000000;
+            ? (useAbsoluteBracket
+                ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO_P
+                : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)
+            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;
 
         // Create orders array with main order first
         const orders = [{
@@ -329,8 +405,11 @@ class T4APIClient {
             priceType: priceTypeValue,
             timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
             volume: volume,
-            // Only set limit price if it's a limit order
+            // Limit/stop price set only when the order type requires it.
             limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
+                ? { value: price.toString() }
+                : null,
+            stopPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET
                 ? { value: price.toString() }
                 : null,
         }];
@@ -342,6 +421,7 @@ class T4APIClient {
 
         // Select the correct decimals based on price format:
         // 0 = Decimal format (use decimals), 1 = Real format (use realDecimals)
+        // Still needed for trailing-stop trailDistance formatting below.
         const priceDecimals = (this.config.priceFormat === 0)
             ? marketDetails.decimals
             : marketDetails.realDecimals;
@@ -355,16 +435,11 @@ class T4APIClient {
                 // AOCO_P mode: user provides absolute price directly
                 takeProfitLimitPrice = takeProfitDollars; // In price mode, the value IS the absolute price
             } else {
-                // Dollar mode: calc distance from entry price
-                let takeProfitPoints = (Math.abs(takeProfitDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
-
-                // Buy main order: TP is above fill (add), Sell main order: TP is below fill (subtract)
-                takeProfitPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
-                    ? takeProfitPoints
-                    : -takeProfitPoints;
-
-                // AOCO uses distance in price
-                takeProfitLimitPrice = takeProfitPoints;
+                // Dollars mode: convert the $ P&L into a price offset off the fill —
+                // (|$|/volume)/pointValue/(10**decimals) — then sign per side.
+                // AUTO_OCO applies the offset at fill. Buy: TP above (+); Sell: TP below (−).
+                let tpOffset = (Math.abs(takeProfitDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+                takeProfitLimitPrice = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? tpOffset : -tpOffset;
             }
 
             orders.push({
@@ -386,16 +461,11 @@ class T4APIClient {
                 // AOCO_P mode: user provides absolute price directly
                 stopLossStopPrice = stopLossDollars; // In price mode, the value IS the absolute price
             } else {
-                // Dollar mode: calc distance from entry price
-                let stopLossPoints = (Math.abs(stopLossDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
-
-                // Buy main order: SL is below fill (-), Sell main order: SL is above fill (+)
-                stopLossPoints = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY)
-                    ? - stopLossPoints
-                    : + stopLossPoints;
-
-                // AOCO uses distance in price
-                stopLossStopPrice = stopLossPoints;
+                // Dollars mode: convert the $ P&L into a price offset off the fill —
+                // (|$|/volume)/pointValue/(10**decimals) — then sign per side.
+                // Buy: SL below (−); Sell: SL above (+).
+                let slOffset = (Math.abs(stopLossDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
+                stopLossStopPrice = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? -slOffset : slOffset;
             }
 
             if (trailingStop) {
@@ -427,19 +497,37 @@ class T4APIClient {
             }
         }
 
-        // Create the order submit message
-        const orderSubmit = {
-            orderSubmit: {
-                accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
-                orderLink: orderLinkValue,
-                manualOrderIndicator: true,
-                orders: orders
-            }
+        // Assemble the OrderSubmit. account/market come from the caller so a batch
+        // can target multiple accounts/markets in one atomic submission.
+        const submission = {
+            accountId,
+            marketId,
+            orderLink: orderLinkValue,
+            manualOrderIndicator: true,
+            orders: orders
         };
 
+        return {
+            submission,
+            info: { buySellValue, priceTypeValue, protectionSide, hasBracketOrders }
+        };
+    }
+
+    async submitOrder(side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars') {
+        if (!this.selectedAccount || !this.currentMarketId) {
+            throw new Error('No account or market selected');
+        }
+
+        const { submission, info } = this.buildOrderSubmit({
+            accountId: this.selectedAccount,
+            marketId: this.currentMarketId,
+            side, volume, price, priceType,
+            takeProfitDollars, stopLossDollars, trailingStop, bracketMode
+        });
+        const { buySellValue, priceTypeValue, protectionSide, hasBracketOrders } = info;
+
         // Send the order
-        await this.sendMessage(orderSubmit);
+        await this.sendMessage({ orderSubmit: submission });
 
         // Log order details
         const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
@@ -463,15 +551,182 @@ class T4APIClient {
         }
     }
 
+    // Submit an atomic batch of orders (proto OrderBatch). `rows` is an array of
+    // order specs; each row accepts the same fields as submitOrder plus optional
+    // per-row accountId/marketId, so one batch can span accounts/markets (i.e. a
+    // multi-user batch). The server validates all submissions together: if any
+    // fails, none are submitted (OrderBatchReject); otherwise OrderBatchAcknowledge
+    // arrives and each order then proceeds via the normal OrderUpdate stream.
+    async submitBatch(rows, batchId = null) {
+        if (!Array.isArray(rows) || rows.length === 0) {
+            throw new Error('submitBatch: no orders provided');
+        }
+
+        // Build every submission first; a builder throw (bad market, etc.) aborts
+        // the whole batch before anything is sent, mirroring the atomic semantics.
+        const submissions = rows.map((row, i) => {
+            try {
+                // OCO rows carry independent legs and link via ORDER_LINK_OCO; flat /
+                // AOCO-bracket rows go through buildOrderSubmit. Either way the result
+                // is a plain OrderSubmit, so a batch can mix all three atomically.
+                if (row.isOco) {
+                    const { submission } = this.buildOcoSubmit(
+                        row.legs,
+                        row.accountId || this.selectedAccount,
+                        row.marketId || this.currentMarketId
+                    );
+                    return submission;
+                }
+                const { submission } = this.buildOrderSubmit({
+                    accountId: row.accountId || this.selectedAccount,
+                    marketId: row.marketId || this.currentMarketId,
+                    side: row.side,
+                    volume: row.volume,
+                    price: row.price,
+                    priceType: row.priceType || 'limit',
+                    takeProfitDollars: row.takeProfitDollars ?? null,
+                    stopLossDollars: row.stopLossDollars ?? null,
+                    trailingStop: row.trailingStop ?? false,
+                    bracketMode: row.bracketMode || 'dollars'
+                });
+                return submission;
+            } catch (e) {
+                throw new Error(`Batch row ${i + 1}: ${e.message}`);
+            }
+        });
+
+        // Every account referenced by the batch must be subscribed or the server
+        // rejects the whole batch ("Account … is not subscribed"). In per-account
+        // mode only the selected account is subscribed, so subscribe the rest first.
+        const accts = rows.map(r => r.accountId || this.selectedAccount);
+        await this.ensureAccountsSubscribed(accts);
+
+        // Always send a client batch_id so the ack/reject (which echoes it) can be
+        // correlated back to these rows. Kept simple and unique per session.
+        const id = batchId || `b-${Date.now()}-${this.pendingBatches.size}`;
+        const cleanupTimer = setTimeout(() => this.pendingBatches.delete(id), 60_000);
+        this.pendingBatches.set(id, { rows, submissions, sentAt: Date.now(), cleanupTimer });
+
+        await this.sendMessage({ orderBatch: { batchId: id, submissions } });
+
+        this.log(`Batch submitted: ${submissions.length} order(s), batchId ${id}`, 'info');
+        return id;
+    }
+
+    // Build a true-OCO OrderSubmit (One-Cancels-Other): two or more independent,
+    // simultaneously-working orders linked by ORDER_LINK_OCO. Whichever fills first
+    // cancels the rest. Unlike the AUTO_OCO brackets in buildOrderSubmit(), each leg
+    // carries its own real volume and is live immediately (no ACTIVATION_TYPE_HOLD /
+    // parent entry). account/market come from the caller so a batch can target
+    // multiple accounts/markets. Returns { submission } (same shape as buildOrderSubmit).
+    //
+    // legs: array of { side, priceType, price, volume }
+    //   side:      'buy'|'sell' or 1/-1
+    //   priceType: 'limit'|'market'|'stop'
+    //   price:     absolute price (ignored for market legs)
+    //   volume:    per-leg quantity
+    buildOcoSubmit(legs, accountId, marketId) {
+        if (!accountId || !marketId) {
+            throw new Error('No account or market selected');
+        }
+        if (!Array.isArray(legs) || legs.length < 2) {
+            throw new Error('OCO requires at least two legs');
+        }
+
+        const orders = legs.map((leg, i) => {
+            // Convert string price type to enum value (same mapping as buildOrderSubmit).
+            const ptLower = (typeof leg.priceType === 'string' ? leg.priceType : 'limit').toLowerCase();
+            const priceTypeValue = ptLower === 'market'
+                ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET       // 0
+                : ptLower === 'stop'
+                    ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
+                    : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;       // 1
+
+            // Validate before building: an unvalidated leg would otherwise send a
+            // "NaN" price/volume string to the server. Limit/stop legs need a price;
+            // market legs don't. Every leg needs a positive integer volume.
+            const volume = Number(leg.volume);
+            if (!Number.isFinite(volume) || volume < 1) {
+                throw new Error(`Leg ${i + 1}: volume must be a positive integer`);
+            }
+            const needsPrice = priceTypeValue !== T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET;
+            if (needsPrice && !Number.isFinite(Number(leg.price))) {
+                throw new Error(`Leg ${i + 1}: ${ptLower} leg needs a price`);
+            }
+
+            // Convert buy/sell string or number to enum value (same as buildOrderSubmit).
+            const buySellValue = typeof leg.side === 'string'
+                ? (leg.side.toLowerCase() === 'buy'
+                    ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY    // 1
+                    : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL)  // -1
+                : (leg.side === 1
+                    ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY
+                    : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL);
+
+            return {
+                buySell: buySellValue,
+                priceType: priceTypeValue,
+                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
+                volume: volume,
+                // Limit/stop price set only when the order type requires it.
+                limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
+                    ? { value: Number(leg.price).toString() }
+                    : null,
+                stopPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET
+                    ? { value: Number(leg.price).toString() }
+                    : null,
+                // No activationType: both legs are live working orders immediately.
+            };
+        });
+
+        const submission = {
+            accountId,
+            marketId,
+            orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_OCO, // 1
+            manualOrderIndicator: true,
+            orders: orders
+        };
+
+        return { submission };
+    }
+
+    // Build + send a single true-OCO submission for the selected account/market.
+    // Shared build logic lives in buildOcoSubmit (also used by submitBatch).
+    async submitOcoOrder(legs) {
+        if (!this.selectedAccount || !this.currentMarketId) {
+            throw new Error('No account or market selected');
+        }
+
+        const { submission } = this.buildOcoSubmit(legs, this.selectedAccount, this.currentMarketId);
+        await this.sendMessage({ orderSubmit: submission });
+
+        this.log(`OCO order submitted: ${legs.length} legs (one-cancels-other)`, 'info');
+        legs.forEach((leg, i) => {
+            const sideText = submission.orders[i].buySell === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+            const ptLower = (typeof leg.priceType === 'string' ? leg.priceType : 'limit').toLowerCase();
+            const priceText = ptLower === 'market' ? 'Market' : leg.price;
+            this.log(`  Leg ${i + 1}: ${sideText} ${leg.volume} @ ${priceText} (${ptLower})`, 'info');
+        });
+    }
+
     async pullOrder(orderId) {
         if (!this.selectedAccount) {
             throw new Error('No account selected');
         }
 
+        // Use the order's own market (falling back to the current market) so a cancel
+        // still works after a mid-session market switch — orders carry marketId (see
+        // handleOrderUpdate). Sending a null marketId makes the server silently reject.
+        const order = this.orders.get(orderId);
+        const marketId = order?.marketId || this.currentMarketId;
+        if (!marketId) {
+            throw new Error('No market selected');
+        }
+
         const orderPull = {
             orderPull: {
                 accountId: this.selectedAccount,
-                marketId: this.currentMarketId,
+                marketId: marketId,
                 manualOrderIndicator: true,
                 pulls: [{
                     uniqueId: orderId
@@ -487,6 +742,15 @@ class T4APIClient {
 async reviseOrder(orderId, volume, price, priceType = 'limit') {
     if (!this.selectedAccount) {
         throw new Error('No account selected');
+    }
+
+    // Source-of-truth guard for every caller (dialog + chart-drag revise): a non-finite
+    // volume/price would otherwise be sent as "NaN" (Number(NaN).toFixed() === "NaN").
+    if (!Number.isFinite(Number(volume)) || Number(volume) < 1) {
+        throw new Error('Revise: volume must be a positive integer');
+    }
+    if (!Number.isFinite(Number(price))) {
+        throw new Error('Revise: price must be a number');
     }
 
     const isStop = priceType === 'stop';
@@ -530,6 +794,9 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         if (!accountId) {
             throw new Error('No account specified for flatten');
         }
+        if (!marketId) {
+            throw new Error('No market specified for flatten');
+        }
 
         if (netPosition === 0) {
             this.log('Flatten: net position is already zero', 'warning');
@@ -569,23 +836,6 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
         try {
             const message = this.decodeMessage(new Uint8Array(event.data));
-
-
-            // Messages to exclude from logging
-            const excludeFromLogging = ['heartbeat', 'marketDepth', 'marketByOrderUpdate', 'marketByOrderTrade', 'accountUpdate', 'accountPosition'];
-
-            // Check if message should be logged
-            const messageType = Object.keys(message)[0];
-            var shouldLog = !excludeFromLogging.includes(messageType);
-
-            // TEMP: Disable message logging.
-            shouldLog = false;
-
-            // Log message received.
-            if (shouldLog) {
-                this.log(`RECEIVED: ${JSON.stringify(message, null, 2)}`, 'received');
-            }
-
 
             if (this.onMessageReceived) {
                 this.onMessageReceived(message);
@@ -682,6 +932,10 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             this.handleAccountSnapshot(message.accountSnapshot);
         } else if (message.orderUpdateMulti) {
             this.handleOrderUpdateMulti(message.orderUpdateMulti);
+        } else if (message.orderBatchAcknowledge) {
+            this.handleOrderBatchAcknowledge(message.orderBatchAcknowledge);
+        } else if (message.orderBatchReject) {
+            this.handleOrderBatchReject(message.orderBatchReject);
         } else if (message.authenticationToken) {
             this.handleAuthenticationToken(message.authenticationToken);
         } else if (message.marketSnapshot) {
@@ -690,10 +944,24 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             this.handleMarketDetails(message.marketDetails);
         } else if (message.heartbeat) {
             // Heartbeat received, connection is healthy
+        } else if (message.marketHighLow) {
+            // Periodic high/low ticks; we don't surface them in the demo UI yet.
+            // Stored for future use (e.g. HoD/LoD lines on the chart).
+            this.handleMarketHighLow(message.marketHighLow);
+        } else if (message.marketPriceLimits) {
+            // Daily price limits broadcast; not displayed yet.
+        } else if (message.marketSettlement) {
+            // Daily settlement; not displayed yet.
         } else {
             const messageType = Object.keys(message)[0] || 'unknown';
             this.log(`Server message not handled: ${messageType}`, 'error');
         }
+    }
+
+    handleMarketHighLow(highLow) {
+        if (!highLow || !highLow.marketId) return;
+        if (!this.marketHighLows) this.marketHighLows = new Map();
+        this.marketHighLows.set(highLow.marketId, highLow);
     }
 
     handleLoginResponse(response) {
@@ -813,8 +1081,11 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         if (response.success) {
             this.log('Account subscribe: Success', 'info');
         } else {
-            this.log(`Account subscribe failed: ${response.errors.join(', ')}`, 'error');
+            this.log(`Account subscribe failed: ${(response.errors || []).join(', ')}`, 'error');
         }
+        const waiters = this._subscribeWaiters;
+        this._subscribeWaiters = [];
+        waiters.forEach(w => w(response));
     }
 
     handleAccountDetails(details) {
@@ -912,10 +1183,6 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             marketInfo = ` (Bid: ${bestBid}, Offer: ${bestOffer}, Last: ${lastTrade})`;
         }
 
-        // Log P&L values with market ID and market info
-        // this.log(`Position P&L update - Market: ${positionProfit.marketId}${marketInfo}, UPL: ${positionProfit.uplTrade}, RPL: ${positionProfit.rpl}, Total P&L: ${positionProfit.uplTrade + positionProfit.rpl}`,
-        //     'info');
-
         if (this.onAccountUpdate) {
             this.onAccountUpdate({
                 type: 'positions',
@@ -950,9 +1217,26 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     handleMarketDepth(depth) {
         this.marketSnapshots.set(depth.marketId, depth);
 
+        // Fan the full book out to the chart heatmap (if wired). Defensive: a
+        // throwing consumer must not break depth processing for the panel.
+        if (this.onDepth) {
+            try { this.onDepth(depth); } catch (err) { this.log(`onDepth handler threw: ${err?.stack || err?.message || err}`, 'error'); }
+        }
+
         const marketDetails = this.getMarketDetails(depth.marketId);
         if (marketDetails && marketDetails.contractId && marketDetails.expiryDate) {
             this.updateMarketHeader(marketDetails.contractId, marketDetails.expiryDate);
+        }
+
+        // Most exchanges deliver trade prints inside marketDepth.tradeData rather
+        // than as standalone marketDepthTrade messages. Forward those too.
+        if (depth.tradeData && depth.tradeData.lastTradePrice && depth.tradeData.lastTradeVolume) {
+            this._emitTradeTick({
+                marketId: depth.marketId,
+                lastTradePrice: depth.tradeData.lastTradePrice,
+                lastTradeVolume: depth.tradeData.lastTradeVolume,
+                totalTradedVolume: depth.tradeData.totalTradedVolume
+            });
         }
 
         if (this.onMarketUpdate) {
@@ -970,10 +1254,62 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
 
     handleMarketDepthTrade(trade) {
-        const price = trade.lastTradePrice ? trade.lastTradePrice.value : '-';
-        const volume = trade.lastTradeVolume ?? '-';
-        const ttv = trade.totalTradedVolume ?? '-';
-        this.log(`Market Trade: ${trade.marketId} : ${volume} @ ${price}, TTV: ${ttv}`, 'info');
+        // Per-trade log disabled: on busy markets (ES/NQ) hundreds of prints/sec
+        // appended to the console panel forced enough synchronous layout reflows
+        // to starve the main thread, freezing the chart and bid/offer panel.
+        // The chart's candle stream and the market-data panel already show this.
+        this._emitTradeTick(trade);
+    }
+
+    // Scales price and dispatches onTrade. Dedupes by totalTradedVolume so the
+    // same print arriving via marketDepth.tradeData and marketDepthTrade is
+    // only emitted once per market.
+    _emitTradeTick(trade) {
+        if (!this.onTrade || !trade.lastTradePrice || !trade.lastTradeVolume) return;
+
+        const rawValue = Number(trade.lastTradePrice.value);
+        const tradeVolume = Number(trade.lastTradeVolume);
+        if (!Number.isFinite(rawValue) || !Number.isFinite(tradeVolume)) return;
+
+        const ttv = trade.totalTradedVolume != null ? Number(trade.totalTradedVolume) : null;
+        if (!this._lastTtvByMarket) this._lastTtvByMarket = new Map();
+        if (ttv != null) {
+            const prev = this._lastTtvByMarket.get(trade.marketId);
+            if (prev != null && ttv <= prev) return; // duplicate / stale
+            this._lastTtvByMarket.set(trade.marketId, ttv);
+        } else {
+            // Fallback dedup when TTV is absent: every marketDepth message
+            // carries a snapshot of the last trade, not necessarily a new one.
+            // Without this, every bid/ask change would re-emit the same print
+            // and re-paint the chart's last candle on every depth tick.
+            if (!this._lastTradeKeyByMarket) this._lastTradeKeyByMarket = new Map();
+            const key = `${rawValue}|${tradeVolume}`;
+            if (this._lastTradeKeyByMarket.get(trade.marketId) === key) return;
+            this._lastTradeKeyByMarket.set(trade.marketId, key);
+        }
+
+        const details = this.getMarketDetails(trade.marketId);
+        let priceDecimals = 2;
+        if (details) {
+            priceDecimals = (this.config.priceFormat === 0)
+                ? (details.decimals ?? 2)
+                : (details.realDecimals ?? 2);
+        }
+        // price.value is already the display price (the same value shown in the
+        // Market Data panel's Last Trade). marketDetails only tells us how many
+        // decimal places to format with — do NOT rescale the value here.
+        const displayPrice = rawValue;
+
+        this.onTrade({
+            marketId: trade.marketId,
+            time: Date.now(),
+            price: displayPrice,
+            rawPrice: rawValue,
+            volume: tradeVolume,
+            totalTradedVolume: ttv,
+            priceDecimals,
+            scaled: !!details
+        });
     }
 
     handleMarketByOrderSnapshot(snapshot) {
@@ -1138,6 +1474,47 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         }
     }
 
+    // Batch accepted: every submission passed validation. The individual orders
+    // still arrive afterward as normal OrderUpdate messages, so there's no order
+    // state to set up here — this is purely confirmation/correlation.
+    handleOrderBatchAcknowledge(ack) {
+        const pending = this.pendingBatches.get(ack.batchId);
+        const total = (ack.accepted || []).reduce((n, a) => n + (a.uniqueId?.length || 0), 0);
+        this.log(`Batch acknowledged: ${ack.batchId} — ${total} order(s) accepted`, 'info');
+
+        try {
+            if (this.onBatchUpdate) {
+                this.onBatchUpdate({ status: 'acknowledged', batchId: ack.batchId, ack, batch: pending });
+            }
+        } finally {
+            if (pending?.cleanupTimer) clearTimeout(pending.cleanupTimer);
+            this.pendingBatches.delete(ack.batchId);
+        }
+    }
+
+    // Batch rejected: at least one order failed validation, so NONE were submitted.
+    // No order state was created, so there's nothing to roll back — we just surface
+    // the per-order errors so the batch UI can flag the offending rows.
+    handleOrderBatchReject(reject) {
+        const pending = this.pendingBatches.get(reject.batchId);
+        this.log(`Batch rejected: ${reject.batchId} — ${reject.reason || 'validation failed'}`, 'error');
+        (reject.errors || []).forEach(err => {
+            const where = err.orderIndex === -1
+                ? `submission ${err.submissionIndex}`
+                : `submission ${err.submissionIndex}, order ${err.orderIndex}`;
+            this.log(`  ${where}: ${err.reason}`, 'error');
+        });
+
+        try {
+            if (this.onBatchUpdate) {
+                this.onBatchUpdate({ status: 'rejected', batchId: reject.batchId, reject, batch: pending });
+            }
+        } finally {
+            if (pending?.cleanupTimer) clearTimeout(pending.cleanupTimer);
+            this.pendingBatches.delete(reject.batchId);
+        }
+    }
+
     handleOrderUpdate(orderUpdate) {
         this.orders.set(orderUpdate.uniqueId, orderUpdate);
 
@@ -1290,6 +1667,40 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
         this.orders.set(tradeUpdate.uniqueId, updatedOrder);
         this.triggerOrdersUpdate();
+
+        // Fan out to a fill listener (chart markers, blotter, etc.). Defensive:
+        // proto field names for the matched price/volume vary; pass the raw
+        // tradeUpdate so the consumer can probe, and provide derived hints.
+        const buySell = updatedOrder.buySell ?? existingOrder.buySell;
+        const fill = {
+            uniqueId: tradeUpdate.uniqueId,
+            marketId: tradeUpdate.marketId,
+            accountId: updatedOrder.accountId,
+            side: buySell === 1 ? 1 : (buySell === -1 ? -1 : null),
+            time: tradeUpdate.time ?? tradeUpdate.exchangeTime ?? null,
+            raw: tradeUpdate
+        };
+
+        if (this.onFill) {
+            try {
+                this.onFill(fill);
+            } catch (err) {
+                this.log(`onFill handler threw: ${err?.message || err}`, 'error');
+            }
+        }
+
+        // Record on the session blotter and notify the trade-history panel.
+        this.fills.push(fill);
+        if (this.fills.length > this.maxFills) {
+            this.fills.splice(0, this.fills.length - this.maxFills);
+        }
+        if (this.onFillsUpdate) {
+            try {
+                this.onFillsUpdate(this.fills.slice());
+            } catch (err) {
+                this.log(`onFillsUpdate handler threw: ${err?.message || err}`, 'error');
+            }
+        }
     }
 
     handleOrderUpdateTradeLeg(tradeLegUpdate) {
@@ -1478,6 +1889,287 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
         } catch (error) {
             this.log(`Error getting market ID: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+
+    // Historical bar chart data. Returns the full parsed Chart API JSON
+    // (caller usually wants .bars). Times in the response are CST wall-clock.
+    // Prices are raw integer strings; scale with marketDetails.decimals.
+    async getBarChart(exchangeId, contractId, marketId, {
+        barInterval,      // 'Second' | 'Minute' | 'Hour' | 'Day' | 'Week' | 'Tick' | 'TickRange' | 'Volume'
+        barPeriod,        // positive int
+        tradeDateStart,   // ISO 'YYYY-MM-DDTHH:mm:ss'
+        tradeDateEnd      // ISO 'YYYY-MM-DDTHH:mm:ss'
+    }) {
+        try {
+            const headers = { 'Content-Type': 'application/json' };
+
+            if (this.config.apiKey) {
+                headers['Authorization'] = `APIKey ${this.config.apiKey}`;
+            } else {
+                const token = await this.getAuthToken();
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+            }
+
+            const params = new URLSearchParams({
+                exchangeId,
+                contractId,
+                chartType: 'Bar',
+                barInterval,
+                barPeriod: String(barPeriod),
+                tradeDateStart,
+                tradeDateEnd
+            });
+            if (marketId) params.set('marketID', marketId);
+
+            const response = await fetch(
+                `${this.config.apiUrl}/chart/barchart?${params.toString()}`,
+                { headers }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const barCount = Array.isArray(data?.bars) ? data.bars.length : 0;
+            this.log(`Bar chart retrieved: ${barCount} bars for ${marketId || `${exchangeId}/${contractId}`}`, 'info');
+            return data;
+
+        } catch (error) {
+            this.log(`Error getting bar chart: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+
+    /**
+     * Fetch the aggregated barchart in T4BinAggr binary form and decode it with
+     * the ported chart-data decoder (window.T4ChartDecoder). Prices are scaled
+     * correctly by the decoder's MarketDefinition/Price logic, so no client-side
+     * calibration is needed.
+     *
+     * @returns {Promise<Array<{
+     *   timeIso: string, open: number, high: number, low: number,
+     *   close: number, volume: number, volumeAtBid: number,
+     *   volumeAtOffer: number, trades: number }>>}
+     */
+    async getBarChartBinary(exchangeId, contractId, marketId, {
+        barInterval,
+        barPeriod,
+        tradeDateStart,
+        tradeDateEnd,
+        maxAttempts: maxAttemptsOpt,
+        warmOnly = false
+    }) {
+        const decoder = (typeof window !== 'undefined') && window.T4ChartDecoder;
+        if (!decoder) {
+            throw new Error('T4ChartDecoder is not loaded');
+        }
+
+        try {
+            // Per T4 Chart API docs, both `application/octet-stream` and
+            // `application/t4` request the binary T4Bin format. Use
+            // octet-stream (observed to return real T4Bin bars when the chart
+            // server's cache is warm).
+            const headers = { 'Accept': 'application/octet-stream' };
+
+            if (this.config.apiKey) {
+                headers['Authorization'] = `APIKey ${this.config.apiKey}`;
+            } else {
+                const token = await this.getAuthToken();
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+            }
+
+            const params = new URLSearchParams({
+                exchangeId,
+                contractId,
+                chartType: 'Bar',
+                barInterval,
+                barPeriod: String(barPeriod),
+                tradeDateStart,
+                tradeDateEnd
+            });
+            if (marketId) params.set('marketID', marketId);
+
+            const url = `${this.config.apiUrl}/chart/barchart?${params.toString()}`;
+            const marketLabel = marketId || `${exchangeId}/${contractId}`;
+
+            // The chart server computes/caches aggregated bars ASYNCHRONOUSLY.
+            // On a cold cache it returns a small "request handle" envelope
+            // (header `d0 01 01 00`, then an int32 length + 36-char request
+            // GUID + market name) instead of the T4Bin stream. The act of
+            // requesting warms the cache, so retry a few times before giving up
+            // (which lets the caller fall back to the JSON path). Callers loading
+            // older history pass a smaller budget to fail-fast (the JSON path is
+            // already proven for those windows).
+            const MAX_ATTEMPTS = Math.max(1, Number(maxAttemptsOpt) || 3);
+            // Flat short backoff: keep the cold-start retry window tight so the
+            // first paint (or JSON fallback) happens fast. The clamp below means
+            // a single value applies to every retry.
+            const BACKOFFS_MS = [200];
+            let payload = null;
+            let lastContentType = '';
+            let lastBuf = null;
+
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                const response = await fetch(url, { headers });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const buf = new Uint8Array(await response.arrayBuffer());
+                lastBuf = buf;
+                const contentType = response.headers.get('content-type') || '';
+                lastContentType = contentType;
+                const ct = contentType.toLowerCase();
+                const looksBinary =
+                    ct.includes('octet-stream') ||
+                    ct.includes('application/t4') ||
+                    ct.includes('application/x-t4');
+
+                // Non-binary content-type = a genuine error/text body
+                // (e.g. JSON ProblemDetails). Surface it and stop retrying.
+                if (!looksBinary) {
+                    let bodyText = '';
+                    try { bodyText = new TextDecoder('utf-8', { fatal: false }).decode(buf); } catch (_) { /* ignore */ }
+                    const snippet = bodyText.replace(/\s+/g, ' ').trim().slice(0, 300);
+                    this.log(
+                        `Binary barchart: unexpected response (content-type="${contentType || 'none'}", ` +
+                        `${buf.length} bytes): ${snippet || '<non-text body>'}`,
+                        'warning'
+                    );
+                    throw new Error(
+                        `Binary barchart unavailable (content-type="${contentType || 'none'}", ${buf.length} bytes)` +
+                        (snippet ? `: ${snippet}` : '')
+                    );
+                }
+
+                // Detect the cold-cache request-handle envelope so we can retry.
+                const isHandleEnvelope =
+                    buf.length >= 4 &&
+                    buf[0] === 0xd0 && buf[1] === 0x01 && buf[2] === 0x01 && buf[3] === 0x00;
+
+                try {
+                    payload = decoder.extractT4BinPayload(buf);
+                    break; // got a real T4Bin stream
+                } catch (extractErr) {
+                    if (isHandleEnvelope && attempt < MAX_ATTEMPTS) {
+                        // Cold cache: the request itself warms it. Back off and
+                        // retry. (We previously polled /chart/cache-status here,
+                        // but it returns 403 on this deployment — a wasted round
+                        // trip per attempt — so it's been removed.)
+                        const wait = BACKOFFS_MS[Math.min(attempt - 1, BACKOFFS_MS.length - 1)];
+                        await new Promise((r) => setTimeout(r, wait));
+                        continue;
+                    }
+
+                    // Warm-up-only callers just wanted to kick the cache; a
+                    // cold handle envelope is the expected response, so return
+                    // quietly without throwing.
+                    if (warmOnly && isHandleEnvelope) return [];
+
+                    throw extractErr;
+                }
+            }
+
+            if (!payload) {
+                throw new Error(
+                    `Binary barchart not ready after ${MAX_ATTEMPTS} attempts ` +
+                    `(content-type="${lastContentType || 'none'}", last buf=${lastBuf?.length ?? 0} bytes)`
+                );
+            }
+
+            const pad = (n, w = 2) => String(n).padStart(w, '0');
+            const bars = [];
+
+            // The T4BinAggr market definition encodes `numerator`/`denominator`
+            // as 0/1 for many markets (e.g. ES), so the decoder's derived
+            // minPriceIncrement (= numerator/denominator) is 0. Because bars are
+            // delta-encoded (price = increments × minPriceIncrement), that makes
+            // every decoded OHLC value 0. Inject the authoritative tick size from
+            // the live market details (which carry the real minPriceIncrement)
+            // into the decoded MarketDefinition before any bars are reconstructed.
+            const Price = decoder.Price;
+            const DecimalCtor = decoder.Decimal;
+            // The caller may have started this fetch in parallel with the
+            // market-details subscription to remove the serial wait. Ensure the
+            // authoritative tick size is present before decoding delta bars
+            // (otherwise OHLC collapse to 0); poll briefly if it isn't yet.
+            if (marketId && typeof this.getMarketDetails === 'function' && !this.getMarketDetails(marketId)) {
+                const deadline = Date.now() + 3000;
+                while (!this.getMarketDetails(marketId) && Date.now() < deadline) {
+                    await new Promise((r) => setTimeout(r, 100));
+                }
+            }
+            const liveDetails = this.getMarketDetails?.(marketId);
+            const liveIncrementStr = liveDetails?.minPriceIncrement?.value;
+            const log = (msg, level) => this.log(msg, level);
+
+            decoder.ChartDataStreamReaderAggr.read(payload, {
+                onMarketDefinition(market) {
+                    if (!market || typeof market.getMinPriceIncrement !== 'function') return;
+                    const cur = market.getMinPriceIncrement();
+                    const decodedIsZero =
+                        !cur || !cur.value || (typeof cur.value.isZero === 'function' && cur.value.isZero());
+                    if (!decodedIsZero) return;
+                    if (!liveIncrementStr || !Price || !DecimalCtor) {
+                        log(
+                            `Binary barchart: market definition has zero minPriceIncrement and no ` +
+                            `live tick size available for ${marketId || `${exchangeId}/${contractId}`}; ` +
+                            `bars may decode as 0`,
+                            'warning'
+                        );
+                        return;
+                    }
+                    // Patch the decoder's market object in place. The aggregate
+                    // reader holds the same reference and uses it for every
+                    // subsequent delta-bar price reconstruction.
+                    market._minPriceIncrement = new Price(new DecimalCtor(liveIncrementStr));
+                    if (market.VPT_str && market.VPT_str.length > 0) {
+                        // VPT markets (e.g. some interest-rate products) derive
+                        // their tick ladder from the increment; rebuilding that
+                        // ladder isn't supported here, so warn instead of
+                        // silently producing wrong prices.
+                        log(
+                            `Binary barchart: VPT market ${marketId || `${exchangeId}/${contractId}`} ` +
+                            `had zero minPriceIncrement; prices may be approximate`,
+                            'warning'
+                        );
+                    }
+                },
+                onBar(bar) {
+                    const t = bar.Time;
+                    const timeIso =
+                        `${pad(t.year, 4)}-${pad(t.month)}-${pad(t.day)}T` +
+                        `${pad(t.hour)}:${pad(t.minute)}:${pad(t.second)}`;
+                    bars.push({
+                        timeIso,
+                        open: bar.OpenPrice.value.toNumber(),
+                        high: bar.HighPrice.value.toNumber(),
+                        low: bar.LowPrice.value.toNumber(),
+                        close: bar.ClosePrice.value.toNumber(),
+                        volume: Number(bar.Volume) || 0,
+                        volumeAtBid: Number(bar.VolumeAtBid) || 0,
+                        volumeAtOffer: Number(bar.VolumeAtOffer) || 0,
+                        trades: Number(bar.Trades) || 0
+                    });
+                }
+            });
+
+            this.log(`Bar chart (binary) decoded: ${bars.length} bars for ${marketId || `${exchangeId}/${contractId}`}`, 'info');
+            return bars;
+
+        } catch (error) {
+            // Caller (ChartService) handles this by falling back to JSON, so
+            // log as warning rather than error to avoid noisy red console lines
+            // on what is an expected recoverable path (cold binary cache, etc.).
+            this.log(`Binary bar chart unavailable: ${error.message}`, 'warning');
             throw error;
         }
     }

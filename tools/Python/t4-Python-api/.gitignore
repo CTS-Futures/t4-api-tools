@@ -1,0 +1,24 @@
+# Python bytecode / cache
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Coverage
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE / editor
+.vscode/
+.idea/
+*.sw[po]

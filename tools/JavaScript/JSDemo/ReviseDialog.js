@@ -92,6 +92,14 @@ function handleOrderRevise() {
     const newPrice = parseFloat(document.getElementById('editOrderPrice').value);
     const stop = isStopOrder(currentEditingOrder);
 
+    // Reject cleared/non-numeric fields before they reach the API (a NaN would be
+    // sent as a "NaN" volume/price string). Keep the dialog open so the user can fix it.
+    if (!Number.isFinite(newVolume) || newVolume < 1 || !Number.isFinite(newPrice)) {
+        const msg = 'Revise: enter a positive volume and a valid price.';
+        if (window.client?.log) window.client.log(msg, 'error'); else console.error(msg);
+        return;
+    }
+
     try {
         window.client.reviseOrder(
             currentEditingOrder.uniqueId,
