@@ -57,7 +57,7 @@ class MarketByOrderBook {
         this.mode = update.mode;
         this.lastUpdateTime = update.time;
 
-        const UpdateType = T4Proto.t4proto.v1.market.MarketByOrderUpdate.UpdateType;
+        const UpdateType = T4ProtoV2.t4proto.v2.market.MarketByOrderUpdate.UpdateType;
 
         (update.updates || []).forEach(entry => {
             switch (entry.updateType) {
@@ -79,10 +79,12 @@ class MarketByOrderBook {
     }
 
     processTrade(trade) {
+        // V2 delivers MBO trades as the unified MarketTrade: last_trade_price/volume
+        // (the V1 MarketByOrderTrade used trade_price/trade_volume).
         this.marketId = trade.marketId;
         this.lastUpdateTime = trade.time;
-        this.lastTradePrice = trade.tradePrice;
-        this.lastTradeVolume = trade.tradeVolume;
+        this.lastTradePrice = trade.lastTradePrice;
+        this.lastTradeVolume = trade.lastTradeVolume;
     }
 
     // Adds an order from either a snapshot Order or an update Update — both carry
@@ -150,7 +152,7 @@ class MarketByOrderBook {
     }
 
     getLevels(bidOffer) {
-        const BidOffer = T4Proto.t4proto.v1.common.BidOffer;
+        const BidOffer = T4ProtoV2.t4proto.v2.common.BidOffer;
 
         if (bidOffer === BidOffer.BID_OFFER_BID) {
             return this.bids;

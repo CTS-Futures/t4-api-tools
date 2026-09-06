@@ -93,12 +93,11 @@
                 <span>Market Data - (<span class="market-contract-link">...</span>)</span>
                 <div class="market-header-controls">
                     <select id="subscriptionType" title="Market Subscription Type">
-                        <option value="smart" selected>Smart</option>
-                        <option value="smart_trade">Smart Trade</option>
-                        <option value="slow_smart">Slow Smart</option>
-                        <option value="slow_trade">Slow Trade</option>
-                        <option value="mbo">MBO</option>
+                        <option value="top_of_book">Top of Book</option>
+                        <option value="full_order_book" selected>Full Order Book</option>
+                        <option value="mbo">Market by Order</option>
                     </select>
+                    <label class="ticker-toggle" title="Also stream trade prints"><input type="checkbox" id="subscriptionTicker"> Trades</label>
                     <i class="far fa-calendar-alt calendar-icon" title="Change Expiry"></i>
                 </div>
             </div>
@@ -364,7 +363,7 @@
 </div>
 
 <script src="config.js"></script>
-<script src="t4-proto.js"></script>
+<script src="t4-proto-v2.js"></script>
 <script type="module" src="decoder/loader.js"></script>
 <script src="MarketByOrderBook.js"></script>
 <script src="T4APIClient.js"></script>
@@ -434,6 +433,7 @@
             bestOffer: document.getElementById('bestOffer'),
             lastTrade: document.getElementById('lastTrade'),
             subscriptionType: document.getElementById('subscriptionType'),
+            subscriptionTicker: document.getElementById('subscriptionTicker'),
             orderType: document.getElementById('orderType'), // Add this line
             orderSide: document.getElementById('orderSide'),
             orderVolume: document.getElementById('orderVolume'),
@@ -1731,14 +1731,23 @@
         elements.disconnectBtn.addEventListener('click', disconnect);
         elements.submitOrderBtn.addEventListener('click', submitOrder);
 
-        // Market subscription type — unsubscribes the previous subscription and
-        // subscribes the same market with the newly selected type.
+        // Market subscription — the quote type (dropdown) and the trade ticker
+        // (checkbox) are the two independent axes of the V2 MarketSubscribe. Either
+        // change unsubscribes the current market and re-subscribes with the new pair.
         client.subscriptionType = elements.subscriptionType.value;
+        client.ticker = elements.subscriptionTicker.checked;
         elements.subscriptionType.addEventListener('change', async () => {
             try {
                 await client.setSubscriptionType(elements.subscriptionType.value);
             } catch (error) {
                 log(`Error changing subscription type: ${error.message}`, 'error');
+            }
+        });
+        elements.subscriptionTicker.addEventListener('change', async () => {
+            try {
+                await client.setTicker(elements.subscriptionTicker.checked);
+            } catch (error) {
+                log(`Error changing trade ticker: ${error.message}`, 'error');
             }
         });
         elements.addToBatchBtn.addEventListener('click', addToBatch);

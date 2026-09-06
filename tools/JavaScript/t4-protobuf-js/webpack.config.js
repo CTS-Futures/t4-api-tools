@@ -37,5 +37,22 @@ module.exports = [
         resolve: { extensions: ['.ts', '.js'] },
         module: { rules: [{ test: /\.ts$/, use: 'ts-loader', exclude: /node_modules/ }] },
         performance: { hints: false }
+    },
+    {
+        name: 'v2',
+        entry: './src/index-v2.ts',
+        mode: 'production',
+        output: {
+            filename: 't4-proto-v2.js',
+            library: 'T4ProtoV2',
+            libraryTarget: 'umd',
+            globalObject: 'this',
+            path: require('path').resolve(__dirname, 'dist')
+        },
+        resolve: { extensions: ['.ts', '.js'] },
+        // onlyCompileBundledFiles: type-check only files reachable from this entry,
+        // so the (separately maintained) v1 sources are not compiled by the v2 build.
+        module: { rules: [{ test: /\.ts$/, use: { loader: 'ts-loader', options: { onlyCompileBundledFiles: true } }, exclude: /node_modules/ }] },
+        performance: { hints: false }
     }
 ];

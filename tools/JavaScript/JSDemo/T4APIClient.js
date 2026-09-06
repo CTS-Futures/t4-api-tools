@@ -44,7 +44,10 @@ class T4APIClient {
 
         // Market subscription type used by subscribeMarket(). One of the keys of
         // T4APIClient.SubscriptionTypes. Change it via setSubscriptionType().
-        this.subscriptionType = 'smart';
+        this.subscriptionType = 'full_order_book';
+        // Whether to also stream trade prints (the MarketSubscribe.ticker axis).
+        // Change it via setTicker().
+        this.ticker = false;
 
         // Order/Position tracking
         this.positions = new Map();
@@ -234,7 +237,7 @@ class T4APIClient {
     // Returns the descriptor for a subscription type key, falling back to the
     // default type when the key is unknown.
     getSubscriptionTypeInfo(type) {
-        return T4APIClient.SubscriptionTypes[type] || T4APIClient.SubscriptionTypes['smart'];
+        return T4APIClient.SubscriptionTypes[type] || T4APIClient.SubscriptionTypes['full_order_book'];
     }
 
     // Changes the market subscription type. If a market is currently subscribed,
@@ -261,6 +264,26 @@ class T4APIClient {
         }
     }
 
+    // Toggles the trade ticker. If a market is currently subscribed, it is
+    // re-subscribed with the same quote type and the new ticker setting.
+    async setTicker(ticker) {
+        ticker = !!ticker;
+
+        if (this.ticker === ticker) {
+            return;
+        }
+
+        this.ticker = ticker;
+        this.log(`Trade ticker: ${ticker ? 'on' : 'off'}`, 'info');
+
+        const previous = this.currentSubscription;
+        if (previous) {
+            await this.unsubscribeMarket();
+            this.clearMarketValues();
+            await this.subscribeMarket(previous.exchangeId, previous.contractId, previous.marketId);
+        }
+    }
+
     // Unsubscribes the current market using whichever subscription type it was
     // subscribed with.
     async unsubscribeMarket() {
@@ -271,26 +294,16 @@ class T4APIClient {
         const { exchangeId, contractId, marketId, type } = this.currentSubscription;
         const info = this.getSubscriptionTypeInfo(type);
 
-        if (info.mbo) {
-            await this.sendMessage({
-                marketByOrderSubscribe: {
-                    exchangeId,
-                    contractId,
-                    marketId,
-                    subscribe: false
-                }
-            });
-        } else {
-            await this.sendMessage({
-                marketDepthSubscribe: {
-                    exchangeId,
-                    contractId,
-                    marketId,
-                    buffer: T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
-                    depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_UNDEFINED
-                }
-            });
-        }
+        // V2: a single MarketSubscribe with quotes = NONE unsubscribes the market,
+        // whatever quote type it was subscribed with.
+        await this.sendMessage({
+            marketSubscribe: {
+                exchangeId,
+                contractId,
+                marketId,
+                quotes: T4ProtoV2.t4proto.v2.common.Quotes.QUOTES_NONE
+            }
+        });
 
         this.log(`Unsubscribed from market: ${marketId} (${info.label})`, 'info');
 
@@ -298,6 +311,7 @@ class T4APIClient {
         // rather than resuming from a stale book.
         this.marketByOrderBooks.delete(marketId);
         this.marketSnapshots.delete(marketId);
+        this._depthSeen?.delete(marketId);
 
         this.currentSubscription = null;
     }
@@ -315,37 +329,22 @@ class T4APIClient {
             this.onMarketChanged({ marketId, contractId, exchangeId });
         }
 
-        if (info.mbo) {
-            await this.sendMessage({
-                marketByOrderSubscribe: {
-                    exchangeId,
-                    contractId,
-                    marketId,
-                    subscribe: true
-                }
-            });
-        } else {
-            await this.sendMessage({
-                marketDepthSubscribe: {
-                    exchangeId,
-                    contractId,
-                    marketId,
-                    buffer: info.buffer,
-                    // ALL = full book, feeding the chart's DOM liquidity heatmap so
-                    // deep walls are visible, not just the inside ~10 levels. The
-                    // Market Data panel still only reads [0] (best bid/offer), so it
-                    // is unaffected. Heavier bandwidth than NORMAL, but the heatmap's
-                    // per-frame cost is bounded client-side: DepthSnapshotBuffer's
-                    // `maxLevelsPerSide` caps how many levels are captured/painted
-                    // (set at the feature registration in index.html), and
-                    // `minIntervalMs` throttles snapshot capture. Tune those rather
-                    // than this subscription so other consumers keep the full book.
-                    depthLevels: T4Proto.t4proto.v1.common.DepthLevels.DEPTH_LEVELS_ALL
-                }
-            });
-        }
+        // V2: one MarketSubscribe carries the quote detail (quotes) and whether a
+        // trade ticker is wanted (ticker). FULL_ORDER_BOOK yields the aggregated
+        // depth ladder feeding the Market Data panel and the chart's DOM liquidity
+        // heatmap; the simplified model has no "all levels" option, so the heatmap
+        // now reflects the normal depth ladder rather than the full book.
+        await this.sendMessage({
+            marketSubscribe: {
+                exchangeId,
+                contractId,
+                marketId,
+                quotes: info.quotes,
+                ticker: this.ticker
+            }
+        });
 
-        this.log(`Subscribed to market: ${marketId} (${info.label})`, 'info');
+        this.log(`Subscribed to market: ${marketId} (${info.label}${this.ticker ? ' + Trades' : ''})`, 'info');
     }
 
     // WebSocket Event Handlers
@@ -373,16 +372,16 @@ class T4APIClient {
         // 'market' -> MARKET, 'stop' -> STOP_MARKET (stop-market entry), else LIMIT.
         const ptLower = (typeof priceType === 'string' ? priceType : 'limit').toLowerCase();
         const priceTypeValue = ptLower === 'market'
-            ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET       // 0
+            ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET       // 0
             : ptLower === 'stop'
-                ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
-                : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;       // 1
+                ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
+                : T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT;       // 1
 
         // Convert buy/sell string to enum value
         const buySellValue = typeof side === 'string'
             ? (side.toLowerCase() === 'buy'
-                ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY    // 1
-                : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL)  // -1
+                ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY    // 1
+                : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // -1
             : side;
 
         // Determine if we need OCO order linking
@@ -395,29 +394,29 @@ class T4APIClient {
         // AUTO_OCO_P carries absolute child prices; AUTO_OCO carries raw offsets.
         const orderLinkValue = hasBracketOrders
             ? (useAbsoluteBracket
-                ? T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO_P
-                : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_AUTO_OCO)
-            : T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE;
+                ? T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_AUTO_OCO_P
+                : T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_AUTO_OCO)
+            : T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_NONE;
 
         // Create orders array with main order first
         const orders = [{
             buySell: buySellValue,
             priceType: priceTypeValue,
-            timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
-            volume: volume,
+            timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL, // 0
+            volume: { value: String(volume) },
             // Limit/stop price set only when the order type requires it.
-            limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
+            limitPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT
                 ? { value: price.toString() }
                 : null,
-            stopPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET
+            stopPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET
                 ? { value: price.toString() }
                 : null,
         }];
 
         // For bracket orders, we need to use the opposite side
-        const protectionSide = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY
-            ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL
-            : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY;
+        const protectionSide = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY
+            ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL
+            : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY;
 
         // Select the correct decimals based on price format:
         // 0 = Decimal format (use decimals), 1 = Real format (use realDecimals)
@@ -439,16 +438,16 @@ class T4APIClient {
                 // (|$|/volume)/pointValue/(10**decimals) — then sign per side.
                 // AUTO_OCO applies the offset at fill. Buy: TP above (+); Sell: TP below (−).
                 let tpOffset = (Math.abs(takeProfitDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
-                takeProfitLimitPrice = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? tpOffset : -tpOffset;
+                takeProfitLimitPrice = (buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY) ? tpOffset : -tpOffset;
             }
 
             orders.push({
                 buySell: protectionSide,
-                priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT,
-                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
-                volume: 0,
+                priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT,
+                timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                volume: { value: '0' },
                 limitPrice: { value: takeProfitLimitPrice.toString() },
-                activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD
+                activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD
             });
         }
 
@@ -465,7 +464,7 @@ class T4APIClient {
                 // (|$|/volume)/pointValue/(10**decimals) — then sign per side.
                 // Buy: SL below (−); Sell: SL above (+).
                 let slOffset = (Math.abs(stopLossDollars / volume) / marketDetails.pointValue.value) / (10 ** priceDecimals);
-                stopLossStopPrice = (buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY) ? -slOffset : slOffset;
+                stopLossStopPrice = (buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY) ? -slOffset : slOffset;
             }
 
             if (trailingStop) {
@@ -475,23 +474,23 @@ class T4APIClient {
 
                 orders.push({
                     buySell: protectionSide,
-                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET,
-                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
-                    volume: 0,
+                    priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET,
+                    timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                    volume: { value: '0' },
                     stopPrice: { value: stopLossStopPrice.toString() },
                     trailDistance: { value: trailDistance },
-                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD,
+                    activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
                     activationData: "SL-TRAIL"
                 });
 
             } else {
                 orders.push({
                     buySell: protectionSide,
-                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET,
-                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
-                    volume: 0,
+                    priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET,
+                    timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
+                    volume: { value: '0' },
                     stopPrice: { value: stopLossStopPrice.toString() },
-                    activationType: T4Proto.t4proto.v1.common.ActivationType.ACTIVATION_TYPE_HOLD,
+                    activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
                     activationData: "SL"
                 });
             }
@@ -530,19 +529,19 @@ class T4APIClient {
         await this.sendMessage({ orderSubmit: submission });
 
         // Log order details
-        const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
-        const priceText = priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET ? 'Market' : price;
+        const sideText = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+        const priceText = priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET ? 'Market' : price;
 
         this.log(`Order submitted: ${sideText} ${volume} @ ${priceText} (Type: ${priceType}, Bracket: ${bracketMode})`, 'info');
 
         if (takeProfitDollars !== null) {
             const tpLabel = bracketMode === 'price' ? `Price ${takeProfitDollars}` : `$${takeProfitDollars}`;
-            this.log(`Take profit: ${tpLabel} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+            this.log(`Take profit: ${tpLabel} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (stopLossDollars !== null) {
             const slLabel = bracketMode === 'price' ? `Price ${stopLossDollars}` : `$${stopLossDollars}`;
-            this.log(`Stop loss: ${slLabel}${trailingStop ? ' (Trailing)' : ''} (${protectionSide === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
+            this.log(`Stop loss: ${slLabel}${trailingStop ? ' (Trailing)' : ''} (${protectionSide === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell'})`, 'info');
         }
 
         if (hasBracketOrders) {
@@ -637,10 +636,10 @@ class T4APIClient {
             // Convert string price type to enum value (same mapping as buildOrderSubmit).
             const ptLower = (typeof leg.priceType === 'string' ? leg.priceType : 'limit').toLowerCase();
             const priceTypeValue = ptLower === 'market'
-                ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET       // 0
+                ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET       // 0
                 : ptLower === 'stop'
-                    ? T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
-                    : T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT;       // 1
+                    ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
+                    : T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT;       // 1
 
             // Validate before building: an unvalidated leg would otherwise send a
             // "NaN" price/volume string to the server. Limit/stop legs need a price;
@@ -649,7 +648,7 @@ class T4APIClient {
             if (!Number.isFinite(volume) || volume < 1) {
                 throw new Error(`Leg ${i + 1}: volume must be a positive integer`);
             }
-            const needsPrice = priceTypeValue !== T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_MARKET;
+            const needsPrice = priceTypeValue !== T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET;
             if (needsPrice && !Number.isFinite(Number(leg.price))) {
                 throw new Error(`Leg ${i + 1}: ${ptLower} leg needs a price`);
             }
@@ -657,22 +656,22 @@ class T4APIClient {
             // Convert buy/sell string or number to enum value (same as buildOrderSubmit).
             const buySellValue = typeof leg.side === 'string'
                 ? (leg.side.toLowerCase() === 'buy'
-                    ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY    // 1
-                    : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL)  // -1
+                    ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY    // 1
+                    : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // -1
                 : (leg.side === 1
-                    ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY
-                    : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL);
+                    ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY
+                    : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL);
 
             return {
                 buySell: buySellValue,
                 priceType: priceTypeValue,
-                timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL, // 0
-                volume: volume,
+                timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL, // 0
+                volume: { value: String(volume) },
                 // Limit/stop price set only when the order type requires it.
-                limitPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_LIMIT
+                limitPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT
                     ? { value: Number(leg.price).toString() }
                     : null,
-                stopPrice: priceTypeValue === T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_STOP_MARKET
+                stopPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET
                     ? { value: Number(leg.price).toString() }
                     : null,
                 // No activationType: both legs are live working orders immediately.
@@ -682,7 +681,7 @@ class T4APIClient {
         const submission = {
             accountId,
             marketId,
-            orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_OCO, // 1
+            orderLink: T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_OCO, // 1
             manualOrderIndicator: true,
             orders: orders
         };
@@ -702,7 +701,7 @@ class T4APIClient {
 
         this.log(`OCO order submitted: ${legs.length} legs (one-cancels-other)`, 'info');
         legs.forEach((leg, i) => {
-            const sideText = submission.orders[i].buySell === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+            const sideText = submission.orders[i].buySell === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
             const ptLower = (typeof leg.priceType === 'string' ? leg.priceType : 'limit').toLowerCase();
             const priceText = ptLower === 'market' ? 'Market' : leg.price;
             this.log(`  Leg ${i + 1}: ${sideText} ${leg.volume} @ ${priceText} (${ptLower})`, 'info');
@@ -768,7 +767,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
     const revision = {
         uniqueId: orderId,
-        volume: volume
+        volume: { value: String(volume) }
     };
 
     if (isStop) {
@@ -805,8 +804,8 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
         // To flatten: sell if long (net > 0), buy if short (net < 0)
         const buySellValue = netPosition > 0
-            ? T4Proto.t4proto.v1.common.BuySell.BUY_SELL_SELL   // -1
-            : T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY;   //  1
+            ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL   // -1
+            : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY;   //  1
 
         const volume = Math.abs(netPosition);
 
@@ -814,20 +813,20 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             orderSubmit: {
                 accountId: accountId,
                 marketId: marketId,
-                orderLink: T4Proto.t4proto.v1.common.OrderLink.ORDER_LINK_NONE,
+                orderLink: T4ProtoV2.t4proto.v2.common.OrderLink.ORDER_LINK_NONE,
                 manualOrderIndicator: true,
                 orders: [{
                     buySell: buySellValue,
-                    priceType: T4Proto.t4proto.v1.common.PriceType.PRICE_TYPE_FLATTEN, // 16
-                    timeType: T4Proto.t4proto.v1.common.TimeType.TIME_TYPE_NORMAL,
-                    volume: volume
+                    priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_FLATTEN, // 16
+                    timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL,
+                    volume: { value: String(volume) }
                 }]
             }
         };
 
         await this.sendMessage(orderSubmit);
 
-        const sideText = buySellValue === T4Proto.t4proto.v1.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
+        const sideText = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
         this.log(`Flatten submitted: ${sideText} ${volume} @ Flatten (Market: ${marketId})`, 'info');
     }
 
@@ -916,22 +915,20 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             this.handleAccountUpdate(message.accountUpdate);
         } else if (message.marketDepth) {
             this.handleMarketDepth(message.marketDepth);
-        } else if (message.marketDepthTrade) {
-            this.handleMarketDepthTrade(message.marketDepthTrade);
+        } else if (message.marketTrade) {
+            this.handleMarketTrade(message.marketTrade);
         } else if (message.marketByOrderSnapshot) {
             this.handleMarketByOrderSnapshot(message.marketByOrderSnapshot);
         } else if (message.marketByOrderUpdate) {
             this.handleMarketByOrderUpdate(message.marketByOrderUpdate);
-        } else if (message.marketByOrderTrade) {
-            this.handleMarketByOrderTrade(message.marketByOrderTrade);
-        } else if (message.marketByOrderSubscribeReject) {
-            this.handleMarketByOrderSubscribeReject(message.marketByOrderSubscribeReject);
+        } else if (message.marketSubscribeReject) {
+            this.handleMarketSubscribeReject(message.marketSubscribeReject);
         } else if (message.orderUpdate) {
             this.handleOrderUpdate(message.orderUpdate);
+        } else if (message.orderTrade) {
+            this.handleOrderTrade(message.orderTrade);
         } else if (message.accountSnapshot) {
             this.handleAccountSnapshot(message.accountSnapshot);
-        } else if (message.orderUpdateMulti) {
-            this.handleOrderUpdateMulti(message.orderUpdateMulti);
         } else if (message.orderBatchAcknowledge) {
             this.handleOrderBatchAcknowledge(message.orderBatchAcknowledge);
         } else if (message.orderBatchReject) {
@@ -1217,6 +1214,17 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     handleMarketDepth(depth) {
         this.marketSnapshots.set(depth.marketId, depth);
 
+        // One-shot confirmation that live depth is actually arriving for this market
+        // (subscribe/market-details succeeding does not guarantee a live book). Helps
+        // tell "no data from the feed" apart from "data not displayed".
+        if (!this._depthSeen) this._depthSeen = new Set();
+        if (!this._depthSeen.has(depth.marketId)) {
+            this._depthSeen.add(depth.marketId);
+            const bid = depth.bids?.[0] ? `${depth.bids[0].volume}@${depth.bids[0].price.value}` : '-';
+            const offer = depth.offers?.[0] ? `${depth.offers[0].volume}@${depth.offers[0].price.value}` : '-';
+            this.log(`Market depth flowing: ${depth.marketId} (bid ${bid}, offer ${offer})`, 'info');
+        }
+
         // Fan the full book out to the chart heatmap (if wired). Defensive: a
         // throwing consumer must not break depth processing for the panel.
         if (this.onDepth) {
@@ -1229,7 +1237,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         }
 
         // Most exchanges deliver trade prints inside marketDepth.tradeData rather
-        // than as standalone marketDepthTrade messages. Forward those too.
+        // than as standalone MarketTrade messages. Forward those too.
         if (depth.tradeData && depth.tradeData.lastTradePrice && depth.tradeData.lastTradeVolume) {
             this._emitTradeTick({
                 marketId: depth.marketId,
@@ -1253,16 +1261,25 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     }
 
 
-    handleMarketDepthTrade(trade) {
-        // Per-trade log disabled: on busy markets (ES/NQ) hundreds of prints/sec
-        // appended to the console panel forced enough synchronous layout reflows
-        // to starve the main thread, freezing the chart and bid/offer panel.
-        // The chart's candle stream and the market-data panel already show this.
-        this._emitTradeTick(trade);
+    // V2 delivers both depth-style and market-by-order trades as a single
+    // MarketTrade. Route MBO trades (markets with an active MBO book) into that
+    // book; treat everything else as a depth trade tick.
+    // Per-trade log is intentionally disabled: on busy markets (ES/NQ) hundreds of
+    // prints/sec appended to the console panel forced enough synchronous layout
+    // reflows to starve the main thread. The chart candle stream and market-data
+    // panel already surface the print.
+    handleMarketTrade(trade) {
+        if (this.marketByOrderBooks.has(trade.marketId)) {
+            const book = this.getOrCreateMarketByOrderBook(trade.marketId);
+            book.processTrade(trade);
+            this.publishMarketByOrder(book);
+        } else {
+            this._emitTradeTick(trade);
+        }
     }
 
     // Scales price and dispatches onTrade. Dedupes by totalTradedVolume so the
-    // same print arriving via marketDepth.tradeData and marketDepthTrade is
+    // same print arriving via marketDepth.tradeData and MarketTrade is
     // only emitted once per market.
     _emitTradeTick(trade) {
         if (!this.onTrade || !trade.lastTradePrice || !trade.lastTradeVolume) return;
@@ -1329,16 +1346,8 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         this.publishMarketByOrder(book);
     }
 
-    handleMarketByOrderTrade(trade) {
-        // Not logged per message — trades arrive continuously on an active market.
-        const book = this.getOrCreateMarketByOrderBook(trade.marketId);
-        book.processTrade(trade);
-
-        this.publishMarketByOrder(book);
-    }
-
-    handleMarketByOrderSubscribeReject(reject) {
-        this.log(`MBO subscribe rejected: ${reject.marketId} (market mode ${reject.mode})`, 'error');
+    handleMarketSubscribeReject(reject) {
+        this.log(`Market subscribe rejected: ${reject.marketId} (market mode ${reject.mode})`, 'error');
     }
 
     getOrCreateMarketByOrderBook(marketId) {
@@ -1429,48 +1438,14 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     this.handleAccountProfit(msg.accountProfit);
                 } else if (msg.accountPositionProfit) {
                     this.handleAccountPositionProfit(msg.accountPositionProfit);
-                } else if (msg.orderUpdateMulti) {
-                    this.handleOrderUpdateMulti(msg.orderUpdateMulti);
-                } else if (msg.orderUpdate) {
-                    this.handleOrderUpdate(msg.orderUpdate);
+                } else if (msg.orderStatus) {
+                    // V2 AccountSnapshotMessage carries orders as order_status (an OrderUpdate).
+                    this.handleOrderUpdate(msg.orderStatus);
                 } else {
                     const messageType = Object.keys(msg)[0] || 'unknown';
                     this.log(`Account snapshot message not handled: ${messageType}`, 'error');
                 }
             });
-        }
-    }
-
-    handleOrderUpdateMulti(updateMulti) {
-        var updatesProcessed = 0;
-
-        if (updateMulti.updates) {
-            updateMulti.updates.forEach((update, index) => {
-                if (update.orderUpdate) {
-                    updatesProcessed++;
-                    this.handleOrderUpdate(update.orderUpdate);
-                } else if (update.orderUpdateStatus) {
-                    updatesProcessed++;
-                    this.handleOrderUpdateStatus(update.orderUpdateStatus);
-                } else if (update.orderUpdateTrade) {
-                    updatesProcessed++;
-                    this.handleOrderUpdateTrade(update.orderUpdateTrade);
-                } else if (update.orderUpdateTradeLeg) {
-                    updatesProcessed++;
-                    this.handleOrderUpdateTradeLeg(update.orderUpdateTradeLeg);
-                } else if (update.orderUpdateFailed) {
-                    updatesProcessed++;
-                    this.handleOrderUpdateFailed(update.orderUpdateFailed);
-                } else {
-                    this.log(`Unknown order update type in multi message: ${Object.keys(update).join(', ')}`, 'error');
-                }
-            });
-        }
-
-        if (updatesProcessed !== updateMulti.updates.length) {
-            this.log(`Order update multi received: ${updateMulti.uniqueId}, updates: ${updateMulti.updates.length}, processed: ${updatesProcessed}`, 'error');
-        } else {
-            this.log(`Order update multi received: ${updateMulti.uniqueId}, updates: ${updateMulti.updates.length}, processed: ${updatesProcessed}`, 'info');
         }
     }
 
@@ -1515,170 +1490,39 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         }
     }
 
+    // V2: OrderUpdate is the full master order on every event (update_type says why:
+    // SNAPSHOT/STATUS/TRADE/TRADE_LEG/FAILED), so we store it wholesale. Executions
+    // arrive separately as OrderTrade (see handleOrderTrade).
     handleOrderUpdate(orderUpdate) {
         this.orders.set(orderUpdate.uniqueId, orderUpdate);
 
-        this.log(`Order update received: ${orderUpdate.uniqueId}, market: ${orderUpdate.marketId}`, 'info');
+        this.log(`Order update received: ${orderUpdate.uniqueId}, type: ${orderUpdate.updateType}, status: ${orderUpdate.status}, market: ${orderUpdate.marketId}`, 'info');
 
-        if (this.onAccountUpdate) {
-            this.onAccountUpdate({
-                type: 'orders',
-                orders: Array.from(this.orders.values())
-                    .filter(o => o.accountId === this.selectedAccount)
-            });
-        }
-    }
-
-    handleOrderUpdateStatus(statusUpdate) {
-        this.log(`Order status update: ${statusUpdate.uniqueId}, status: ${statusUpdate.status}`, 'info');
-
-        // Get existing order or create a minimal one
-        let existingOrder = this.orders.get(statusUpdate.uniqueId);
-
-        if (!existingOrder) {
-            // Create minimal order if it doesn't exist
-            existingOrder = {
-                uniqueId: statusUpdate.uniqueId,
-                accountId: statusUpdate.accountId || this.selectedAccount,
-                marketId: statusUpdate.marketId
-            };
-        }
-
-        // Update the existing order with all status fields (following C# UpdateStatusInformation)
-        const updatedOrder = {
-            ...existingOrder,
-            change: statusUpdate.change,
-            exchangeTime: statusUpdate.exchangeTime,
-            status: statusUpdate.status,
-            responsePending: statusUpdate.responsePending,
-            statusDetail: statusUpdate.statusDetail,
-            time: statusUpdate.time,
-            currentVolume: statusUpdate.currentVolume,
-            currentLimitPrice: statusUpdate.currentLimitPrice,
-            currentStopPrice: statusUpdate.currentStopPrice,
-            priceType: statusUpdate.priceType,
-            timeType: statusUpdate.timeType,
-            exchangeOrderId: statusUpdate.exchangeOrderId,
-            workingVolume: statusUpdate.workingVolume,
-            executingLoginId: statusUpdate.executingLoginId,
-            userId: statusUpdate.userId,
-            userName: statusUpdate.userName,
-            routingUserId: statusUpdate.routingUserId,
-            routingUserName: statusUpdate.routingUserName,
-            userAddress: statusUpdate.userAddress,
-            sessionId: statusUpdate.sessionId,
-            appId: statusUpdate.appId,
-            appName: statusUpdate.appName,
-            activationType: statusUpdate.activationType,
-            activationDetails: statusUpdate.activationDetails,
-            trailPrice: statusUpdate.trailPrice,
-            currentMaxShow: statusUpdate.currentMaxShow,
-            newVolume: statusUpdate.newVolume,
-            newLimitPrice: statusUpdate.newLimitPrice,
-            newStopPrice: statusUpdate.newStopPrice,
-            newMaxShow: statusUpdate.newMaxShow,
-            tag: statusUpdate.tag,
-            tagClOrdId: statusUpdate.tagClOrdId,
-            tagOrigClOrdId: statusUpdate.tagOrigClOrdId,
-            smpId: statusUpdate.smpId,
-            exchangeLoginId: statusUpdate.exchangeLoginId,
-            exchangeLocation: statusUpdate.exchangeLocation,
-            atsRegulatoryId: statusUpdate.atsRegulatoryId,
-            maxVolume: statusUpdate.maxVolume,
-            sequenceOrder: statusUpdate.sequenceOrder,
-            authorizedTraderId: statusUpdate.authorizedTraderId,
-            appType: statusUpdate.appType,
-            // Merge instruction extra if it exists
-            instructionExtra: {
-                ...(existingOrder.instructionExtra || {}),
-                ...(statusUpdate.instructionExtra || {})
-            }
-        };
-
-        this.orders.set(statusUpdate.uniqueId, updatedOrder);
         this.triggerOrdersUpdate();
     }
 
-    handleOrderUpdateTrade(tradeUpdate) {
-        this.log(`Order trade update: ${tradeUpdate.uniqueId}, exchange trade: ${tradeUpdate.exchangeTradeId}`, 'info');
+    // V2: executions come as a standalone OrderTrade (order_trade) rather than an
+    // order-update sub-message. OrderTrade carries no side, so we look up the parent
+    // order (by order_id) for buy/sell when fanning out to fill consumers.
+    handleOrderTrade(orderTrade) {
+        this.log(`Order trade: ${orderTrade.orderId}, exchange trade: ${orderTrade.exchangeTradeId}`, 'info');
 
-        // Get existing order or create a minimal one
-        let existingOrder = this.orders.get(tradeUpdate.uniqueId);
+        const parentOrder = this.orders.get(orderTrade.orderId);
+        const buySell = parentOrder?.buySell;
+        const BuySell = T4ProtoV2.t4proto.v2.common.BuySell;
+        const side = buySell === BuySell.BUY_SELL_BUY ? 1
+            : (buySell === BuySell.BUY_SELL_SELL ? -1 : null);
 
-        if (!existingOrder) {
-            // Create minimal order if it doesn't exist
-            existingOrder = {
-                uniqueId: tradeUpdate.uniqueId,
-                accountId: tradeUpdate.accountId || this.selectedAccount,
-                marketId: tradeUpdate.marketId
-            };
-        }
-
-        // Update the existing order with all status fields (following C# UpdateStatusInformation)
-        const updatedOrder = {
-            ...existingOrder,
-            change: tradeUpdate.change,
-            exchangeTime: tradeUpdate.exchangeTime,
-            status: tradeUpdate.status,
-            responsePending: tradeUpdate.responsePending,
-            statusDetail: tradeUpdate.statusDetail,
-            time: tradeUpdate.time,
-            currentVolume: tradeUpdate.currentVolume,
-            currentLimitPrice: tradeUpdate.currentLimitPrice,
-            currentStopPrice: tradeUpdate.currentStopPrice,
-            priceType: tradeUpdate.priceType,
-            timeType: tradeUpdate.timeType,
-            exchangeOrderId: tradeUpdate.exchangeOrderId,
-            workingVolume: tradeUpdate.workingVolume,
-            executingLoginId: tradeUpdate.executingLoginId,
-            userId: tradeUpdate.userId,
-            userName: tradeUpdate.userName,
-            routingUserId: tradeUpdate.routingUserId,
-            routingUserName: tradeUpdate.routingUserName,
-            userAddress: tradeUpdate.userAddress,
-            sessionId: tradeUpdate.sessionId,
-            appId: tradeUpdate.appId,
-            appName: tradeUpdate.appName,
-            activationType: tradeUpdate.activationType,
-            activationDetails: tradeUpdate.activationDetails,
-            trailPrice: tradeUpdate.trailPrice,
-            currentMaxShow: tradeUpdate.currentMaxShow,
-            newVolume: tradeUpdate.newVolume,
-            newLimitPrice: tradeUpdate.newLimitPrice,
-            newStopPrice: tradeUpdate.newStopPrice,
-            newMaxShow: tradeUpdate.newMaxShow,
-            tag: tradeUpdate.tag,
-            tagClOrdId: tradeUpdate.tagClOrdId,
-            tagOrigClOrdId: tradeUpdate.tagOrigClOrdId,
-            smpId: tradeUpdate.smpId,
-            exchangeLoginId: tradeUpdate.exchangeLoginId,
-            exchangeLocation: tradeUpdate.exchangeLocation,
-            atsRegulatoryId: tradeUpdate.atsRegulatoryId,
-            maxVolume: tradeUpdate.maxVolume,
-            sequenceOrder: tradeUpdate.sequenceOrder,
-            authorizedTraderId: tradeUpdate.authorizedTraderId,
-            appType: tradeUpdate.appType,
-            // Merge instruction extra if it exists
-            instructionExtra: {
-                ...(existingOrder.instructionExtra || {}),
-                ...(tradeUpdate.instructionExtra || {})
-            }
-        };
-
-        this.orders.set(tradeUpdate.uniqueId, updatedOrder);
-        this.triggerOrdersUpdate();
-
-        // Fan out to a fill listener (chart markers, blotter, etc.). Defensive:
-        // proto field names for the matched price/volume vary; pass the raw
-        // tradeUpdate so the consumer can probe, and provide derived hints.
-        const buySell = updatedOrder.buySell ?? existingOrder.buySell;
         const fill = {
-            uniqueId: tradeUpdate.uniqueId,
-            marketId: tradeUpdate.marketId,
-            accountId: updatedOrder.accountId,
-            side: buySell === 1 ? 1 : (buySell === -1 ? -1 : null),
-            time: tradeUpdate.time ?? tradeUpdate.exchangeTime ?? null,
-            raw: tradeUpdate
+            uniqueId: orderTrade.orderId,
+            marketId: orderTrade.marketId,
+            accountId: orderTrade.accountId,
+            side,
+            price: orderTrade.price,
+            volume: orderTrade.volume,
+            residualVolume: orderTrade.residualVolume,
+            time: orderTrade.time ?? orderTrade.exchangeTime ?? null,
+            raw: orderTrade
         };
 
         if (this.onFill) {
@@ -1701,18 +1545,6 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                 this.log(`onFillsUpdate handler threw: ${err?.message || err}`, 'error');
             }
         }
-    }
-
-    handleOrderUpdateTradeLeg(tradeLegUpdate) {
-        this.log(`Order trade leg update: ${tradeLegUpdate.uniqueId}, leg: ${tradeLegUpdate.legIndex}`, 'info');
-        //this.orders.set(tradeLegUpdate.uniqueId, tradeLegUpdate);
-        //this.triggerOrdersUpdate();
-    }
-
-    handleOrderUpdateFailed(failedUpdate) {
-        this.log(`Order failed: ${failedUpdate.uniqueId}, status: ${failedUpdate.status}`, 'info');
-        //this.orders.set(failedUpdate.uniqueId, failedUpdate);
-        //this.triggerOrdersUpdate();
     }
 
     triggerOrdersUpdate() {
@@ -1766,7 +1598,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
         try {
             // Wrap the message in ClientMessage envelope
-            const clientMessage = T4Proto.ClientMessageHelper.createClientMessage(messagePayload);
+            const clientMessage = T4ProtoV2.ClientMessageHelper.createClientMessage(messagePayload);
             const encoded = this.encodeMessage(clientMessage);
             this.ws.send(encoded);
 
@@ -1852,11 +1684,11 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
     // Message Encoding/Decoding
     encodeMessage(message) {
-        return T4Proto.encodeMessage(message);
+        return T4ProtoV2.encodeMessage(message);
     }
 
     decodeMessage(data) {
-        return T4Proto.decodeMessage(data);
+        return T4ProtoV2.decodeMessage(data);
     }
 
     // Market Data API
@@ -2268,40 +2100,23 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 // Market subscription types selectable from the Market Data section.
 // The buffer values are lazy getters so T4Proto only has to be loaded by the
 // time a subscription is actually sent.
+// V2 quote types for MarketSubscribe. This is the "quotes" axis (book detail);
+// the trade ticker is the independent `ticker` flag on the client (setTicker).
 T4APIClient.SubscriptionTypes = {
-    smart: {
-        key: 'smart',
-        label: 'Smart',
-        get buffer() {
-            return T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART;
-        }
+    top_of_book: {
+        key: 'top_of_book',
+        label: 'Top of Book',
+        get quotes() { return T4ProtoV2.t4proto.v2.common.Quotes.QUOTES_TOP_OF_BOOK; }
     },
-    smart_trade: {
-        key: 'smart_trade',
-        label: 'Smart Trade',
-        get buffer() {
-            return T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SMART_TRADE;
-        }
+    full_order_book: {
+        key: 'full_order_book',
+        label: 'Full Order Book',
+        get quotes() { return T4ProtoV2.t4proto.v2.common.Quotes.QUOTES_FULL_ORDER_BOOK; }
     },
-    slow_smart: {
-        key: 'slow_smart',
-        label: 'Slow Smart',
-        get buffer() {
-            return T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SLOW_SMART;
-        }
-    },
-    slow_trade: {
-        key: 'slow_trade',
-        label: 'Slow Trade',
-        get buffer() {
-            return T4Proto.t4proto.v1.common.DepthBuffer.DEPTH_BUFFER_SLOW_TRADE;
-        }
-    },
-    // MBO uses MarketByOrderSubscribe rather than MarketDepthSubscribe.
     mbo: {
         key: 'mbo',
-        label: 'MBO',
-        mbo: true
+        label: 'Market by Order',
+        get quotes() { return T4ProtoV2.t4proto.v2.common.Quotes.QUOTES_MARKET_BY_ORDER; }
     }
 };
 

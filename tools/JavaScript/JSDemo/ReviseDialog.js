@@ -1,7 +1,7 @@
 // ReviseDialog.js - Single-order revise/pull dialog
 let currentEditingOrder = null;
 
-// Price type constants (match T4Proto.t4proto.v1.common.PriceType)
+// Price type constants (match T4ProtoV2.t4proto.v2.common.PriceType)
 const PRICE_TYPE_LIMIT = 1;
 const PRICE_TYPE_STOP_MARKET = 2;
 const PRICE_TYPE_STOP_LIMIT = 3;

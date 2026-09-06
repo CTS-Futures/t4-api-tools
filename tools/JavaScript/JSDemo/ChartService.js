@@ -6,7 +6,7 @@
  * Pipeline:
  *   T4APIClient.onTrade  ->  TickStore  ->  CandleAggregator  ->  ChartRenderer
  *
- * Price scaling is performed in T4APIClient.handleMarketDepthTrade before the
+ * Price scaling is performed in T4APIClient._emitTradeTick before the
  * tick is emitted, using marketDetails.decimals / realDecimals and priceFormat.
  * The tick payload carries an already-scaled `price` plus `priceDecimals` for
  * formatting on the axis.
