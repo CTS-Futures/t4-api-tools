@@ -16,8 +16,7 @@ message ClientMessage {
         t4proto.v2.auth.AuthenticationTokenRequest authentication_token_request = 3;
 
         // Market Data Requests
-        t4proto.v2.market.MarketDepthSubscribe market_depth_subscribe = 100;
-        t4proto.v2.market.MarketByOrderSubscribe market_by_order_subscribe = 101;
+        t4proto.v2.market.MarketSubscribe market_subscribe = 100;
 
         // Account Data Requests
         t4proto.v2.account.AccountSubscribe account_subscribe = 200;
@@ -42,18 +41,16 @@ message ServerMessage {
       t4proto.v2.auth.AuthenticationToken authentication_token = 3;
 
       // Market Data Messages
-      t4proto.v2.market.MarketDepthSubscribeReject market_depth_subscribe_reject = 100;
-      t4proto.v2.market.MarketByOrderSubscribeReject market_by_order_subscribe_reject = 101;
+      t4proto.v2.market.MarketSubscribeReject market_subscribe_reject = 100;
       t4proto.v2.market.MarketDetails market_details = 102;
       t4proto.v2.market.MarketDepth market_depth = 103;
-      t4proto.v2.market.MarketDepthTrade market_depth_trade = 104;
+      t4proto.v2.market.MarketTrade market_trade = 104;
       t4proto.v2.market.MarketHighLow market_high_low = 105;
       t4proto.v2.market.MarketPriceLimits market_price_limits = 106;
       t4proto.v2.market.MarketSettlement market_settlement = 107;
       t4proto.v2.market.MarketSnapshot market_snapshot = 108;
       t4proto.v2.market.MarketByOrderSnapshot market_by_order_snapshot = 109;
       t4proto.v2.market.MarketByOrderUpdate market_by_order_update = 110;
-      t4proto.v2.market.MarketByOrderTrade market_by_order_trade = 111;
 
       // Account Messages
       t4proto.v2.account.AccountSubscribeResponse account_subscribe_response = 200;

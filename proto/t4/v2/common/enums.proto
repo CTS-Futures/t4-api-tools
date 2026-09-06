@@ -85,6 +85,18 @@ enum DepthLevels {
   DEPTH_LEVELS_ALL = 255;
 }
 
+// Level of order-book detail requested in MarketSubscribe.
+enum Quotes {
+  // No quotes; unsubscribes from the market.
+  QUOTES_NONE = 0;
+  // Best bid and best offer only.
+  QUOTES_TOP_OF_BOOK = 1;
+  // The full depth ladder, with volume aggregated at each price.
+  QUOTES_FULL_ORDER_BOOK = 2;
+  // Every individual resting order, each identified by its own order id.
+  QUOTES_MARKET_BY_ORDER = 3;
+}
+
 enum BidOffer {
   BID_OFFER_UNDEFINED = 0;
   BID_OFFER_BID = 1;

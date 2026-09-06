@@ -5,28 +5,20 @@ import "google/protobuf/timestamp.proto";
 import "t4/v2/common/enums.proto";
 import "t4/v2/common/price.proto";
 
-message MarketDepthSubscribe {
+// Subscribes to, or unsubscribes from, market data for a single market.
+message MarketSubscribe {
   string exchange_id = 1;
   string contract_id = 2;
   string market_id = 3;
-  t4proto.v2.common.DepthBuffer buffer = 4;
-  t4proto.v2.common.DepthLevels depth_levels = 5;
+  // How much order-book detail to stream; NONE to unsubscribe.
+  t4proto.v2.common.Quotes quotes = 4;
+  // When true, also stream trade prints as MarketTrade messages.
+  bool ticker = 5;
 }
 
-message MarketDepthSubscribeReject {
-  string market_id = 1;
-  google.protobuf.Timestamp time = 2;
-  t4proto.v2.common.MarketMode mode = 3;
-}
-
-message MarketByOrderSubscribe {
-  string exchange_id = 1;
-  string contract_id = 2;
-  string market_id = 3;
-  bool subscribe = 4;
-}
-
-message MarketByOrderSubscribeReject {
+// Sent when a MarketSubscribe cannot be satisfied (e.g. unknown market or no
+// market-data permission). mode carries the reason.
+message MarketSubscribeReject {
   string market_id = 1;
   google.protobuf.Timestamp time = 2;
   t4proto.v2.common.MarketMode mode = 3;
@@ -115,18 +107,30 @@ message MarketDepth {
   }
 }
 
-message MarketDepthTrade {
+// A trade print for a subscribed market, streamed when the subscription
+// enabled the trade ticker (MarketSubscribe.ticker).
+message MarketTrade {
   string market_id = 1;
   google.protobuf.Timestamp time = 2;
-  int32 total_traded_volume = 3;
+  t4proto.v2.common.Price last_trade_price = 3;
   int32 last_trade_volume = 4;
-  bool due_to_spread = 5;
-  t4proto.v2.common.BidOffer at_bid_or_offer = 6;
-  bool delayed = 7;
-  repeated int32 order_volumes = 8;
-  int32 total_trade_count = 9;
-  t4proto.v2.common.Price last_trade_price = 10;
-  t4proto.v2.common.MarketMode mode = 11;
+  int32 total_traded_volume = 5;
+  int32 total_trade_count = 6;
+  bool due_to_spread = 7;
+  t4proto.v2.common.BidOffer aggressor_side = 8;
+  bool delayed = 9;
+  t4proto.v2.common.MarketMode mode = 10;
+
+  // Feed sequence number for the trade. Set only for MARKET_BY_ORDER subscriptions.
+  uint64 sequence = 11;
+  // The resting orders that took part in the trade. Set only for MARKET_BY_ORDER subscriptions.
+  repeated OrderDetail orders = 12;
+
+  message OrderDetail {
+    uint64 order_id = 1;
+    int32 volume = 2;
+    t4proto.v2.common.BidOffer bid_offer = 3;
+  }
 }
 
 message MarketHighLow {
@@ -174,7 +178,7 @@ message MarketSettlement {
 message MarketSnapshotMessage {
     oneof payload {
         MarketDepth market_depth = 3;
-        MarketDepthTrade market_depth_trade = 4;
+        MarketTrade market_trade = 4;
         MarketHighLow market_high_low = 5;
         MarketPriceLimits market_price_limits = 6;
         MarketSettlement market_settlement = 7;
@@ -229,18 +233,3 @@ message MarketByOrderUpdate {
   }
 }
 
-message MarketByOrderTrade {
-  string market_id = 1;
-  google.protobuf.Timestamp time = 2;
-  t4proto.v2.common.Price trade_price = 3;
-  int32 trade_volume = 4;
-  t4proto.v2.common.BidOffer aggressor_side = 5;
-  uint64 sequence = 6;
-  repeated OrderDetail orders = 7;
-
-  message OrderDetail {
-    uint64 order_id = 1;
-    int32 volume = 2;
-    t4proto.v2.common.BidOffer bid_offer = 3;
-  }
-}
