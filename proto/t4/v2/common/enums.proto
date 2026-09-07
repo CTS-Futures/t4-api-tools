@@ -1,6 +1,7 @@
 ﻿syntax = "proto3";
 package t4proto.v2.common;
 
+// Outcome of a login attempt (LoginResponse.result). Only SUCCESS means logged in.
 enum LoginResult {
   LOGIN_RESULT_SUCCESS = 0;
   LOGIN_RESULT_FAILED = 1;
@@ -30,12 +31,14 @@ enum LoginResult {
   LOGIN_RESULT_UNKNOWN = 26; //change
 }
 
+// How Price string values are formatted for the session (LoginRequest.price_format).
 enum PriceFormat {
 	PRICE_FORMAT_DECIMAL = 0;
 	PRICE_FORMAT_REAL = 1;
 	PRICE_FORMAT_CLEARING_DECIMAL = 2;
 }
 
+// How an account nets positions and profit/loss.
 enum AccountMode {
   ACCOUNT_MODE_BY_MARKET = 0;
   ACCOUNT_MODE_BY_CONTRACT = 1;
@@ -48,6 +51,7 @@ enum AccountMode {
   ACCOUNT_MODE_UNKNOWN = 8; //change
 }
 
+// Trading state of a market, carried on most market-data messages.
 enum MarketMode {
   MARKET_MODE_UNDEFINED = 0;
   MARKET_MODE_PRE_OPEN = 1;
@@ -66,6 +70,7 @@ enum MarketMode {
   MARKET_MODE_NO_PERMISSION = 14;
 }
 
+// Update pacing/coalescing of a depth feed, reported on MarketDepth.
 enum DepthBuffer {
   DEPTH_BUFFER_NO_SUBSCRIPTION = 0;
   DEPTH_BUFFER_SLOW_TRADE = 1;
@@ -78,6 +83,7 @@ enum DepthBuffer {
   DEPTH_BUFFER_TRADE_ONLY = 8;
 }
 
+// Number of price levels in a depth feed, reported on MarketDepth.
 enum DepthLevels {
   DEPTH_LEVELS_UNDEFINED = 0;
   DEPTH_LEVELS_BEST_ONLY = 1;
@@ -103,6 +109,7 @@ enum BidOffer {
   BID_OFFER_OFFER = 2; //change
 }
 
+// Bit flags describing market state (bitmask; values OR together).
 enum MarketFlags2 {
   MARKET_FLAGS2_UNDEFINED = 0;
   MARKET_FLAGS2_FAST = 1;
@@ -120,6 +127,7 @@ enum MarketFlags2 {
   MARKET_FLAGS2_SURVEILLANCE_INTERVENTION = 4096;
 }
 
+// Kind of instrument.
 enum ContractType {
   CONTRACT_TYPE_UNKNOWN = 0;
   CONTRACT_TYPE_OPTION = 1;
@@ -135,6 +143,7 @@ enum ContractType {
   CONTRACT_TYPE_ANY = 11; //change
 }
 
+// Market-data entitlement level for an exchange (bitmask).
 enum MarketDataType {
   MARKET_DATA_TYPE_NONE = 0;
   MARKET_DATA_TYPE_TOB = 1;
@@ -144,6 +153,7 @@ enum MarketDataType {
   MARKET_DATA_TYPE_NOT_SET = 10; // change
 }
 
+// Spread/strategy type for multi-leg instruments.
 enum StrategyType {
   STRATEGY_TYPE_NONE = 0;
   STRATEGY_TYPE_CALENDAR_SPREAD = 1;
@@ -231,6 +241,7 @@ enum StrategyType {
   STRATEGY_TYPE_ANY = 84; //change
 }
 
+// Risk / liquidation state of a position.
 enum ContractRiskStatus {
   CONTRACT_RISK_STATUS_NONE = 0;
   CONTRACT_RISK_STATUS_DAY_TRADING = 1;
@@ -241,6 +252,7 @@ enum ContractRiskStatus {
   CONTRACT_RISK_STATUS_PRICE_LIMIT_LIQUIDATION = 6;
 }
 
+// Trading status of an account.
 enum AccountStatus {
   ACCOUNT_STATUS_UNKNOWN = 0;
   ACCOUNT_STATUS_BLOCKED = 1;
@@ -261,12 +273,14 @@ enum AccountEnabled {
   ACCOUNT_ENABLED_PIT_TRADE_ONLY = 3;
 }
 
+// Which margin schedule applies to the account.
 enum AccountMarginType {
   ACCOUNT_MARGIN_TYPE_SPEC = 0;
   ACCOUNT_MARGIN_TYPE_HEDGE_OR_MEMBER = 1;
   ACCOUNT_MARGIN_TYPE_FIRM_OR_ACCOUNT = 2;
 }
 
+// Fine-grained order lifecycle transition (OrderUpdate.change).
 enum OrderChange {
   ORDER_CHANGE_NONE = 0;
   ORDER_CHANGE_FAILED = 1;
@@ -306,6 +320,7 @@ enum OrderChange {
   ORDER_CHANGE_ADD_PIT_TRADE_REJECTED = 35;
 }
 
+// High-level order state (OrderUpdate.status).
 enum OrderStatus {
   ORDER_STATUS_NONE = 0;
   ORDER_STATUS_WORKING = 1;
@@ -315,6 +330,7 @@ enum OrderStatus {
   ORDER_STATUS_NO_CHANGE = 5;
 }
 
+// Which request is awaiting an exchange response (OrderUpdate.response_pending).
 enum ResponsePending {
   RESPONSE_PENDING_NONE = 0;
   RESPONSE_PENDING_SUBMISSION = 1;
@@ -324,6 +340,7 @@ enum ResponsePending {
   RESPONSE_PENDING_NO_CHANGE = 5;
 }
 
+// When/how an order becomes active (see OrderActivation).
 enum ActivationType {
   ACTIVATION_TYPE_IMMEDIATE = 0;
   ACTIVATION_TYPE_HOLD = 1;
@@ -347,6 +364,7 @@ enum ActivationType {
   ACTIVATION_TYPE_UNDEFINED = 19; //change
 }
 
+// Order price type (market, limit, stop, ...).
 enum PriceType {
   PRICE_TYPE_MARKET = 0;
   PRICE_TYPE_LIMIT = 1;
@@ -370,6 +388,7 @@ enum PriceType {
   PRICE_TYPE_UNDEFINED = 19; //change
 }
 
+// Time-in-force (IOC, FOK = COMPLETE_VOLUME, GTC, ...).
 enum TimeType {
   TIME_TYPE_NORMAL = 0;
   TIME_TYPE_IMMEDIATE_AND_CANCEL = 1;
@@ -398,6 +417,7 @@ enum BuySell {
   BUY_SELL_SELL = 2; //change
 }
 
+// CFTC Customer Type Indicator (regulatory).
 enum CTI {
   CTI_UNDEFINED = 0;
   CTI_MEMBER = 1;
@@ -407,6 +427,7 @@ enum CTI {
   CTI_NONE = 5; //change
 }
 
+// Order/account origin code (regulatory).
 enum Origin {
   ORIGIN_UNDEFINED = 0;
   ORIGIN_CUSTOMER = 1;
@@ -423,6 +444,7 @@ enum Origin {
   ORIGIN_MARKET_MAKER = 12;
 }
 
+// Clearing account-type code (regulatory/clearing).
 enum AccountCode {
   ACCOUNT_CODE_UNDEFINED = 0;
   ACCOUNT_CODE_NONE = 1;
@@ -485,6 +507,7 @@ enum AccountCode {
   ACCOUNT_CODE_CERES_CLIENT = 58;
 }
 
+// Whether a trade opens or closes a position.
 enum OpenClose {
   OPEN_CLOSE_OPEN = 0;
   OPEN_CLOSE_CLOSE = 1;
@@ -521,6 +544,7 @@ enum BillingFee {
   BILLING_FEE_CBOE_MEMBER = 5;
 }
 
+// How linked orders relate (e.g. OCO = one-cancels-other).
 enum OrderLink {
   ORDER_LINK_NONE = 0;
   ORDER_LINK_OCO = 1;
@@ -546,6 +570,7 @@ enum MasterType {
   MASTER_TYPE_CHILD = 1;
 }
 
+// What placed the order (API, web trader, ladder, ...).
 enum OrderSource {
   ORDER_SOURCE_UNKNOWN = 0;
   ORDER_SOURCE_API = 1;
@@ -593,6 +618,7 @@ enum OrderSource {
   ORDER_SOURCE_HTTP_API = 57;
 }
 
+// How the order was entered (click, ticket, key entry, ...).
 enum OrderSourceMethod {
   ORDER_SOURCE_METHOD_UNKNOWN = 0;
   ORDER_SOURCE_METHOD_CLICK = 1;
@@ -612,16 +638,19 @@ enum OrderSourceMethod {
   ORDER_SOURCE_METHOD_ACCOUNT_SERVICE_AUTO_LIQUIDATION = 15;
 }
 
+// AccountSubscribe mode.
 enum AccountSubscribeType {
   ACCOUNT_SUBSCRIBE_TYPE_NONE = 0;
   ACCOUNT_SUBSCRIBE_TYPE_ALL_UPDATES = 2;
 }
 
+// How unrealized P&L is calculated for a subscription.
 enum UPLMode {
   UPL_MODE_NONE = 0;
   UPL_MODE_AVERAGE = 1;
 }
 
+// Result of a CreateUDS (CreateUDSResponse.uds_status).
 enum UDSStatus {
   UDS_STATUS_UNKNOWN = 0;
   UDS_STATUS_Success = 1;

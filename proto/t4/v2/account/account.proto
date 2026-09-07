@@ -7,32 +7,38 @@ import "t4/v2/common/price.proto";
 import "t4/v2/market/market.proto";
 import "t4/v2/orderrouting/orderrouting.proto";
 
+// Subscribe to one or more accounts (or all of them). Required before routing orders into
+// an account. The server replies with AccountSubscribeResponse, then an AccountSnapshot.
 message AccountSubscribe {
   t4proto.v2.common.AccountSubscribeType subscribe = 1;
-  bool subscribe_all_accounts = 2;
-  repeated string account_id = 3;
-  optional t4proto.v2.common.UPLMode upl_mode = 4;
+  bool subscribe_all_accounts = 2;                     // Subscribe every account you can access.
+  repeated string account_id = 3;                      // Specific accounts (when not subscribing all).
+  optional t4proto.v2.common.UPLMode upl_mode = 4;     // How unrealized P&L is calculated.
 }
 
+// Result of an AccountSubscribe; errors lists any accounts that could not be subscribed.
 message AccountSubscribeResponse {
   bool success = 1;
   repeated string errors = 2;
 }
 
+// Currency conversion rate used when aggregating an account's P&L and margin.
 message AccountCurrency {
   string currency = 1;
   double rate = 2;
   double import_factor = 3;
 }
 
+// Current position in a single market: filled and working quantities per side, plus the
+// position's average price, margin and P&L. Volumes here are integers.
 message AccountPosition {
   string account_id = 1;
   string exchange_id = 2;
   string contract_id = 3;
   string market_id = 4;
-  int32 buys = 5;
-  int32 sells = 6;
-  int32 working_buys = 7;
+  int32 buys = 5;            // Filled buy quantity.
+  int32 sells = 6;           // Filled sell quantity.
+  int32 working_buys = 7;    // Working (unfilled) buy quantity.
   int32 working_sells = 8;
   double rpl = 9;
   double overnight_upl = 10;
@@ -68,6 +74,7 @@ message AccountPosition {
   double pre_trade_margin = 40;
 }
 
+// Account-level money: cash balance, the various margin figures and P&L rollups.
 message AccountUpdate {
   string account_id = 1;
   t4proto.v2.common.AccountStatus status = 2;
@@ -96,6 +103,7 @@ message AccountUpdate {
   google.protobuf.Timestamp alerting_time = 25;
 }
 
+// Static account configuration and risk limits (loss limits, margin settings, active hours).
 message AccountDetails {
   string account_id = 1;
   string account_name = 2;
@@ -135,6 +143,8 @@ message AccountDetails {
   double warning_threshold_min_net_equity = 36;
 }
 
+// One entry in an AccountSnapshot bundle. A position's MarketDetails is sent before the
+// position itself so you can interpret its prices.
 message AccountSnapshotMessage {
     oneof payload {
         AccountPosition account_position = 3;
@@ -142,13 +152,15 @@ message AccountSnapshotMessage {
         AccountDetails account_details = 5;
         AccountCurrency account_currency = 6;
         t4proto.v2.market.MarketDetails market_details = 7;
-        t4proto.v2.orderrouting.OrderUpdate order_status = 8;
+        t4proto.v2.orderrouting.OrderUpdate order_status = 8;   // A working order (update_type SNAPSHOT).
     }
 }
 
+// Full current state of an account on subscribe: details, money, positions and working
+// orders, as a bundle. due_to_connection is true when resent after a connection recovery.
 message AccountSnapshot {
  string account_id = 1;
- int64 last_update_requested = 2; 
+ int64 last_update_requested = 2;
  int64 last_update_supplied = 3;
  t4proto.v2.common.AccountStatus status = 4;
  bool due_to_connection = 5;

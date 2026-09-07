@@ -8,6 +8,8 @@ import "t4/v2/common/price.proto";
 
 /* Client to Server */
 
+// Optional activation/scheduling conditions for an order: hold until a time, trigger on
+// a trade price or market mode, or queue. Attached to an order via Order.activation_data.
 message OrderActivation {
   optional google.protobuf.Timestamp submit_time = 1;
   optional int64 submit_delay_ms = 2;
@@ -23,13 +25,17 @@ message OrderActivation {
   optional bool queue_submit = 12;
 }    
 
+// Places one or more orders into a single account+market. The account must be subscribed
+// first. Set user_id only to route on behalf of another user (requires the order-routing role).
 message OrderSubmit {
   optional string user_id = 1;
   string account_id = 2;
   string market_id = 3;
-  t4proto.v2.common.OrderLink order_link = 4;
-  bool manual_order_indicator = 5;
-  
+  t4proto.v2.common.OrderLink order_link = 4;   // Links the orders, e.g. OCO.
+  bool manual_order_indicator = 5;              // Regulatory: was this a human-entered order.
+
+  // A single order. Required: buy_sell, price_type, time_type, volume. Price fields depend
+  // on price_type (limit_price for LIMIT, stop_price for STOP_*, etc.).
   message Order {
     t4proto.v2.common.BuySell buy_sell = 1;
     t4proto.v2.common.PriceType price_type = 2;
@@ -37,17 +43,18 @@ message OrderSubmit {
     // Volumes are decimals so fractional exchange quantities survive the wire (e.g. Kalshi 1.50).
     // The service scales them to/from T4's internal integer volume using the market's VolumeScale.
     t4proto.v2.common.Decimal volume = 4;
-    optional t4proto.v2.common.Decimal max_show = 5;
+    optional t4proto.v2.common.Decimal max_show = 5;      // Iceberg: volume shown to the market.
     optional t4proto.v2.common.Decimal max_volume = 6;
     optional t4proto.v2.common.Price limit_price = 7;
     optional t4proto.v2.common.Price stop_price = 8;
-    optional t4proto.v2.common.Price trail_distance = 9;
-    optional string tag = 10;
+    optional t4proto.v2.common.Price trail_distance = 9;  // Trailing-stop distance from the market.
+    optional string tag = 10;                             // Free-text label, returned on updates.
     optional t4proto.v2.common.ActivationType activation_type = 11;
     optional OrderActivation activation_data = 12;
+    // When true, return a MarginInquiryResponse for this order instead of placing it.
     optional bool margin_inquiry = 13;
-    optional string margin_inquiry_id = 14;
-    optional string ClOrdId = 15;
+    optional string margin_inquiry_id = 14;               // Correlates the MarginInquiryResponse.
+    optional string ClOrdId = 15;                         // Your order id; echoed as tag_cl_ord_id.
   }
 
   repeated Order orders = 6;
@@ -63,12 +70,14 @@ message OrderBatch {
   repeated OrderSubmit submissions = 2;
 }
 
+// Revises one or more working orders in a single account+market.
 message OrderRevise {
   string user_id = 1;
   string account_id = 2;
   string market_id = 3;
   bool manual_order_indicator = 4;
 
+  // One order to change. Identify it by unique_id or ClOrdId; set only the fields to change.
   message Revise {
     optional string unique_id = 1;
     // Decimal volumes; scaled to/from T4's internal integer volume using the market's VolumeScale.
@@ -87,27 +96,32 @@ message OrderRevise {
 
 }
 
+// Cancels one or more working orders in a single account+market.
 message OrderPull {
   string user_id = 1;
   string account_id = 2;
   string market_id = 3;
   bool manual_order_indicator = 4;
 
+  // One order to cancel. Identify it by unique_id or ClOrdId.
   message Pull {
     optional string unique_id = 1;
     optional string tag = 2;
     optional string ClOrdId = 3;
   }
-  
+
   repeated Pull pulls = 5;
 }
 
+// Defines a user-defined strategy (custom spread) from its legs so it can be traded as a
+// single market. The created market is returned in CreateUDSResponse.MarketRef.
 message CreateUDS {
     string request_id = 1;
     string user_id = 2;
     string account_id = 3;
     t4proto.v2.common.StrategyType strategy_type = 4;
 
+    // One leg: the market, side, ratio and (for delta-based strategies) its delta.
     message Leg {
         string exchange_id = 1;
         string contract_id = 2;
@@ -124,16 +138,20 @@ message CreateUDS {
 
 /* Server to Client */
 
+// Discriminates an OrderUpdate — read update_type to know which kind of event it is.
 enum OrderUpdateType{
 	ORDER_UPDATE_TYPE_NONE = 0;
-	SNAPSHOT = 1;
-	STATUS = 2;
-	TRADE = 3;
-	TRADE_LEG = 4;
-	FAILED = 5;
+	SNAPSHOT = 1;      // Existing order, sent on account subscribe.
+	STATUS = 2;        // Working / revised / pulled / rejected state change.
+	TRADE = 3;         // A fill (details also arrive as OrderTrade).
+	TRADE_LEG = 4;     // A fill on a strategy leg.
+	FAILED = 5;        // The request failed; see status_detail.
 
 }
 
+// The single order lifecycle message: every status change, snapshot, fill and failure
+// for an order arrives here. Read update_type first. unique_id identifies the order for
+// the session; current_* fields are the values before a change, new_* the values after.
 message OrderUpdate {
     string unique_id = 1;
     string account_id = 2;
@@ -142,11 +160,11 @@ message OrderUpdate {
     google.protobuf.Timestamp time = 4;
     google.protobuf.Timestamp exchange_time = 5;
 
-    OrderUpdateType update_type = 6;
+    OrderUpdateType update_type = 6;      // Which kind of event this is.
 
-    t4proto.v2.common.OrderChange change = 7;
-    t4proto.v2.common.OrderStatus status = 8;
-    string status_detail = 9;
+    t4proto.v2.common.OrderChange change = 7;    // Fine-grained lifecycle transition.
+    t4proto.v2.common.OrderStatus status = 8;    // Resulting order state (working, finished, ...).
+    string status_detail = 9;                    // Human-readable reason, e.g. a reject message.
     t4proto.v2.common.ResponsePending response_pending = 10;
 
     string exchange_order_id = 11;
@@ -220,10 +238,10 @@ message OrderUpdate {
     t4proto.v2.common.ApplicationType app_type = 65;
     t4proto.v2.common.MasterType master_type = 66;
 
-    string tag_cl_ord_id = 67;
-    string tag_orig_cl_ord_id = 68;
-    string tag_relation_id = 69;
-    string smp_id = 70;
+    string tag_cl_ord_id = 67;        // Echo of the order's ClOrdId.
+    string tag_orig_cl_ord_id = 68;   // ClOrdId of the prior order (after a revise).
+    string tag_relation_id = 69;      // Groups related/linked orders and batch members.
+    string smp_id = 70;               // Self-match-prevention id.
 
     int32 sequence_order = 71;
 
@@ -236,18 +254,19 @@ message OrderUpdate {
     string ClOrdId = 78;
 }
 
+// A single fill against an order. For strategy orders, one OrderTrade per leg (leg_index set).
 message OrderTrade {
-    
+
     string account_id = 1;
     string market_id = 2;
     string order_id = 3;
 
-    optional int32 leg_index = 4;
+    optional int32 leg_index = 4;     // Set for a strategy leg fill.
 
     int32 sequence_order = 5;
-    t4proto.v2.common.Decimal volume = 6;
+    t4proto.v2.common.Decimal volume = 6;            // Filled quantity.
     t4proto.v2.common.Price price = 7;
-    t4proto.v2.common.Decimal residual_volume = 8;
+    t4proto.v2.common.Decimal residual_volume = 8;   // Quantity still working after this fill.
     google.protobuf.Timestamp time = 9;
     string exchange_trade_id = 10;
     google.protobuf.Timestamp exchange_time = 11;
@@ -256,6 +275,7 @@ message OrderTrade {
     int64 trade_date = 14;
 }
 
+// Result of a CreateUDS. On success, MarketRef identifies the new strategy market to trade.
 message CreateUDSResponse {
     string request_id = 1;
     string status_detail = 2;
@@ -301,9 +321,10 @@ message OrderBatchReject {
   repeated OrderError errors = 3;
 }
 
+// Pre-trade margin preview, returned for an Order submitted with margin_inquiry = true.
+// No order is placed. Shows account margin before and with the hypothetical order.
 message MarginInquiryResponse {
-  // Move RequestID directly into this message
-  string request_id = 1;
+  string request_id = 1;   // Matches the Order's margin_inquiry_id.
 
   string account_id = 2;
   string market_id = 3;

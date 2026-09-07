@@ -1,10 +1,14 @@
 syntax = "proto3";
 package t4proto.v2.common;
 
+// Exact numeric value carried as text to avoid binary floating-point rounding.
+// Parse into a native decimal type, not a double. Used for order volumes and cash values.
 message Decimal {
-  string value = 1;
+  string value = 1;   // e.g. "1.50"
 }
 
+// A market or order price carried as text. Formatting follows LoginRequest.price_format
+// (decimal / real / clearing). Parse into a native decimal type, not a double.
 message Price {
-  string value = 1;
+  string value = 1;   // e.g. "4200.50"
 }

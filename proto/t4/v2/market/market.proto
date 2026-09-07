@@ -24,15 +24,17 @@ message MarketSubscribeReject {
   t4proto.v2.common.MarketMode mode = 3;
 }
 
+// Full definition of a tradable instrument. Delivered on subscribe and when the
+// definition changes. Prices/volumes elsewhere are interpreted using these fields.
 message MarketDetails {
   string market_id = 1;
   string exchange_id = 2;
   string contract_id = 3;
   int32 expiry_date = 4;
   t4proto.v2.common.ContractType contract_type = 5;
-  int32 decimals = 6;
-  t4proto.v2.common.Decimal point_value = 7;
-  t4proto.v2.common.Price min_price_increment = 8;
+  int32 decimals = 6;                                    // Price decimal places (decimal format).
+  t4proto.v2.common.Decimal point_value = 7;             // Cash value of one full price point.
+  t4proto.v2.common.Price min_price_increment = 8;       // Tick size (smallest price step).
   int32 order_types = 9;
   google.protobuf.Timestamp activation_date = 10;
   google.protobuf.Timestamp last_trading_date = 11;
@@ -42,56 +44,61 @@ message MarketDetails {
   string market_ref = 15;
   string group = 16;
 
-  repeated LegItem legs = 17;
+  repeated LegItem legs = 17;                            // Component legs, for spreads/strategies.
 
   string details = 18;
   t4proto.v2.common.StrategyType strategy_type = 19;
   string price_code = 20;
-  int32 real_decimals = 21;
-  int32 display_decimals = 22;
-  int32 clearing_decimals = 23;
-  optional t4proto.v2.common.Price min_cab_price = 24;
-  optional t4proto.v2.common.Price strike_price = 25;
-  int32 volume_increment = 26;
+  int32 real_decimals = 21;                              // Price decimal places (real format).
+  int32 display_decimals = 22;                           // Price decimal places (display).
+  int32 clearing_decimals = 23;                          // Price decimal places (clearing format).
+  optional t4proto.v2.common.Price min_cab_price = 24;   // Minimum cabinet price (options).
+  optional t4proto.v2.common.Price strike_price = 25;    // Option strike.
+  int32 volume_increment = 26;                           // Smallest tradable volume step.
   double strategy_ratio = 27;
-  bool disabled = 28;
-  string underlying_market_id = 29;
+  bool disabled = 28;                                    // True when the market is not tradable.
+  string underlying_market_id = 29;                      // Underlying instrument (options/derived).
   string vtt = 30;
   double maint_intra_margin = 31;
   double maint_margin = 32;
   double maint_vol_scan = 33;
 
+  // One leg of a spread/strategy instrument.
   message LegItem {
     string market_id = 1;
     int32 group = 2;
-    int32 volume = 3;
+    int32 volume = 3;   // Leg ratio (contracts of this leg per unit of the strategy).
     string delta = 4;
     t4proto.v2.common.Price price = 5;
   }
 }
 
 
+// Price feed for a market: the full state on subscribe, then incremental updates.
+// bids/offers are outright levels; implied_* are levels implied from related spreads.
 message MarketDepth {
   string market_id = 1;
   t4proto.v2.common.DepthLevels depth_levels = 2;
   t4proto.v2.common.DepthBuffer depth_buffer = 3;
   google.protobuf.Timestamp time = 4;
-  bool delayed = 5;
+  bool delayed = 5;                          // True when the data is delayed, not real-time.
   repeated DepthLine bids = 6;
   repeated DepthLine offers = 7;
   repeated DepthLine implied_bids = 8;
   repeated DepthLine implied_offers = 9;
-  t4proto.v2.common.MarketMode mode = 10;
+  t4proto.v2.common.MarketMode mode = 10;    // Trading state (open, closed, halted, ...).
   t4proto.v2.common.MarketFlags2 flags = 11;
 
-  TradeData trade_data = 12;
-    
+  TradeData trade_data = 12;                 // Latest trade summary, when included.
+
+  // One price level: the price, total volume there, and how many orders make it up.
   message DepthLine {
     t4proto.v2.common.Price price = 1;
     int32 volume = 2;
     int32 num_orders = 3;
   }
 
+  // Rolling summary of the most recent trade(s) in the market.
   message TradeData {
     int32 total_traded_volume = 1;
     int32 total_trade_count = 2;
@@ -133,6 +140,7 @@ message MarketTrade {
   }
 }
 
+// Session open, high and low prices for the trade date.
 message MarketHighLow {
   string market_id = 1;
   t4proto.v2.common.Price open_price = 2;
@@ -143,6 +151,7 @@ message MarketHighLow {
   bool delayed = 7;
 }
 
+// Exchange price limits (the highest/lowest price currently allowed to trade).
 message MarketPriceLimits {
   string market_id = 1;
   t4proto.v2.common.Price high_price = 2;
@@ -151,6 +160,8 @@ message MarketPriceLimits {
   bool delayed = 5;
 }
 
+// Settlement price plus open interest, cleared volume and VWAP for the market.
+// "held" values are provisional figures published before the final ones.
 message MarketSettlement {
   string exchange_id = 1;
   string market_id = 2;
@@ -175,6 +186,7 @@ message MarketSettlement {
   google.protobuf.Timestamp vwap_trade_date = 21;
 }
 
+// One entry in a MarketSnapshot bundle.
 message MarketSnapshotMessage {
     oneof payload {
         MarketDepth market_depth = 3;
@@ -185,6 +197,8 @@ message MarketSnapshotMessage {
     }
 }
 
+// Full current state of a market, sent on subscribe as a bundle of the messages above.
+// due_to_connection is true when the snapshot was resent after a connection recovery.
 message MarketSnapshot {
     string market_id = 1;
     t4proto.v2.common.MarketMode mode = 2;
@@ -194,6 +208,8 @@ message MarketSnapshot {
 }
 
 
+// Full order-by-order book on subscribe (quotes = MARKET_BY_ORDER): every resting order.
+// Track last_sequence and apply MarketByOrderUpdate messages from there.
 message MarketByOrderSnapshot {
   string market_id = 1;
   google.protobuf.Timestamp time = 2;
@@ -206,10 +222,12 @@ message MarketByOrderSnapshot {
     t4proto.v2.common.BidOffer bid_offer = 2;
     t4proto.v2.common.Price price = 3;
     int32 volume = 4;
-    uint64 priority = 5;
+    uint64 priority = 5;   // Queue position (lower = ahead).
   }
 }
 
+// Incremental order-by-order changes. Apply updates in sequence order; if you detect
+// a gap in sequence, resubscribe to get a fresh snapshot.
 message MarketByOrderUpdate {
   string market_id = 1;
   google.protobuf.Timestamp time = 2;
@@ -218,9 +236,9 @@ message MarketByOrderUpdate {
   repeated Update updates = 5;
 
   enum UpdateType {
-    UPDATE_TYPE_ADD_OR_UPDATE = 0;
-    UPDATE_TYPE_DELETE = 1;
-    UPDATE_TYPE_CLEAR = 2;
+    UPDATE_TYPE_ADD_OR_UPDATE = 0;   // Order added or its volume/price changed.
+    UPDATE_TYPE_DELETE = 1;          // Order removed (filled or pulled).
+    UPDATE_TYPE_CLEAR = 2;           // Drop all orders and rebuild from here.
   }
 
   message Update {

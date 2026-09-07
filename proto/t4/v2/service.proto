@@ -6,6 +6,11 @@ import "t4/v2/market/market.proto";
 import "t4/v2/account/account.proto";
 import "t4/v2/orderrouting/orderrouting.proto";
 
+// Every WebSocket frame carries exactly one serialized ClientMessage (client -> server)
+// or ServerMessage (server -> client). One payload is set per message; switch on the oneof
+// case to dispatch. The field number is the stable message id.
+
+// Sent by the client. The first message after connecting must be a login_request.
 message ClientMessage {
     oneof payload {
         // Shared
@@ -31,6 +36,7 @@ message ClientMessage {
     }
 }
 
+// Sent by the server, in response to client requests or as streaming updates.
 message ServerMessage {
     oneof payload {
         // Shared
@@ -72,6 +78,8 @@ message ServerMessage {
     }
 }
 
+// Keepalive. Send one every 20s; the server closes the connection after ~3 missed intervals.
+// Both client and server send heartbeats.
 message Heartbeat {
     int64 timestamp = 1;  // UTC timestamp in milliseconds
 }

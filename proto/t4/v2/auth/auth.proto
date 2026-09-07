@@ -4,27 +4,33 @@ package t4proto.v2.auth;
 import "google/protobuf/timestamp.proto";
 import "t4/v2/common/enums.proto";
 
+// First message the client sends. Authenticate with EITHER an api_key OR the
+// firm/username/password set (with app_name/app_license).
 message LoginRequest {
   // API Key authentication (when used, this is the only required field)
   string api_key = 1;
-  
+
   // Username/password authentication fields
   string firm = 2;
   string username = 3;
   string password = 4;
   string app_name = 5;
   string app_license = 6;
+  // How Price values are formatted for this session (decimal / real / clearing).
   t4proto.v2.common.PriceFormat price_format = 10;
 }
 
+// Result of a LoginRequest. Check result first; on SUCCESS the identity, entitlements
+// (exchanges) and accounts are populated. Otherwise read error_message.
 message LoginResponse {
   t4proto.v2.common.LoginResult result = 1;
   string session_id = 2;
   string user_id = 3;
   string firm_id = 4;
-  repeated string roles = 5;
+  repeated string roles = 5;   // Permissions for this session (e.g. order routing).
   string error_message = 6;
 
+  // One exchange the session is entitled to, and the market data it may receive there.
   message Exchange {
     string exchange_id = 1;
     string user_id = 2;
@@ -33,10 +39,11 @@ message LoginResponse {
     string primary_user_id = 5;
     string secondary_user_id = 6;
     string location = 7;
-    string smp_id = 8;
+    string smp_id = 8;   // Self-match-prevention id.
     map<string, string> extra_detail = 9;
   }
 
+  // An account this session can view or trade.
   message Account {
     string account_id = 1;
     string account_number = 2;
@@ -48,6 +55,7 @@ message LoginResponse {
   repeated Exchange exchanges = 7;
   repeated Account accounts = 8;
 
+  // A token issued at login for authenticating to T4 REST services (see AuthenticationToken).
   optional AuthenticationToken authentication_token = 9;
 
   string firm = 10;         // Firm name
@@ -56,10 +64,14 @@ message LoginResponse {
   string server_name = 13;  // Name of the server that responded
 }
 
+// Requests a fresh authentication token. Correlate the reply by request_id.
 message AuthenticationTokenRequest {
   string request_id = 1;
 }
 
+// A short-lived bearer token for T4 REST services. It does NOT resume a dropped
+// WebSocket session — you still re-authenticate on reconnect. On failure, token is
+// unset and fail_message explains why.
 message AuthenticationToken {
   string request_id = 1;
   optional string token = 2;
