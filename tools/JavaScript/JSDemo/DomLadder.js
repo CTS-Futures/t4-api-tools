@@ -224,10 +224,12 @@
                 for (const o of orders) {
                     if (!o) continue;
                     const price = num(o.currentLimitPrice ?? o.currentStopPrice ?? o.limitPrice ?? o.stopPrice, 0);
-                    const vol = Number(o.currentVolume ?? o.workingVolume ?? o.volume);
+                    const vol = num(o.currentVolume ?? o.workingVolume ?? o.volume, 0);
                     if (!Number.isFinite(price) || !Number.isFinite(vol) || vol <= 0) continue;
                     const key = Math.round(price / step);
-                    const target = Number(o.buySell) < 0 ? this._sells : this._buys;
+                    const { BUY_SELL_BUY, BUY_SELL_SELL } = global.T4ProtoV2.t4proto.v2.common.BuySell;
+                    if (o.buySell !== BUY_SELL_BUY && o.buySell !== BUY_SELL_SELL) continue;
+                    const target = o.buySell === BUY_SELL_SELL ? this._sells : this._buys;
                     target.set(key, (target.get(key) || 0) + vol);
                 }
             }
