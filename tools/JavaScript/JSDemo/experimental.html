@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>T4 WebSocket API Demo</title>
+    <title>T4 Experimental — Algo Trader &amp; Backtester</title>
     <!-- TEMP CLS DIAGNOSTIC — remove after layout tuning. Logs the largest
          layout-shift contributors to the console; call __clsReport() any time
          for the full breakdown. -->
@@ -55,6 +55,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
+<div class="section" role="note"><h1>Experimental — incomplete</h1><p>Algo Trader and Backtester are under development and are not part of the main demo.</p><a href="index.html">Back to main demo</a></div>
 <div class="container">
     <!-- Connection Status & Account Selection -->
     <div class="section full-width">
@@ -332,6 +333,27 @@
                 </div>
             </aside>
         </div>
+        <!-- Strategy View: the active strategy's traces/markers, time-synced to
+             the candles above. Driven by the Algo Trader / Backtester panels. -->
+        <div class="strategy-chart-wrap" id="strategyChartWrap" style="display:none;">
+            <div class="strategy-chart-header">
+                <span class="strategy-chart-title">Strategy View</span>
+                <span class="strategy-chart-legend" id="strategyChartLegend"></span>
+            </div>
+            <div class="strategy-chart" id="strategyChart"></div>
+        </div>
+    </div>
+
+    <!-- Algo Trader -->
+    <div class="section full-width">
+        <h2>Algo Trader <span class="algo-demo-badge">experimental · incomplete</span></h2>
+        <div id="algoPanel"></div>
+    </div>
+
+    <!-- Backtester: single-instrument JS engine over the active market's loaded history. -->
+    <div class="section full-width">
+        <h2>Backtester <span class="algo-demo-badge" id="backtestBadge">loaded chart history</span></h2>
+        <div id="backtestPanel"></div>
     </div>
 
     <!-- Console -->
@@ -373,10 +395,32 @@
 <script src="chart/ui/DrawingToolbar.js"></script>
 <script src="chart/ui/OrderToolbar.js"></script>
 <script src="chart/persistence/LayoutStore.js"></script>
+<script src="chart/StrategyChart.js"></script>
 <script src="ChartService.js"></script>
 
+<!-- Algo trading layer (strategy <-> IBroker <-> live/sim) -->
+<script src="algo/IBroker.js"></script>
+<script src="algo/LiveBroker.js"></script>
+<script src="algo/strategies/Strategy.js"></script>
+<script src="algo/strategies/indicators.js"></script>
+<script src="algo/strategies/SmaCrossover.js"></script>
+<script src="algo/strategies/RsiReversion.js"></script>
+<script src="algo/strategies/BollingerReversion.js"></script>
+<script src="algo/strategies/DonchianBreakout.js"></script>
+<script src="algo/strategies/MacdCross.js"></script>
+<script src="algo/strategies/MomentumScalper.js"></script>
+<script src="algo/DataHealth.js"></script>
+<script src="algo/RiskManager.js"></script>
+<script src="algo/AlgoRunner.js"></script>
+<script src="algo/Portfolio.js"></script>
+<script src="algo/SimBroker.js"></script>
+<script src="algo/Backtester.js"></script>
+<script src="algo/ui/ParamForm.js"></script>
+<script src="algo/ui/AlgoPanel.js"></script>
+<script src="algo/ui/BacktestPanel.js"></script>
 
 <script src="DemoPage.js"></script>
+<script src="algo/ExperimentalPage.js"></script>
 
 <div class="order-edit-overlay" id="orderEditOverlay" style="display: none;">
     <div class="order-edit-dialog">
@@ -401,10 +445,6 @@
         </div>
     </div>
 </div>
-
-<footer style="padding: 12px 20px; text-align: center; font-size: 12px;">
-    <a href="experimental.html" style="color: #888;">Experimental tools</a>
-</footer>
 
 </body>
 </html>
