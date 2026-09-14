@@ -218,7 +218,8 @@
         // ---------- order-line menu --------------------------------------
         _openOrderMenu(uniqueId) {
             const order = this._client?.orders?.get?.(uniqueId);
-            const sideText = order?.buySell === 1 ? 'Buy' : (order?.buySell === -1 ? 'Sell' : '?');
+            const { BUY_SELL_BUY, BUY_SELL_SELL } = global.T4ProtoV2.t4proto.v2.common.BuySell;
+            const sideText = order?.buySell === BUY_SELL_BUY ? 'Buy' : (order?.buySell === BUY_SELL_SELL ? 'Sell' : '?');
             const vol = order?.currentVolume ?? order?.volume ?? '';
 
             this._createMenu();

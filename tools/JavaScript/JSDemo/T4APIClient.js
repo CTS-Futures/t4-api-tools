@@ -374,15 +374,18 @@ class T4APIClient {
         const priceTypeValue = ptLower === 'market'
             ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET       // 0
             : ptLower === 'stop'
-                ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
+                ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET  // 2
                 : T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT;       // 1
 
-        // Convert buy/sell string to enum value
-        const buySellValue = typeof side === 'string'
-            ? (side.toLowerCase() === 'buy'
-                ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY    // 1
-                : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // -1
-            : side;
+        // UI callers use -1 for Sell; V2 uses 2 on the wire.
+        const normalizedSide = typeof side === 'string' ? side.toLowerCase() : side;
+        const { BUY_SELL_BUY, BUY_SELL_SELL } = T4ProtoV2.t4proto.v2.common.BuySell;
+        const buySellValue = normalizedSide === 'buy' || normalizedSide === BUY_SELL_BUY
+            ? BUY_SELL_BUY
+            : normalizedSide === 'sell' || normalizedSide === -1 || normalizedSide === BUY_SELL_SELL
+                ? BUY_SELL_SELL
+                : null;
+        if (buySellValue === null) throw new Error('Order: invalid buy/sell side');
 
         // Determine if we need OCO order linking
         const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
@@ -638,7 +641,7 @@ class T4APIClient {
             const priceTypeValue = ptLower === 'market'
                 ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET       // 0
                 : ptLower === 'stop'
-                    ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
+                    ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET  // 2
                     : T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT;       // 1
 
             // Validate before building: an unvalidated leg would otherwise send a
@@ -657,7 +660,7 @@ class T4APIClient {
             const buySellValue = typeof leg.side === 'string'
                 ? (leg.side.toLowerCase() === 'buy'
                     ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY    // 1
-                    : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // -1
+                    : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // 2
                 : (leg.side === 1
                     ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY
                     : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL);
@@ -804,7 +807,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
         // To flatten: sell if long (net > 0), buy if short (net < 0)
         const buySellValue = netPosition > 0
-            ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL   // -1
+            ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL   // 2
             : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY;   //  1
 
         const volume = Math.abs(netPosition);
@@ -1906,6 +1909,22 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     // quietly without throwing.
                     if (warmOnly && isHandleEnvelope) return [];
 
+                    // Show the response behind the decoder error, including binary
+                    // prefixes that are invisible when printed as UTF-8 text.
+                    const preview = buf.subarray(0, 1024);
+                    const bodyText = new TextDecoder().decode(preview)
+                        .replace(/[\x00-\x1f\x7f]/g, ' ');
+                    const hexPrefix = Array.from(buf.subarray(0, 64),
+                        byte => byte.toString(16).padStart(2, '0')).join(' ');
+                    this.log(
+                        `Binary barchart decode failed: ${extractErr.message}; ` +
+                        `HTTP ${response.status}, content-type="${contentType}", ` +
+                        `market=${marketLabel}, attempt=${attempt}/${MAX_ATTEMPTS}, ` +
+                        `handleEnvelope=${isHandleEnvelope}; ` +
+                        `body preview${buf.length > preview.length ? ' (truncated)' : ''}: ${bodyText}; ` +
+                        `hex prefix: ${hexPrefix}`,
+                        'warning'
+                    );
                     throw extractErr;
                 }
             }

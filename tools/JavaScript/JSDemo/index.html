@@ -1202,7 +1202,7 @@
             <td>${time}</td>
             <td>${order.marketId}</td>
             <td>${side}</td>
-            <td>${order.currentVolume}</td>
+            <td>${order.currentVolume?.value ?? order.currentVolume ?? '-'}</td>
             <td>${price}</td>
             <td>${statusText}</td>
             <td>
