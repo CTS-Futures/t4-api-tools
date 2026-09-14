@@ -3,6 +3,22 @@
  * JavaScript implementation with proper protobuf message handling
  */
 
+// V2 quantities are messages, not scalar strings. Constructing the generated
+// Decimal message explicitly prevents a caller from accidentally assigning
+// volume: "1" (which serializes as an empty Decimal submessage).
+function toProtoVolume(value) {
+    if (value === undefined || value === null || value === '') {
+        throw new Error('Order volume is required');
+    }
+
+    const text = String(value);
+    if (!Number.isFinite(Number(text))) {
+        throw new Error(`Order volume must be numeric: ${text}`);
+    }
+
+    return T4ProtoV2.t4proto.v2.common.Decimal.create({ value: text });
+}
+
 class T4APIClient {
     constructor(config) {
         this.config = {
@@ -403,7 +419,7 @@ class T4APIClient {
             buySell: buySellValue,
             priceType: priceTypeValue,
             timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL, // 0
-            volume: { value: String(volume) },
+            volume: toProtoVolume(volume),
             // Limit/stop price set only when the order type requires it.
             limitPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT
                 ? { value: price.toString() }
@@ -445,7 +461,7 @@ class T4APIClient {
                 buySell: protectionSide,
                 priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT,
                 timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
-                volume: { value: '0' },
+                volume: toProtoVolume(0),
                 limitPrice: { value: takeProfitLimitPrice.toString() },
                 activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD
             });
@@ -476,7 +492,7 @@ class T4APIClient {
                     buySell: protectionSide,
                     priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET,
                     timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
-                    volume: { value: '0' },
+                    volume: toProtoVolume(0),
                     stopPrice: { value: stopLossStopPrice.toString() },
                     trailDistance: { value: trailDistance },
                     activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
@@ -488,7 +504,7 @@ class T4APIClient {
                     buySell: protectionSide,
                     priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET,
                     timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
-                    volume: { value: '0' },
+                    volume: toProtoVolume(0),
                     stopPrice: { value: stopLossStopPrice.toString() },
                     activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
                     activationData: "SL"
@@ -666,7 +682,7 @@ class T4APIClient {
                 buySell: buySellValue,
                 priceType: priceTypeValue,
                 timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL, // 0
-                volume: { value: String(volume) },
+                volume: toProtoVolume(volume),
                 // Limit/stop price set only when the order type requires it.
                 limitPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT
                     ? { value: Number(leg.price).toString() }
@@ -767,7 +783,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
     const revision = {
         uniqueId: orderId,
-        volume: { value: String(volume) }
+        volume: toProtoVolume(volume)
     };
 
     if (isStop) {
@@ -819,7 +835,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     buySell: buySellValue,
                     priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_FLATTEN, // 16
                     timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL,
-                    volume: { value: String(volume) }
+                    volume: toProtoVolume(volume)
                 }]
             }
         };
