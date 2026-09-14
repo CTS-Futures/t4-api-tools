@@ -1907,25 +1907,6 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     // Warm-up-only callers just wanted to kick the cache; a
                     // cold handle envelope is the expected response, so return
                     // quietly without throwing.
-                    if (warmOnly && isHandleEnvelope) return [];
-
-                    // Show the response behind the decoder error, including binary
-                    // prefixes that are invisible when printed as UTF-8 text.
-                    const preview = buf.subarray(0, 1024);
-                    const bodyText = new TextDecoder().decode(preview)
-                        .replace(/[\x00-\x1f\x7f]/g, ' ');
-                    const hexPrefix = Array.from(buf.subarray(0, 64),
-                        byte => byte.toString(16).padStart(2, '0')).join(' ');
-                    this.log(
-                        `Binary barchart decode failed: ${extractErr.message}; ` +
-                        `HTTP ${response.status}, content-type="${contentType}", ` +
-                        `market=${marketLabel}, attempt=${attempt}/${MAX_ATTEMPTS}, ` +
-                        `handleEnvelope=${isHandleEnvelope}; ` +
-                        `body preview${buf.length > preview.length ? ' (truncated)' : ''}: ${bodyText}; ` +
-                        `hex prefix: ${hexPrefix}`,
-                        'warning'
-                    );
-                    throw extractErr;
                 }
             }
 
