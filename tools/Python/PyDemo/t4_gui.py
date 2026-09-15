@@ -1,4 +1,5 @@
 import asyncio
+import math
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 from T4APIClient import Client
@@ -17,11 +18,17 @@ class T4_GUI(tk.Tk):
         self.root.title("T4 API Demo")
         self.root.geometry("1750x1380")
 
+        # Seed the order-entry price once per market from the first valid trade.
+        # A manual edit for that market always takes precedence.
+        self.auto_price_market_id = None
+        self.auto_price_user_edited_market_id = None
+
         self.client.on_market_update = self.update_market_ui
         self.client.market_header_update = self.update_market_header_ui
         self.client.on_market_switch = self.reset_market_ui
         self.client._subscribed_once = False
         self.client.on_account_update = self.handle_account_update
+        self.client.on_batch_update = self.handle_batch_update
         self.contract_picker = Contract_Picker(self.client)
         self.create_widgets()
 
@@ -115,13 +122,38 @@ class T4_GUI(tk.Tk):
         tk.Button(button_bar, text="Pick a Contract", command=self.open_contract_picker).grid(row=0, column=0, padx=(0, 8))
         tk.Button(button_bar, text="Expiry", command=self.open_expiry_picker).grid(row=0, column=1)
 
+        # v2 MarketSubscribe has two independent controls: quote depth and the
+        # optional standalone MarketTrade ticker.
+        tk.Label(button_bar, text="Quotes:", bg="white").grid(row=0, column=2, padx=(18, 4))
+        self.subscription_type_combo = ttk.Combobox(
+            button_bar,
+            values=["top_of_book", "full_order_book", "mbo"],
+            state="readonly",
+            width=16,
+        )
+        self.subscription_type_combo.set(self.client.market_subscription_type)
+        self.subscription_type_combo.grid(row=0, column=3, padx=(0, 8))
+        self.subscription_type_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda _event: asyncio.create_task(self.on_market_subscription_changed()),
+        )
+        self.subscription_ticker_var = tk.BooleanVar(value=self.client.market_ticker)
+        ttk.Checkbutton(
+            button_bar,
+            text="Trades",
+            variable=self.subscription_ticker_var,
+            command=lambda: asyncio.create_task(self.on_market_subscription_changed()),
+        ).grid(row=0, column=4)
+
 
         #Submit frame
         self.submit_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
-        self.submit_frame.place(relx=0.51, rely=0.25, relwidth=0.44, relheight=0.3)
+        self.submit_frame.place(relx=0.51, rely=0.25, relwidth=0.44, relheight=0.38)
 
         submit_container = tk.Frame(self.submit_frame, bg="white", padx=20, pady=20)
         submit_container.pack(fill="both", expand=True)
+        submit_container.grid_columnconfigure(0, weight=1)
+        submit_container.grid_columnconfigure(1, weight=1)
 
         submit_title = tk.Label(submit_container, text="Submit Order", font=("Arial", 16, "bold"), bg="white")
         submit_title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
@@ -141,9 +173,10 @@ class T4_GUI(tk.Tk):
         self.side_combo.set("Buy")
         self.side_combo.grid(row=3, column=1, sticky="ew")
 
-        # Volume (Spinbox)
+        # Volume (Spinbox). v2 carries order quantity as Decimal, so fractional
+        # quantities are valid for markets that support them.
         tk.Label(submit_container, text="Volume:", font=("Arial", 12, "bold"), bg="white").grid(row=4, column=0, sticky="w", pady=(10, 0))
-        self.volume_spinbox = tk.Spinbox(submit_container, from_=1, to=99999)
+        self.volume_spinbox = tk.Spinbox(submit_container, from_=0.01, to=99999, increment=0.01)
         self.volume_spinbox.delete(0, "end")
         self.volume_spinbox.insert(0, "1")
         self.volume_spinbox.grid(row=5, column=0, sticky="ew", padx=(0, 10))
@@ -154,26 +187,67 @@ class T4_GUI(tk.Tk):
         self.price_spinbox.delete(0, "end")
         self.price_spinbox.insert(0, "100")
         self.price_spinbox.grid(row=5, column=1, sticky="ew")
+        self.price_spinbox.bind("<KeyRelease>", self._mark_price_edited)
+        self.price_spinbox.bind("<ButtonRelease-1>", self._mark_price_edited)
 
         # Take Profit
-        tk.Label(submit_container, text="Take Profit ($):", font=("Arial", 12, "bold"), bg="white").grid(row=6, column=0, sticky="w", pady=(10, 0))
+        self.take_profit_label = tk.Label(submit_container, text="Take Profit ($):", font=("Arial", 12, "bold"), bg="white")
+        self.take_profit_label.grid(row=6, column=0, sticky="w", pady=(10, 0))
         self.take_profit_entry = tk.Entry(submit_container)
         self.take_profit_entry.insert(0, "Optional")
         self.take_profit_entry.grid(row=7, column=0, sticky="ew", padx=(0, 10))
 
         # Stop Loss
-        tk.Label(submit_container, text="Stop Loss ($):", font=("Arial", 12, "bold"), bg="white").grid(row=6, column=1, sticky="w", pady=(10, 0))
+        self.stop_loss_label = tk.Label(submit_container, text="Stop Loss ($):", font=("Arial", 12, "bold"), bg="white")
+        self.stop_loss_label.grid(row=6, column=1, sticky="w", pady=(10, 0))
         self.stop_loss_entry = tk.Entry(submit_container)
         self.stop_loss_entry.insert(0, "Optional")
         self.stop_loss_entry.grid(row=7, column=1, sticky="ew")
 
+        # v2 AOCO bracket modes: dollar distances use AUTO_OCO; absolute prices
+        # use AUTO_OCO_P. The client performs the corresponding conversion.
+        tk.Label(submit_container, text="Bracket Mode:", font=("Arial", 12, "bold"), bg="white").grid(row=8, column=0, sticky="w", pady=(10, 0))
+        self.bracket_mode_combo = ttk.Combobox(
+            submit_container,
+            values=["dollars", "price"],
+            state="readonly",
+            width=18,
+        )
+        self.bracket_mode_combo.set("dollars")
+        self.bracket_mode_combo.grid(row=9, column=0, sticky="ew", padx=(0, 10))
+        self.bracket_mode_combo.bind("<<ComboboxSelected>>", self.update_bracket_labels)
+        self.trailing_stop_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            submit_container,
+            text="Trailing stop",
+            variable=self.trailing_stop_var,
+        ).grid(row=9, column=1, sticky="w")
+
         # Submit Button
         self.submit_button = tk.Button(submit_container, text="Submit Order", bg="#3b82f6", fg="white", font=("Arial", 12, "bold"), command=lambda:asyncio.create_task(self.on_submit_order()), state="disabled")
-        self.submit_button.grid(row=8, column=0, columnspan=2, pady=20, sticky="ew")
+        self.submit_button.grid(row=10, column=0, columnspan=2, pady=20, sticky="ew")
+
+        # Batch staging controls. Each click snapshots the current account,
+        # market, order fields, and bracket mode; Submit Batch sends one atomic
+        # v2 OrderBatch.
+        batch_bar = tk.Frame(submit_container, bg="white")
+        batch_bar.grid(row=11, column=0, columnspan=2, sticky="ew")
+        self.add_batch_button = tk.Button(batch_bar, text="Add to Batch", command=self.add_current_order_to_batch)
+        self.add_batch_button.pack(side="left", padx=(0, 6))
+        self.submit_batch_button = tk.Button(batch_bar, text="Submit Batch (0)", command=lambda: asyncio.create_task(self.submit_current_batch()), state="disabled")
+        self.submit_batch_button.pack(side="left", padx=(0, 6))
+        self.clear_batch_button = tk.Button(batch_bar, text="Clear Batch", command=self.clear_batch)
+        self.clear_batch_button.pack(side="left")
+        self.batch_status_label = tk.Label(submit_container, text="", bg="white", anchor="w")
+        self.batch_status_label.grid(row=12, column=0, columnspan=2, sticky="ew")
+        self.batch_rows = []
+        self.oco_legs = None
+        self.oco_button = tk.Button(batch_bar, text="Configure OCO...", command=self.open_oco_dialog)
+        self.oco_button.pack(side="left", padx=(6, 0))
 
         #positions frame
         self.positions_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
-        self.positions_frame.place(relx=0.05, rely=0.60, relwidth=0.44, relheight=0.3)
+        self.positions_frame.place(relx=0.05, rely=0.65, relwidth=0.44, relheight=0.25)
 
         self.positions_frame.columnconfigure(0, weight=1)
         self.positions_frame.rowconfigure(2, weight=1)
@@ -212,7 +286,7 @@ class T4_GUI(tk.Tk):
 
         # orders frame
         self.orders_frame = tk.Frame(self.root, bg="white", bd=1, relief="groove")
-        self.orders_frame.place(relx=0.51, rely=0.60, relwidth=0.44, relheight=0.3)
+        self.orders_frame.place(relx=0.51, rely=0.65, relwidth=0.44, relheight=0.25)
 
         self.orders_frame.columnconfigure(0, weight=1)
         self.orders_frame.rowconfigure(2, weight=1)
@@ -263,7 +337,7 @@ class T4_GUI(tk.Tk):
         volume_frame = tk.Frame(dialog, bg="white")
         volume_frame.pack(padx=20, anchor="w")
         tk.Label(volume_frame, text="Volume:", font=("Arial", 12, "bold"), bg="white").pack(anchor="w")
-        vol_entry = ttk.Spinbox(volume_frame, from_=1, to=9999, width=25)
+        vol_entry = ttk.Spinbox(volume_frame, from_=0.01, to=9999, increment=0.01, width=25)
         vol_entry.insert(0, order_values[3])
         vol_entry.pack(pady=(0, 10))
 
@@ -326,7 +400,7 @@ class T4_GUI(tk.Tk):
     #calls from client to revise the order
     async def confirm_revise(self, unique_id, volume, price_entry, dialog):
         dialog.destroy()
-        await self.client.revise_order(unique_id, int(volume), int(price_entry), 'limit')
+        await self.client.revise_order(unique_id, float(volume), float(price_entry), 'limit')
 
     #calls client to pull the order
     async def confirm_pull(self, unique_id, dialog):
@@ -354,9 +428,214 @@ class T4_GUI(tk.Tk):
         elif update_type == "orders":
             self.update_orders_table(update)
 
+    def handle_batch_update(self, event):
+        """Render v2 batch acknowledgements/rejections on the Tk thread."""
+        status = event.get("status")
+        batch_id = event.get("batch_id", "")
+        message = event.get("message")
+        if status == "acknowledged":
+            accepted = sum(
+                len(item.unique_id)
+                for item in getattr(message, "accepted", [])
+            )
+            self.batch_rows.clear()
+            self.batch_status_label.config(
+                text=f"Batch {batch_id} acknowledged ({accepted} orders)"
+            )
+        else:
+            reason = getattr(message, "reason", "unknown reason")
+            errors = getattr(message, "errors", [])
+            if errors:
+                reason = f"{reason} ({len(errors)} row error(s))"
+            self.batch_status_label.config(
+                text=f"Batch {batch_id} rejected: {reason}"
+            )
+        self._set_batch_status(self.batch_status_label.cget("text"))
+
+    async def on_market_subscription_changed(self):
+        """Apply the selected quote depth and standalone trade ticker."""
+        try:
+            await self.client.set_market_subscription(
+                subscription_type=self.subscription_type_combo.get(),
+                ticker=self.subscription_ticker_var.get(),
+            )
+        except Exception as exc:  # noqa: BLE001 - surface errors in the demo console
+            print(f"Market subscription update failed: {exc}")
+
+    def update_bracket_labels(self, _event=None):
+        suffix = "($)" if self.bracket_mode_combo.get() == "dollars" else "(price)"
+        for label, text in (
+            (self.take_profit_label, f"Take Profit {suffix}"),
+            (self.stop_loss_label, f"Stop Loss {suffix}"),
+        ):
+            label.config(text=f"{text}:")
+
+    def _set_batch_status(self, text):
+        self.batch_status_label.config(text=text)
+        self.submit_batch_button.config(
+            text=f"Submit Batch ({len(self.batch_rows)})",
+            state=("normal" if self.client.running and self.client.selected_account and self.batch_rows else "disabled"),
+        )
+
+    def add_current_order_to_batch(self):
+        """Stage the current order form as one v2 OrderBatch row."""
+        if not self.client.selected_account or not self.client.current_market_id:
+            self._set_batch_status("Select an account and market first")
+            return
+
+        order_type = self.type_combo.get().lower()
+        side = self.side_combo.get().lower()
+        try:
+            volume = float(self.volume_spinbox.get())
+            if not math.isfinite(volume) or volume <= 0:
+                raise ValueError("volume must be positive")
+            price = None if order_type == "market" else float(self.price_spinbox.get())
+            if price is not None and (not math.isfinite(price) or price <= 0):
+                raise ValueError("price must be positive")
+
+            def optional_float(entry):
+                raw = entry.get().strip()
+                return None if not raw or raw.lower() == "optional" else float(raw)
+
+            take_profit = optional_float(self.take_profit_entry)
+            stop_loss = optional_float(self.stop_loss_entry)
+            for name, value in (("take profit", take_profit), ("stop loss", stop_loss)):
+                if value is not None and not math.isfinite(value):
+                    raise ValueError(f"{name} must be finite")
+        except ValueError as exc:
+            self._set_batch_status(f"Cannot add order: {exc}")
+            return
+
+        self.batch_rows.append(
+            {
+                "account_id": self.client.selected_account,
+                "market_id": self.client.current_market_id,
+                "side": side,
+                "volume": volume,
+                "price": price,
+                "price_type": order_type,
+                "take_profit_dollars": take_profit,
+                "stop_loss_dollars": stop_loss,
+                "trailing_stop": self.trailing_stop_var.get(),
+                "bracket_mode": self.bracket_mode_combo.get(),
+            }
+        )
+        self._set_batch_status(f"{len(self.batch_rows)} order(s) staged")
+
+    async def submit_current_batch(self):
+        if not self.batch_rows:
+            self._set_batch_status("Add at least one order first")
+            return
+        try:
+            batch_id = await self.client.submit_batch(list(self.batch_rows))
+            self.batch_status_label.config(text=f"Batch {batch_id} submitted; waiting for acknowledgement")
+            self.submit_batch_button.config(state="disabled")
+        except Exception as exc:  # noqa: BLE001 - show demo errors without killing Tk
+            self._set_batch_status(f"Batch submission failed: {exc}")
+
+    def clear_batch(self):
+        self.batch_rows.clear()
+        self._set_batch_status("Batch cleared")
+
+    def open_oco_dialog(self):
+        """Collect two independent legs for a true v2 ORDER_LINK_OCO order."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Configure OCO")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        fields = []
+        for index in range(2):
+            frame = tk.LabelFrame(dialog, text=f"Leg {index + 1}", padx=8, pady=8)
+            frame.pack(fill="x", padx=10, pady=(10 if index == 0 else 4, 4))
+            side = ttk.Combobox(frame, values=["Buy", "Sell"], state="readonly", width=8)
+            side.set("Buy" if index == 0 else "Sell")
+            side.grid(row=0, column=0, padx=3)
+            order_type = ttk.Combobox(frame, values=["Limit", "Market", "Stop"], state="readonly", width=8)
+            order_type.set("Limit")
+            order_type.grid(row=0, column=1, padx=3)
+            volume = tk.Entry(frame, width=10)
+            volume.insert(0, "1")
+            volume.grid(row=0, column=2, padx=3)
+            price = tk.Entry(frame, width=12)
+            price.insert(0, "100")
+            price.grid(row=0, column=3, padx=3)
+            fields.append((side, order_type, volume, price))
+
+        action_frame = tk.Frame(dialog)
+        action_frame.pack(fill="x", padx=10, pady=10)
+
+        def read_legs():
+            legs = []
+            for side, order_type, volume, price in fields:
+                price_type = order_type.get().lower()
+                raw_price = price.get().strip()
+                legs.append(
+                    {
+                        "side": side.get().lower(),
+                        "price_type": price_type,
+                        "volume": float(volume.get()),
+                        "price": None if price_type == "market" else float(raw_price),
+                    }
+                )
+            return legs
+
+        def collect_legs():
+            try:
+                legs = read_legs()
+                for leg in legs:
+                    if leg["volume"] <= 0 or not math.isfinite(leg["volume"]):
+                        raise ValueError("volume must be positive")
+                    if leg["price"] is not None and (not math.isfinite(leg["price"]) or leg["price"] <= 0):
+                        raise ValueError("limit/stop price must be positive")
+                return legs
+            except (TypeError, ValueError) as exc:
+                self.batch_status_label.config(text=f"OCO error: {exc}")
+                return None
+
+        def stage_oco():
+            if not self.client.selected_account or not self.client.current_market_id:
+                self.batch_status_label.config(text="Select an account and market first")
+                return
+            legs = collect_legs()
+            if legs is None:
+                return
+            self.batch_rows.append(
+                {
+                    "is_oco": True,
+                    "account_id": self.client.selected_account,
+                    "market_id": self.client.current_market_id,
+                    "legs": legs,
+                }
+            )
+            dialog.destroy()
+            self._set_batch_status(f"OCO staged ({len(self.batch_rows)} row(s))")
+
+        async def submit_oco():
+            if not self.client.selected_account or not self.client.current_market_id:
+                self.batch_status_label.config(text="Select an account and market first")
+                return
+            legs = collect_legs()
+            if legs is None:
+                return
+            try:
+                await self.client.submit_oco_order(legs)
+                dialog.destroy()
+            except Exception as exc:  # noqa: BLE001
+                self.batch_status_label.config(text=f"OCO submission failed: {exc}")
+
+        tk.Button(action_frame, text="Add OCO to Batch", command=stage_oco).pack(side="left", padx=4)
+        tk.Button(action_frame, text="Submit OCO", command=lambda: asyncio.create_task(submit_oco())).pack(side="left", padx=4)
+        tk.Button(action_frame, text="Cancel", command=dialog.destroy).pack(side="right", padx=4)
+
     #creates this task to actually connect to the client
     async def connect_and_listen(self):
-        await self.client.connect()
+        try:
+            await self.client.connect()
+        except Exception as exc:
+            self.status_label.config(text="Status: Failed to connect", foreground="red")
+            print(f"Connection failed: {exc}")
+            return
         
         if self.client.running:
             self.status_label.config(text="Status: Connected", foreground="green")
@@ -382,8 +661,48 @@ class T4_GUI(tk.Tk):
         await self.client.disconnect()
         self.update_submit_button_state()
 
+    def _mark_price_edited(self, _event=None):
+        """Remember that the user changed the price for the active market."""
+        market_id = self.client.current_market_id
+        if market_id:
+            self.auto_price_user_edited_market_id = market_id
+
+    def _populate_price_from_first_trade(self, data):
+        """Initialize the order price from the first trade seen for a market."""
+        price_spinbox = getattr(self, "price_spinbox", None)
+        if price_spinbox is None:
+            return
+
+        market_id = data.get("market_id") or self.client.current_market_id
+        if (
+            not market_id
+            or self.auto_price_market_id == market_id
+            or self.auto_price_user_edited_market_id == market_id
+        ):
+            return
+
+        raw_price = data.get("last_trade_price")
+        if raw_price is None:
+            last_trade = data.get("last_trade") or ""
+            if "@" in last_trade:
+                raw_price = last_trade.rsplit("@", 1)[1]
+
+        try:
+            price = float(raw_price)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(price):
+            return
+
+        price_text = str(raw_price)
+        price_spinbox.delete(0, "end")
+        price_spinbox.insert(0, price_text)
+        self.auto_price_market_id = market_id
+
     def update_market_ui(self, data):
-         # Clear previous widgets
+        self._populate_price_from_first_trade(data)
+
+        # Clear previous widgets
         for widget in self.market_inner.winfo_children():
             widget.destroy()
 
@@ -566,7 +885,7 @@ class T4_GUI(tk.Tk):
         # Retrieve basic inputs
         order_type = self.type_combo.get()               # "Limit" or "Market"
         side = self.side_combo.get()                     # "Buy" or "Sell"
-        volume = int(self.volume_spinbox.get())          # e.g., 1
+        volume = float(self.volume_spinbox.get())        # e.g., 1 or 1.5
         price = float(self.price_spinbox.get())          # e.g., 100.0
 
         # Handle optional fields (take profit / stop loss)
@@ -575,6 +894,8 @@ class T4_GUI(tk.Tk):
 
         take_profit = float(tp_raw) if tp_raw and tp_raw.lower() != "optional" else None
         stop_loss = float(sl_raw) if sl_raw and sl_raw.lower() != "optional" else None
+        bracket_mode = self.bracket_mode_combo.get()
+        trailing_stop = self.trailing_stop_var.get()
 
         # Print out all inputs for now
         print(f"[Order Input]")
@@ -584,9 +905,20 @@ class T4_GUI(tk.Tk):
         print(f"  Price: {price}")
         print(f"  Take Profit: {take_profit}")
         print(f"  Stop Loss: {stop_loss}")
+        print(f"  Bracket Mode: {bracket_mode}")
+        print(f"  Trailing Stop: {trailing_stop}")
 
         #connect to the back end
-        await self.client.submit_order(side, volume, price, order_type, take_profit, stop_loss)
+        await self.client.submit_order(
+            side,
+            volume,
+            price,
+            order_type,
+            take_profit,
+            stop_loss,
+            trailing_stop,
+            bracket_mode,
+        )
 
     #updates positions ui
     def update_positions_table(self, data):
@@ -635,10 +967,24 @@ class T4_GUI(tk.Tk):
                 side = "Buy" if order.buy_sell == 1 else "Sell"
 
                 # Volume
-                volume = order.new_volume if order.new_volume else order.current_volume
+                if order.HasField("new_volume"):
+                    volume = order.new_volume.value
+                elif order.HasField("current_volume"):
+                    volume = order.current_volume.value
+                else:
+                    volume = "—"
 
                 # Price (handle .value safely)
-                price = order.new_limit_price.value if order.HasField("new_limit_price") else "—"
+                if order.HasField("new_limit_price"):
+                    price = order.new_limit_price.value
+                elif order.HasField("current_limit_price"):
+                    price = order.current_limit_price.value
+                elif order.HasField("new_stop_price"):
+                    price = order.new_stop_price.value
+                elif order.HasField("current_stop_price"):
+                    price = order.current_stop_price.value
+                else:
+                    price = "—"
 
                 # Status
                 status = order.status
@@ -658,6 +1004,9 @@ class T4_GUI(tk.Tk):
             self.submit_button.config(state="normal")
         else:
             self.submit_button.config(state="disabled")
+        self.submit_batch_button.config(
+            state=("normal" if self.client.running and self.client.selected_account and self.batch_rows else "disabled")
+        )
 
     def reset_market_ui(self):
        

@@ -7,7 +7,7 @@ This Python project is a GUI-based trading client for the T4 API. It allows user
 ## 📁 Project Structure
 
 - `main.py`: Entry point for launching the application.
-- `T4APIClient.py`: Handles WebSocket and REST API communication, including authentication, market data subscriptions, and order management.
+- `T4APIClient.py`: Handles the v2 WebSocket and REST API communication, including authentication, market data subscriptions, and order management.
 - `t4_gui.py`: Main GUI layout, managing views for market data, order submission, positions, and orders.
 - `contract_picker.py`: Backend logic for loading and searching contract data from the T4 API.
 - `contract_picker_dialog.py`: UI dialog for selecting contracts via a searchable tree view.
@@ -53,8 +53,19 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 ---
-## Protbuf
-This API uses Google protocol buffers in order to send and interpret messages to and from the Websocket and Rest API endpoint. For ease of use, the compiled Python protobuf files are available within the proto folder. This means that you DON'T have to recompile the protobuf files to run this version of the T4 app. The compiled files in the PyDemo/Proto folder should be reusable if you plan to use them in another Python version of this app.
+## Protobuf
+
+The demo uses the v2 protobuf envelope and bindings from `proto/t4/v2`. The
+checked-in `*_pb2.py` files are generated from the canonical definitions in the
+repository's top-level `proto/t4/v2` directory, so recompiling them is not
+required to run the demo. v2 uses a single `MarketSubscribe` message, decimal
+order volumes, a unified `OrderUpdate`, and standalone `OrderTrade` messages.
+The GUI exposes quote depth (`top_of_book`, `full_order_book`, or `mbo`) plus
+the `ticker` trade stream. Order entry supports dollar-distance AOCO
+(`AUTO_OCO`) and absolute-price AOCO (`AUTO_OCO_P`) brackets, including
+trailing stops. `OrderBatch` supports flat orders, bracket submissions, and
+true OCO rows; staged rows remain until `OrderBatchAcknowledge` and are kept
+when the server returns `OrderBatchReject`.
 
 ## ⚙️ Configuration
 
@@ -81,7 +92,12 @@ websocket:
   priceFormat: 2
   md_exchange_id: CME_Eq
   md_contract_id: ES
+  subscription_type: full_order_book  # top_of_book, full_order_book, or mbo
+  ticker: false                       # also stream standalone MarketTrade ticks
 ```
+
+The `/v1` URL is the current WebSocket transport endpoint; the wire message
+schema used by this demo is v2.
 
 ---
 

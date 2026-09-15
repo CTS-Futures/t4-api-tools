@@ -3,7 +3,10 @@ websocket:
   url: 'wss://wss-sim.t4login.com/v1'
   api: 'https://api-sim.t4login.com'
 
-  #credentials
+  # Optional API-key authentication. Leave blank to use firm credentials below.
+  api_key: ''
+
+  #credentials (used when api_key is blank)
   firm: 'your_firm'
   username: 'your_username'
   password: 'your_password'
@@ -17,6 +20,9 @@ websocket:
 
   ##optional
   priceFormat: 2
+  auto_subscribe_accounts: false
+  subscription_type: 'full_order_book'  # top_of_book, full_order_book, or mbo
+  ticker: false                         # also stream standalone MarketTrade ticks
 
 # Companion chart window (TradingView Lightweight Charts). All keys optional.
 chart:
