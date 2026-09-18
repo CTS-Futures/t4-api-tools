@@ -16,6 +16,11 @@ message LoginRequest {
   string password = 4;
   string app_name = 5;
   string app_license = 6;
+  // OIDC access token for SSO authentication (alternative to username/password and api_key)
+  string access_token = 7;
+  // OIDC ID token for SSO authentication — preferred over access_token as it is always a JWT
+  // and explicitly carries the user's identity (sub claim). Send whichever token your OIDC flow produces.
+  string id_token = 8;
   // How Price values are formatted for this session (decimal / real / clearing).
   t4proto.v2.common.PriceFormat price_format = 10;
 }

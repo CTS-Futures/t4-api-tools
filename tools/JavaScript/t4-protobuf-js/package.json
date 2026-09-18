@@ -12,7 +12,7 @@
   "scripts": {
     "clean": "node -e \"const fs=require('fs'); ['dist','types','src/generated','src/proto'].forEach(d=>{try{fs.rmSync(d,{recursive:true})}catch(e){}})\"",
     "copy-proto": "node copy-proto.js",
-    "build:proto": "npm run copy-proto && pbjs -t static-module -w commonjs -o src/generated/proto.js --path src/proto src/proto/t4/v1/service.proto && pbts -o src/generated/proto.d.ts src/generated/proto.js",
+    "build:proto": "npm run copy-proto && pbjs -t static-module -w commonjs -o src/generated/proto.js --path src/proto src/proto/t4/v1/service.proto && pbts -o src/generated/proto.d.ts src/generated/proto.js && pbjs -t static-module -w commonjs -o src/generated/proto-v2.js --path src/proto src/proto/t4/v2/service.proto && pbts -o src/generated/proto-v2.d.ts src/generated/proto-v2.js",
     "prepublishOnly": "npm run build",
     "build": "npm run build:proto && webpack && tsc --declaration --emitDeclarationOnly --outDir types --declarationDir types"
   },

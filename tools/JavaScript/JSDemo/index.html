@@ -65,6 +65,7 @@
             </span>
             <span class="connection-header-right">
                 <button id="connectBtn">Connect</button>
+                <button id="connectSsoBtn">Connect via SSO</button>
                 <button id="disconnectBtn" disabled>Disconnect</button>
             </span>
         </h2>
@@ -1031,6 +1032,7 @@
             elements.connectionStatus.classList.toggle('connected', connected);
             elements.connectionText.textContent = connected ? 'Connected' : 'Disconnected';
             elements.connectBtn.disabled = connected;
+            document.getElementById('connectSsoBtn').disabled = connected;
             elements.disconnectBtn.disabled = !connected;
             elements.submitOrderBtn.disabled = !connected || !client.selectedAccount;
 
@@ -1729,6 +1731,29 @@
         // Event listeners
         elements.connectBtn.addEventListener('click', connect);
         elements.disconnectBtn.addEventListener('click', disconnect);
+
+        // SSO connect flow
+        const ssoOverlay   = document.getElementById('ssoOverlay');
+        const ssoIdTokenEl = document.getElementById('ssoIdToken');
+
+        function openSsoDialog() { ssoOverlay.style.display = 'flex'; ssoIdTokenEl.focus(); }
+        function closeSsoDialog() { ssoOverlay.style.display = 'none'; }
+
+        document.getElementById('connectSsoBtn').addEventListener('click', openSsoDialog);
+        document.getElementById('ssoCloseBtn').addEventListener('click', closeSsoDialog);
+        document.getElementById('ssoCancelBtn').addEventListener('click', closeSsoDialog);
+        ssoOverlay.addEventListener('click', (e) => { if (e.target === ssoOverlay) closeSsoDialog(); });
+
+        document.getElementById('ssoConnectBtn').addEventListener('click', async () => {
+            const token = ssoIdTokenEl.value.trim();
+            if (!token) { log('Paste an ID token first.', 'error'); return; }
+            closeSsoDialog();
+            try {
+                await client.connectWithSso(token);
+            } catch (error) {
+                log(`SSO connection error: ${error.message}`, 'error');
+            }
+        });
         elements.submitOrderBtn.addEventListener('click', submitOrder);
 
         // Market subscription — the quote type (dropdown) and the trade ticker
@@ -1957,6 +1982,33 @@
         log('Click Connect to start', 'info');
     });
 </script>
+
+<!-- SSO Token Dialog -->
+<div class="order-edit-overlay" id="ssoOverlay" style="display: none;">
+    <div class="order-edit-dialog" style="width:520px;max-width:95vw;">
+        <div class="order-edit-header">
+            <h3>Connect via SSO (OIDC)</h3>
+            <button class="close-btn" id="ssoCloseBtn">&times;</button>
+        </div>
+        <div class="order-edit-content">
+            <p style="margin:0 0 10px;font-size:13px;opacity:.8;">
+                Paste a Google ID token below. Get one from
+                <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener" style="color:var(--accent,#4a9eff)">Google OAuth Playground</a>
+                (Step 1: type <code>openid email profile</code> → Authorize APIs; Step 2: Exchange → copy <code>id_token</code>).
+            </p>
+            <div class="form-group">
+                <label for="ssoIdToken">ID Token:</label>
+                <textarea id="ssoIdToken" rows="6"
+                    style="width:100%;box-sizing:border-box;font-family:monospace;font-size:11px;resize:vertical;"
+                    placeholder="eyJhbGciOiJSUzI1NiIs..."></textarea>
+            </div>
+        </div>
+        <div class="order-edit-footer">
+            <button class="btn confirm-btn" id="ssoConnectBtn">Connect</button>
+            <button class="btn cancel-btn" id="ssoCancelBtn">Cancel</button>
+        </div>
+    </div>
+</div>
 
 <div class="order-edit-overlay" id="orderEditOverlay" style="display: none;">
     <div class="order-edit-dialog">
