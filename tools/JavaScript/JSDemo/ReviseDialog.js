@@ -58,7 +58,8 @@ function showOrderEditDialog(order) {
     const priceLabel = document.querySelector('label[for="editOrderPrice"]');
     if (priceLabel) priceLabel.textContent = stop ? 'Stop Price:' : 'Limit Price:';
 
-    document.getElementById('editOrderVolume').value = order.currentVolume ?? 0;
+    // V2 volumes are Decimal wrappers; the number input needs the inner value.
+    document.getElementById('editOrderVolume').value = order.currentVolume?.value ?? order.currentVolume ?? 0;
 
     // Use || (not ??) so empty-string protobuf wrapper values fall through.
     const priceVal = stop

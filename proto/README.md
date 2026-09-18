@@ -1,6 +1,7 @@
 # 🧬 Proto Compilation Guide
 
-This folder contains Protocol Buffer (`.proto`) files organized by package and version under the `t4/v1/` structure.
+This folder contains Protocol Buffer (`.proto`) files organized by package and
+version under the `t4/v1/` and `t4/v2/` structures.
 
 Use this guide to compile the proto definitions into your desired target language (C++, Python, Go, etc.) using `protoc`.
 
@@ -13,19 +14,29 @@ proto/
 ├── README.md
 ├── protos.txt         # List of all .proto files to compile
 └── t4/
-    └── v1/
+    ├── v1/
+    │   ├── service.proto
+    │   ├── account/
+    │   ├── auth/
+    │   ├── common/
+    │   ├── market/
+    │   └── orderrouting/
+    └── v2/
         ├── service.proto
         ├── account/
         │   └── account.proto
         ├── auth/
         │   └── auth.proto
+        ├── common/
+        │   ├── enums.proto
+        │   └── price.proto
         ├── market/
         │   └── market.proto
         └── orderrouting/
-            └── router.proto
+            └── orderrouting.proto
 ```
 
-- Packages in `.proto` files (e.g. `package t4.v1.account`) mirror the folder layout.
+- Packages in `.proto` files (e.g. `package t4proto.v2.account`) mirror the folder layout.
 - `protos.txt` contains paths to all `.proto` files for batch compilation.
 
 ---
@@ -97,7 +108,7 @@ protoc --proto_path=. \
 ### ➤ example compilation in python
 
 ```bash
-protoc --proto_path=. --go_out=../tools/Python/proto @protos.txt
+protoc --proto_path=. --python_out=../tools/Python/PyDemo/proto @protos.txt
 ```
 
 ## ✅ Output Expectations

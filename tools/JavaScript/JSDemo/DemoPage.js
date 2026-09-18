@@ -1,0 +1,1510 @@
+// Wait for DOM to be fully loaded
+    document.addEventListener('DOMContentLoaded', function () {
+        // DOM elements
+        const elements = {
+            connectionStatus: document.getElementById('connectionStatus'),
+            connectionText: document.getElementById('connectionText'),
+            accountsTable: document.getElementById('accountsTable').querySelector('tbody'),
+            connectBtn: document.getElementById('connectBtn'),
+            disconnectBtn: document.getElementById('disconnectBtn'),
+            marketDataHeader: document.getElementById('marketDataHeader'),
+            bestBid: document.getElementById('bestBid'),
+            bestOffer: document.getElementById('bestOffer'),
+            lastTrade: document.getElementById('lastTrade'),
+            subscriptionType: document.getElementById('subscriptionType'),
+            subscriptionTicker: document.getElementById('subscriptionTicker'),
+            orderType: document.getElementById('orderType'), // Add this line
+            orderSide: document.getElementById('orderSide'),
+            orderVolume: document.getElementById('orderVolume'),
+            orderPrice: document.getElementById('orderPrice'),
+            // OCO builder
+            ocoGroup: document.getElementById('ocoGroup'),
+            ocoLeg1Side: document.getElementById('ocoLeg1Side'),
+            ocoLeg1Type: document.getElementById('ocoLeg1Type'),
+            ocoLeg1Volume: document.getElementById('ocoLeg1Volume'),
+            ocoLeg1Price: document.getElementById('ocoLeg1Price'),
+            ocoLeg2Side: document.getElementById('ocoLeg2Side'),
+            ocoLeg2Type: document.getElementById('ocoLeg2Type'),
+            ocoLeg2Volume: document.getElementById('ocoLeg2Volume'),
+            ocoLeg2Price: document.getElementById('ocoLeg2Price'),
+            submitOrderBtn: document.getElementById('submitOrderBtn'),
+            addToBatchBtn: document.getElementById('addToBatchBtn'),
+            submitBatchBtn: document.getElementById('submitBatchBtn'),
+            clearBatchBtn: document.getElementById('clearBatchBtn'),
+            batchStatus: document.getElementById('batchStatus'),
+            batchTable: document.getElementById('batchTable').querySelector('tbody'),
+            positionsTable: document.getElementById('positionsTable').querySelector('tbody'),
+            ordersTable: document.getElementById('ordersTable').querySelector('tbody'),
+            console: document.getElementById('console')
+        };
+
+        // Initialize T4 API Client
+        const client = new T4APIClient();
+        window.client = client; // To better support contract and market pickers.
+
+        // Initialize live price chart (follows currently subscribed market)
+        let chartService = null;
+        let domLadder = null;
+
+        // Push the active market's tick size + decimals onto the DOM ladder so
+        // it can lay out one row per price tick and format prices. Tick comes
+        // from market details; decimals from the chart's calibrated scale.
+        function refreshLadderDetails(marketId) {
+            if (!domLadder || marketId == null) return;
+            const d = client.getMarketDetails?.(marketId);
+            const tickRaw = Number(d?.minPriceIncrement?.value);
+            domLadder.setMarketDetails({
+                tick: (Number.isFinite(tickRaw) && tickRaw > 0) ? tickRaw : undefined,
+                decimals: chartService?.knownDecimals
+            });
+        }
+
+        try {
+            const chartContainer = document.getElementById('chartContainer');
+            const intervalSelect = document.getElementById('chartInterval');
+            const overlay = document.getElementById('chartEmptyOverlay');
+            if (chartContainer && window.ChartService) {
+                chartService = new ChartService({
+                    client,
+                    container: chartContainer,
+                    intervalSelect,
+                    intervalMs: Number(intervalSelect?.value) || 60000,
+                    overlayEl: overlay
+                });
+                window.chartService = chartService;
+
+                // Standalone DOM ladder beside the chart: live bids/offers per
+                // price with the user's working orders + net position. Fed by
+                // the depth fan-out (below) and by syncChartOverlays().
+                const ladderEl = document.getElementById('domLadderPanel');
+                if (ladderEl && window.DomLadder) {
+                    domLadder = new window.DomLadder(ladderEl, {
+                        // One-click trading off the order book: Bid cell -> BUY
+                        // limit, Offer cell -> SELL limit, at that row's price.
+                        onOrder: ({ side, price, volume }) => {
+                            if (!client.selectedAccount) { log('Select an account before trading.'); return; }
+                            client.submitOrder(side, volume, price, 'limit');
+                        }
+                    });
+                    window.domLadder = domLadder;
+
+                    // Chain the client's depth fan-out (preserve any existing
+                    // handler) to feed the ladder the live book for the charted
+                    // market. Features (e.g. heatmap) wrap onDepth later on
+                    // attach, saving this handler as their prior — so it stays
+                    // in the chain whether or not those features are enabled.
+                    const priorOnDepth = client.onDepth;
+                    client.onDepth = (depth) => {
+                        if (priorOnDepth) { try { priorOnDepth(depth); } catch (_) {} }
+                        try {
+                            if (!domLadder || !depth || !chartService?.activeMarketId) return;
+                            if (normalizeMarketId(depth.marketId) !== normalizeMarketId(chartService.activeMarketId)) return;
+                            refreshLadderDetails(depth.marketId);
+                            domLadder.setDepth({ bids: depth.bids, offers: depth.offers });
+                        } catch (_) {}
+                    };
+                }
+
+                // Click empty price -> instant limit order (Quick Trade) only.
+                // The prefill-to-order-panel behavior has been removed: the
+                // right-click context menu is the canonical entry point for
+                // order placement from the chart.
+                chartService.onPriceLevelClick = (price, point) => {
+                    if (!Number.isFinite(price)) return;
+                    if (!document.getElementById('chartQuickTrade')?.checked) return;
+
+                    const snap = client.currentMarketId && client.getMarketSnapshot(client.currentMarketId);
+                    const last = Number(snap?.tradeData?.lastTradePrice?.value);
+                    // Resting-order semantics: above last = sell, below = buy.
+                    const side = (Number.isFinite(last) && price >= last) ? -1 : 1;
+
+                    if (!client.selectedAccount) {
+                        log('Select an account before quick trading', 'error');
+                        return;
+                    }
+                    const qtyEl = document.getElementById('chartQuickQty');
+                    const volume = Math.max(1, parseInt(qtyEl?.value) || 1);
+                    const sideText = side === 1 ? 'BUY' : 'SELL';
+                    const label = `${sideText} Limit @ ${price}`;
+
+                    // When the Confirm toggle is on, route through the context
+                    // menu's inline confirm UI instead of firing immediately.
+                    const ctxMenu = chartService.getFeature('context-menu');
+                    if (ctxMenu && document.getElementById('chartConfirmOrders')?.checked) {
+                        const rect = chartContainer.getBoundingClientRect();
+                        const cx = rect.left + (Number.isFinite(point?.x) ? point.x : rect.width / 2);
+                        const cy = rect.top + (Number.isFinite(point?.y) ? point.y : rect.height / 2);
+                        ctxMenu.confirmIntent({
+                            intent: { side, priceType: 'limit', price, volume },
+                            label,
+                            clientX: cx,
+                            clientY: cy
+                        });
+                        return;
+                    }
+
+                    client.submitOrder(side, volume, price, 'limit');
+                    log(`Quick trade: ${sideText} ${volume} @ ${price}`, 'info');
+                };
+
+                // Click an order line -> instant cancel (Quick Trade) or open revise dialog (normal).
+                chartService.onOrderLineClick = (uniqueId) => {
+                    const order = client.orders.get(uniqueId);
+                    if (!order) return;
+                    if (document.getElementById('chartQuickTrade')?.checked) {
+                        client.pullOrder(uniqueId);
+                        log(`Quick trade: cancel order ${uniqueId}`, 'info');
+                        return;
+                    }
+                    if (typeof window.showOrderEditDialog === 'function') {
+                        window.showOrderEditDialog(order);
+                    }
+                };
+            }
+        } catch (err) {
+            console.error('Chart init failed:', err);
+        }
+
+        // ---------- Chart features: indicators, drawings, fill markers ------
+        // Built on top of ChartService's EventBus + feature registry. All
+        // user-toggleable state is persisted per-symbol in localStorage.
+        let indicatorToolbar = null;
+        let drawingToolbar = null;
+        const chartLayoutStore = window.ChartLayoutStore ? new window.ChartLayoutStore() : null;
+
+        function persistChartLayout() {
+            if (!chartService || !chartService.activeMarketId || !chartLayoutStore) return;
+            chartLayoutStore.save(chartService.activeMarketId, {
+                indicators: indicatorToolbar ? indicatorToolbar.serialize() : [],
+                drawings: chartService.getFeature('drawings')?.serialize() ?? []
+            });
+        }
+
+        function loadChartLayoutForActiveMarket() {
+            if (!chartService || !chartService.activeMarketId || !chartLayoutStore) return;
+            const layout = chartLayoutStore.load(chartService.activeMarketId);
+            if (indicatorToolbar) indicatorToolbar.load(layout.indicators);
+            chartService.getFeature('drawings')?.load(layout.drawings);
+        }
+
+        try {
+            if (chartService) {
+                // Register optional features (drawings + fill markers).
+                if (window.ChartFeatures?.Drawings) {
+                    chartService.registerFeature(new window.ChartFeatures.Drawings());
+                }
+                if (window.ChartFeatures?.FillMarkers) {
+                    chartService.registerFeature(new window.ChartFeatures.FillMarkers());
+                }
+                if (window.ChartFeatures?.ContextMenu) {
+                    const ctxMenu = new window.ChartFeatures.ContextMenu();
+                    // Resolve right-click menu intents into real orders. Account
+                    // validation + logging stay here so the feature stays UI-only.
+                    ctxMenu.onOrder = ({ side, priceType, price, volume, takeProfitPrice, stopLossPrice }) => {
+                        if (!client.selectedAccount) {
+                            log('Select an account before trading from the chart', 'error');
+                            return;
+                        }
+                        const qty = Math.max(1, parseInt(volume, 10) || 1);
+                        const tp = Number.isFinite(takeProfitPrice) ? takeProfitPrice : null;
+                        const sl = Number.isFinite(stopLossPrice) ? stopLossPrice : null;
+                        // bracketMode='price' (AOCO_P) when either bracket leg is set.
+                        client.submitOrder(side, qty, price, priceType, tp, sl, false, 'price');
+                        const sideText = side === 1 ? 'BUY' : 'SELL';
+                        const priceText = priceType === 'market' ? 'Market' : price;
+                        const bracketText = (tp != null || sl != null)
+                            ? ` [TP ${tp ?? '-'} / SL ${sl ?? '-'}]`
+                            : '';
+                        log(`Chart order: ${sideText} ${qty} @ ${priceText} (${priceType})${bracketText}`, 'info');
+                    };
+                    ctxMenu.onCancelOrder = (uniqueId) => {
+                        client.pullOrder(uniqueId);
+                        log(`Chart cancel: order ${uniqueId}`, 'info');
+                    };
+                    ctxMenu.onReviseOrder = (uniqueId) => {
+                        const order = client.orders.get(uniqueId);
+                        if (order && typeof window.showOrderEditDialog === 'function') {
+                            window.showOrderEditDialog(order);
+                        }
+                    };
+                    chartService.registerFeature(ctxMenu);
+                }
+
+                // Drag-to-place order tool. The feature handles the gesture
+                // + preview line; we resolve the intent here so account
+                // validation, the Confirm toggle, and the actual submitOrder
+                // call stay consistent with the right-click context menu.
+                if (window.ChartFeatures?.DragOrder) {
+                    const dragOrder = new window.ChartFeatures.DragOrder();
+                    dragOrder.onOrder = (intent) => {
+                        const { side, priceType, price, volume, anchor, label,
+                                takeProfitPrice, stopLossPrice, isBracket, isOco, legs } = intent;
+                        if (!client.selectedAccount) {
+                            log('Select an account before trading from the chart', 'error');
+                            return;
+                        }
+                        // OCO: two independent legs; the setup + Submit bar is the
+                        // confirmation step, so fire directly (like the bracket flow).
+                        if (isOco) {
+                            client.submitOcoOrder(legs);
+                            const summary = legs
+                                .map(l => `${l.side === 1 ? 'BUY' : 'SELL'} ${l.volume} ${l.priceType} @ ${l.price}`)
+                                .join(' / ');
+                            log(`Chart OCO: ${summary}`, 'info');
+                            return;
+                        }
+                        const qty = Math.max(1, parseInt(volume, 10) || 1);
+                        const tp = Number.isFinite(takeProfitPrice) ? takeProfitPrice : null;
+                        const sl = Number.isFinite(stopLossPrice) ? stopLossPrice : null;
+                        const ctxMenu = chartService.getFeature('context-menu');
+                        // Bracket setup is itself the confirmation step, so
+                        // bypass the per-order Confirm popup for brackets.
+                        if (!isBracket && ctxMenu && document.getElementById('chartConfirmOrders')?.checked) {
+                            ctxMenu.confirmIntent({
+                                intent: { side, priceType, price, volume: qty },
+                                label,
+                                clientX: anchor?.clientX,
+                                clientY: anchor?.clientY
+                            });
+                            return;
+                        }
+                        // bracketMode='price' submits TP/SL as absolute prices (AOCO_P).
+                        client.submitOrder(side, qty, price, priceType, tp, sl, false, 'price');
+                        log(`Chart drag: ${label} x${qty}`, 'info');
+                    };
+                    chartService.registerFeature(dragOrder);
+                }
+
+                // Build toolbars into the chart-tools mount.
+                const toolsHost = document.getElementById('chartTools');
+                if (toolsHost && window.ChartUI?.IndicatorToolbar) {
+                    indicatorToolbar = new window.ChartUI.IndicatorToolbar({
+                        host: toolsHost,
+                        chartService,
+                        onChange: () => persistChartLayout()
+                    });
+                }
+                if (toolsHost) {
+                    const sep = document.createElement('span');
+                    sep.className = 'toolbar-sep';
+                    toolsHost.appendChild(sep);
+                }
+                if (toolsHost && window.ChartUI?.DrawingToolbar) {
+                    drawingToolbar = new window.ChartUI.DrawingToolbar({
+                        host: toolsHost,
+                        chartService,
+                        onChange: () => persistChartLayout()
+                    });
+                }
+                if (toolsHost) {
+                    const sep = document.createElement('span');
+                    sep.className = 'toolbar-sep';
+                    toolsHost.appendChild(sep);
+                }
+                if (toolsHost && window.ChartUI?.OrderToolbar) {
+                    new window.ChartUI.OrderToolbar({
+                        host: toolsHost,
+                        chartService
+                    });
+                }
+                if (toolsHost) {
+                    const sep = document.createElement('span');
+                    sep.className = 'toolbar-sep';
+                    toolsHost.appendChild(sep);
+                    const resetBtn = document.createElement('button');
+                    resetBtn.type = 'button';
+                    resetBtn.className = 'chart-reset-view-btn';
+                    resetBtn.textContent = '⟲ Latest';
+                    resetBtn.title = 'Reset view to current market';
+                    resetBtn.addEventListener('click', () => chartService.resetView());
+                    toolsHost.appendChild(resetBtn);
+                }
+
+                // DOM liquidity heatmap toggle. Register/unregister the feature
+                // (mirrors how indicators toggle on/off). On-state is a global
+                // preference persisted in localStorage, default off, since the
+                // depth feed is live-only and has no per-symbol layout.
+                if (toolsHost && window.ChartFeatures?.OrderflowHeatmap) {
+                    const HEATMAP_KEY = 'chart.orderflowHeatmap.enabled';
+                    const sep = document.createElement('span');
+                    sep.className = 'toolbar-sep';
+                    toolsHost.appendChild(sep);
+
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'indicator-add-btn orderflow-toggle-btn';
+                    btn.textContent = 'Heatmap';
+                    btn.title = 'DOM liquidity heatmap (live order book)';
+                    toolsHost.appendChild(btn);
+
+                    const setEnabled = (on) => {
+                        if (on) {
+                            if (!chartService.getFeature('orderflow-heatmap')) {
+                                // Cap captured depth per side and throttle snapshots a touch
+                                // so busy markets (ES/NQ) stay light on the main thread. 150
+                                // levels is far deeper than the inside book, so the on-screen
+                                // band is unaffected in practice.
+                                chartService.registerFeature(new window.ChartFeatures.OrderflowHeatmap({
+                                    maxLevelsPerSide: 150,
+                                    minIntervalMs: 150
+                                }));
+                            }
+                            btn.classList.add('active');
+                        } else {
+                            chartService.unregisterFeature('orderflow-heatmap');
+                            btn.classList.remove('active');
+                        }
+                        try { localStorage.setItem(HEATMAP_KEY, on ? '1' : '0'); } catch (_) {}
+                    };
+
+                    btn.addEventListener('click', () => {
+                        setEnabled(!chartService.getFeature('orderflow-heatmap'));
+                    });
+
+                    let startOn = false;
+                    try { startOn = localStorage.getItem(HEATMAP_KEY) === '1'; } catch (_) {}
+                    if (startOn) setEnabled(true);
+                }
+
+                // Fan client fills into the FillMarkers feature. Coerce marketId
+                // since chartService.activeMarketId is a REST-string while fill.marketId
+                // comes from protobuf (numeric/Long).
+                client.onFill = (fill) => {
+                    if (fill && String(fill.marketId) === String(chartService.activeMarketId)) {
+                        chartService.getFeature('fill-markers')?.addFill(fill);
+                    }
+                };
+            }
+        } catch (err) {
+            console.error('Chart features init failed:', err);
+        }
+
+        // Force the chart to reset for a newly-selected market and re-show the
+        // "Waiting for trades…" overlay until the first print arrives.
+        function resetChartForMarket(marketId) {
+            if (!chartService || !marketId) return;
+            chartService.resetForMarket(marketId);
+            // Reset the DOM ladder for the new contract (book has no history)
+            // and re-pull its tick size / decimals.
+            if (domLadder) { domLadder.clear(); refreshLadderDetails(marketId); }
+            // Hydrate persisted indicators + drawings for the new symbol.
+            loadChartLayoutForActiveMarket();
+            syncChartOverlays();
+        }
+
+        // Normalize a marketId into a stable string key. The REST chart path
+        // delivers it as a string, the order protobuf may deliver it as a
+        // number, BigInt, or a protobuf.js Long ({ low, high, unsigned }).
+        // Without this both sides can be "equal" yet `===` mismatched, which
+        // silently drops every order overlay for the charted contract.
+        function normalizeMarketId(m) {
+            if (m == null) return '';
+            if (typeof m === 'string') return m;
+            if (typeof m === 'number' || typeof m === 'bigint') return String(m);
+            if (typeof m === 'object') {
+                if (typeof m.toString === 'function') {
+                    const s = m.toString();
+                    if (s && s !== '[object Object]') return s;
+                }
+                if ('low' in m && 'high' in m) {
+                    // protobuf.js Long fallback (unsigned 32-bit halves -> string).
+                    const low = m.low >>> 0;
+                    const high = m.high >>> 0;
+                    if (high === 0) return String(low);
+                    return String(high * 0x100000000 + low);
+                }
+            }
+            return String(m);
+        }
+
+        // Push the current working orders + position avg-price for the charted
+        // market onto the chart as overlays. Filtered by selected account so we
+        // don't draw lines for other accounts the user isn't trading from.
+        function syncChartOverlays() {
+            if (!chartService || !chartService.activeMarketId) return;
+            const marketId = chartService.activeMarketId;
+            const marketKey = normalizeMarketId(marketId);
+            const acct = client.selectedAccount;
+
+            // marketId from REST (data.marketID) is a string; order.marketId from the
+            // order protobuf is numeric/Long — normalize both sides through the same
+            // helper so neither numeric-vs-string nor Long-vs-Number drops overlays.
+            // accountId may be missing on a freshly-placed order before the full
+            // snapshot arrives; treat that as a match so the line still draws.
+            const allOrders = Array.from(client.orders.values());
+            const workingOrders = allOrders.filter(o =>
+                o && normalizeMarketId(o.marketId) === marketKey &&
+                (!acct || !o.accountId || o.accountId === acct) &&
+                [1, 4].includes(Number(o.status))
+            );
+            chartService.setWorkingOrders(workingOrders);
+            // Same filtered set drives the DOM ladder's buy/sell order chips.
+            if (domLadder) domLadder.setOrders(workingOrders);
+
+            const pos = acct ? client.positions.get(`${acct}_${marketId}`) : null;
+            if (pos) {
+                const buys = pos.buys ?? 0;
+                const sells = pos.sells ?? 0;
+                const net = buys - sells;
+                const avgRaw = pos.averageOpenPrice?.value;
+                const avg = avgRaw != null ? Number(avgRaw) : null;
+                chartService.setPositionLine(Number.isFinite(avg) ? avg : null, net);
+                if (domLadder) domLadder.setPosition(Number.isFinite(avg) ? avg : null, net);
+
+                // Individual working-order lines (OrderLines feature) replace
+                // the old volume-weighted "working position" average line, so
+                // always clear that average — keep only the filled-position
+                // avg line above.
+                chartService.setWorkingPosition(null, 0, 0);
+            } else {
+                chartService.setPositionLine(null, 0);
+                chartService.setWorkingPosition(null, 0, 0);
+                if (domLadder) domLadder.setPosition(null, 0);
+            }
+
+            updateChartPositionsPanel(marketId);
+        }
+        window.syncChartOverlays = syncChartOverlays;
+
+        // Render a display-only side panel listing every open position (across
+        // accounts) for the currently charted contract, broken down by buy/sell.
+        function updateChartPositionsPanel(marketId) {
+            const body = document.getElementById('chartPositionsBody');
+            if (!body) return;
+
+            const rows = Array.from(client.positions.values()).filter(p => {
+                if (!p || p.marketId !== marketId) return false;
+                const buys = p.buys ?? 0;
+                const sells = p.sells ?? 0;
+                const workingBuys = p.workingBuys ?? 0;
+                const workingSells = p.workingSells ?? 0;
+                return buys || sells || workingBuys || workingSells;
+            });
+
+            // The chart caps how many working-order lines it draws. Surface the
+            // overflow here so the trader knows some lines are hidden.
+            const overflow = chartService?.getFeature?.('order-lines')?.getOverflow?.();
+            const moreNote = overflow && overflow.hidden > 0
+                ? `<div class="chart-positions-more">+${overflow.hidden} more working order${overflow.hidden === 1 ? '' : 's'} off-chart</div>`
+                : '';
+
+            if (!rows.length) {
+                body.innerHTML = '<div class="chart-positions-empty">No positions for this market</div>' + moreNote;
+                return;
+            }
+
+            body.innerHTML = rows.map(p => {
+                const buys = p.buys ?? 0;
+                const sells = p.sells ?? 0;
+                const net = buys - sells;
+                const workingBuys = p.workingBuys ?? 0;
+                const workingSells = p.workingSells ?? 0;
+                const avgRaw = p.averageOpenPrice?.value;
+                const avg = avgRaw != null && Number.isFinite(Number(avgRaw)) ? Number(avgRaw) : null;
+                const upl = Number(p.upl ?? 0);
+                const acctInfo = client.accounts.get(p.accountId);
+                const acctName = acctInfo ? (acctInfo.accountName || acctInfo.displayName || p.accountId) : p.accountId;
+                const netClass = net > 0 ? 'positive-pnl' : net < 0 ? 'negative-pnl' : 'neutral-pnl';
+                const uplClass = upl > 0 ? 'positive-pnl' : upl < 0 ? 'negative-pnl' : 'neutral-pnl';
+
+                return `
+                    <div class="cpp-card">
+                        <div class="cpp-acct">${acctName}</div>
+                        <div class="cpp-row">
+                            <span class="cpp-buy">Buy ${buys}</span>
+                            <span class="cpp-sell">Sell ${sells}</span>
+                            <span class="cpp-net ${netClass}">Net ${net > 0 ? '+' : ''}${net}</span>
+                        </div>
+                        <div class="cpp-row cpp-sub">
+                            <span>Avg ${avg != null ? avg : '-'}</span>
+                            <span class="${uplClass}">UP&amp;L $${upl.toFixed(2)}</span>
+                        </div>
+                        <div class="cpp-row cpp-sub">
+                            <span>Working ${workingBuys}/${workingSells}</span>
+                        </div>
+                    </div>`;
+            }).join('') + moreNote;
+        }
+        window.updateChartPositionsPanel = updateChartPositionsPanel;
+
+        // Setup event handlers after DOM is ready
+        client.onConnectionStatusChanged = (status) => {
+            updateConnectionStatus(status.isConnected);
+            if (status.reconnectAttempts > 0) {
+                log(`Reconnection attempts: ${status.reconnectAttempts}`, 'info');
+            }
+        };
+
+        client.onAccountUpdate = (update) => {
+            if (update.type === 'accounts') {
+                updateAccountSelect(update.accounts);
+            } else if (update.type === 'positions') {
+                updatePositionsTable(update.positions);
+                syncChartOverlays();
+            } else if (update.type === 'orders') {
+                updateOrdersTable(update.orders);
+                syncChartOverlays();
+            } else if (update.type === 'accountProfit') {
+                debouncedRenderAccountsTable();
+            } else if (update.type === 'accountUpdate') {
+                debouncedRenderAccountsTable();
+            }
+        };
+
+        client.onMarketHeaderUpdate = (headerText) => {
+            elements.marketDataHeader.textContent = `Market Data - (${headerText})`;
+        };
+
+        client.onMarketUpdate = (marketData) => {
+            elements.bestBid.textContent = marketData.bestBid;
+            elements.bestOffer.textContent = marketData.bestOffer;
+            elements.lastTrade.textContent = marketData.lastTrade;
+
+            // Update header if contract info is available
+            if (marketData.contractId && marketData.expiryDate) {
+                const expiryShort = marketData.expiryDate.toString().substring(0, 6);
+                let displayText = marketData.contractId;
+
+                if (expiryShort && expiryShort.length === 6) {
+                    const year = expiryShort.substring(2, 4);
+                    const month = expiryShort.substring(4, 6);
+
+                    const monthCodes = {
+                        '01': 'F', '02': 'G', '03': 'H', '04': 'J', '05': 'K', '06': 'M',
+                        '07': 'N', '08': 'Q', '09': 'U', '10': 'V', '11': 'X', '12': 'Z'
+                    };
+
+                    const monthCode = monthCodes[month] || month;
+                    displayText += monthCode + year;
+                }
+
+                // Update just the contract span, not the entire header
+                const contractLink = document.querySelector('.market-contract-link');
+                if (contractLink) {
+                    contractLink.textContent = displayText;
+                }
+            }
+        };
+
+        client.onLog = (logEntry) => {
+            log(logEntry.message, logEntry.type);
+        };
+
+        // Logging function
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            elements.console.appendChild(logEntry);
+            elements.console.scrollTop = elements.console.scrollHeight;
+
+            // Keep only last 100 entries
+            while (elements.console.children.length > 100) {
+                elements.console.removeChild(elements.console.firstChild);
+            }
+        }
+
+        // Update connection status
+        function updateConnectionStatus(connected) {
+            elements.connectionStatus.classList.toggle('connected', connected);
+            elements.connectionText.textContent = connected ? 'Connected' : 'Disconnected';
+            elements.connectBtn.disabled = connected;
+            document.getElementById('connectSsoBtn').disabled = connected;
+            elements.disconnectBtn.disabled = !connected;
+            elements.submitOrderBtn.disabled = !connected || !client.selectedAccount;
+
+            if (!connected) {
+                for (const t of batchTimers.values()) clearTimeout(t);
+                batchTimers.clear();
+                setBatchStatus(null);
+            }
+
+            if (typeof renderBatch === 'function') renderBatch();
+        }
+
+        function updateAccountSelect(accounts) {
+            renderAccountsTable();
+
+            // Re-render positions table so account names resolve correctly
+            updatePositionsTable(Array.from(client.positions.values()));
+
+            // Auto-select first account
+            if (accounts.length > 0 && !client.selectedAccount) {
+                selectAccount(accounts[0].accountId);
+            }
+        }
+
+        let _renderAccountsTableTimer = null;
+        function debouncedRenderAccountsTable() {
+            clearTimeout(_renderAccountsTableTimer);
+            _renderAccountsTableTimer = setTimeout(renderAccountsTable, 100);
+        }
+
+        function renderAccountsTable() {
+            elements.accountsTable.innerHTML = '';
+            const accounts = client.getAccounts();
+
+            const accountsHeader = document.getElementById('accountsHeader');
+            if (accountsHeader) {
+                accountsHeader.textContent = accounts.length > 0 ? `Account (${accounts.length})` : 'Account';
+            }
+
+            accounts.forEach(account => {
+                const row = document.createElement('tr');
+                const isActive = client.selectedAccount === account.accountId;
+                if (isActive) row.classList.add('active-account-row');
+                row.style.cursor = 'pointer';
+
+                const profitData = client.accountProfits.get(account.accountId);
+                const fmtMoney = (v) => Math.round(v).toLocaleString('en-US');
+                const balance = profitData ? fmtMoney(profitData.balance ?? 0) : '-';
+                const availableCash = profitData && profitData.availableCash != null ? fmtMoney(profitData.availableCash) : '-';
+                const pnl = profitData ? fmtMoney(profitData.rpl ?? 0) : '-';
+                const upl = profitData ? fmtMoney(profitData.upl ?? 0) : '-';
+
+                const pnlValue = profitData ? (profitData.rpl ?? 0) : 0;
+                const uplValue = profitData ? (profitData.upl ?? 0) : 0;
+                const pnlColor = pnlValue < 0 ? 'negative-pnl' : pnlValue > 0 ? 'positive-pnl' : '';
+                const uplColor = uplValue < 0 ? 'negative-pnl' : uplValue > 0 ? 'positive-pnl' : '';
+
+                const accountUpdate = client.accountUpdates.get(account.accountId);
+                const statusText = accountUpdate?.status != null ? getAccountStatusText(accountUpdate.status) : '';
+
+                row.innerHTML = `
+                    <td class="account-active-col"><input type="radio" name="activeAccount" ${isActive ? 'checked' : ''} value="${account.accountId}"></td>
+                    <td>${account.accountName || account.displayName || account.accountId}</td>
+                    <td>${statusText}</td>
+                    <td>${balance !== '-' ? '$' + balance : '-'}</td>
+                    <td>${availableCash !== '-' ? '$' + availableCash : '-'}</td>
+                    <td class="${pnlColor}">${pnl !== '-' ? '$' + pnl : '-'}</td>
+                    <td class="${uplColor}">${upl !== '-' ? '$' + upl : '-'}</td>
+                `;
+                elements.accountsTable.appendChild(row);
+
+                row.addEventListener('click', (e) => {
+                    // Prevent double-handling when clicking the radio directly
+                    if (e.target.tagName !== 'INPUT') {
+                        row.querySelector('input[type="radio"]').checked = true;
+                    }
+                    selectAccount(account.accountId);
+                });
+            });
+        }
+
+        function updatePositionsTable(positions) {
+            elements.positionsTable.innerHTML = '';
+            positions.forEach(position => {
+                const row = document.createElement('tr');
+                const buys = position.buys ?? 0;
+                const sells = position.sells ?? 0;
+                const net = buys - sells;
+                const workingBuys = position.workingBuys ?? 0;
+                const workingSells = position.workingSells ?? 0;
+
+                const pnlValue = position.totalPnl ?? 0;
+                const pnl = pnlValue.toFixed(2);
+                const pnlColor = pnlValue < 0 ? 'negative-pnl' : pnlValue > 0 ? 'positive-pnl' : 'neutral-pnl';
+
+                const uplValue = position.upl ?? 0;
+                const uplColor = uplValue < 0 ? 'negative-pnl' : uplValue > 0 ? 'positive-pnl' : 'neutral-pnl';
+
+                const accountInfo = client.accounts.get(position.accountId);
+                const accountDisplay = accountInfo ? (accountInfo.accountName || accountInfo.displayName || position.accountId) : position.accountId;
+
+                row.innerHTML = `
+                    <td>${accountDisplay}</td>
+                    <td>${position.marketId}</td>
+                    <td>${net}</td>
+                    <td class="${pnlColor}">$${pnl}</td>
+                    <td class="${uplColor}">$${uplValue.toFixed(2)}</td>
+                    <td>${workingBuys}/${workingSells}</td>
+                    <td>
+                        <button class="action-btn flatten-btn" ${net === 0 ? 'disabled' : ''} data-market-id="${position.marketId}" data-net="${net}">
+                            <i class="fas fa-compress-arrows-alt"></i>
+                        </button>
+                    </td>
+                `;
+                elements.positionsTable.appendChild(row);
+
+                if (net !== 0) {
+                    const flattenBtn = row.querySelector('.flatten-btn');
+                    flattenBtn.addEventListener('click', () => client.flattenPosition(position.accountId, position.marketId, net));
+                }
+            });
+        }
+
+        function getAccountStatusText(status) {
+            const statusMap = {
+                0: 'Unknown',
+                1: 'Blocked',
+                2: 'OK',
+                3: 'Unrestricted',
+                4: 'Deleted',
+                5: 'Disabled',
+                6: 'Outside Active Time',
+                7: 'Not Accessible',
+                8: 'Pit Trade Only',
+                9: 'Loss Limit Exceeded'
+            };
+            return statusMap[status] ?? status;
+        }
+
+        function getOrderStatusText(status) {
+            const statusMap = {
+                0: 'None',
+                1: 'Working',
+                2: 'Finished',
+                3: 'Rejected',
+                4: 'Held',
+                5: 'No Change'
+            };
+            return statusMap[status] ?? status;
+        }
+
+        function updateOrdersTable(orders) {
+            elements.ordersTable.innerHTML = '';
+            const sortedOrders = orders.sort((a, b) => new Date(b.time.seconds * 1000) - new Date(a.time.seconds * 1000));
+
+            sortedOrders.forEach(order => {
+                const row = document.createElement('tr');
+                const time = new Date(order.time.seconds * 1000).toLocaleTimeString();
+                const side = order.buySell === 1 ? 'Buy' : 'Sell';
+                const isEditable = order.status === 1 || order.status === 4; // Working or Held
+                const statusText = getOrderStatusText(order.status);
+                const price = order.currentLimitPrice?.value
+                    || order.currentStopPrice?.value
+                    || order.limitPrice?.value
+                    || order.stopPrice?.value
+                    || '-';
+
+                row.innerHTML = `
+            <td>${time}</td>
+            <td>${order.marketId}</td>
+            <td>${side}</td>
+            <td>${order.currentVolume?.value ?? order.currentVolume ?? '-'}</td>
+            <td>${price}</td>
+            <td>${statusText}</td>
+            <td>
+                <button class="action-btn" ${!isEditable ? 'disabled' : ''} data-order-id="${order.uniqueId}">
+                    <i class="fas fa-edit"></i>
+                </button>
+            </td>
+        `;
+                elements.ordersTable.appendChild(row);
+
+                // Add click handler to edit button if order is editable
+                if (isEditable) {
+                    const editBtn = row.querySelector('.action-btn');
+                    editBtn.addEventListener('click', () => window.showOrderEditDialog(order));
+                }
+            });
+        }
+
+        async function selectAccount(accountId) {
+            await client.subscribeAccount(accountId);
+            renderAccountsTable();
+            elements.submitOrderBtn.disabled = !client.isConnected || !accountId;
+            if (typeof renderBatch === 'function') renderBatch();
+            syncChartOverlays();
+        }
+
+        // Connection functions
+        async function connect() {
+            try {
+                // Connect to WebSocket
+                await client.connect();
+
+                // Subscribe to market data after connection
+                setTimeout(async () => {
+                    if (client.isConnected && !client.currentMarketId) {
+                        await client.getMarketId(client.config.mdExchangeId, client.config.mdContractId);
+                        await client.subscribeMarket(client.config.mdExchangeId, client.config.mdContractId, client.currentMarketId);
+                        // Auto-populate limit price from last trade after a short delay
+                        setTimeout(() => updateLimitPriceFromMarket(), 3000);
+                    }
+                }, 2000);
+
+            } catch (error) {
+                log(`Connection error: ${error.message}`, 'error');
+            }
+        }
+
+        function disconnect() {
+            client.disconnect();
+            updatePositionsTable([]);
+            updateOrdersTable([]);
+            updateAccountSelect([]);
+            renderAccountsTable();
+        }
+
+        // Current last-trade price for a market as a Number, or null if no trade
+        // has printed yet. The client's stored snapshot is refreshed on every depth
+        // tick (handleMarketDepth), so this reflects the live price at call time.
+        function getLiveLastTrade(marketId) {
+            const v = client.getMarketSnapshot(marketId)?.tradeData?.lastTradePrice?.value;
+            const n = parseFloat(v);
+            return Number.isFinite(n) ? n : null;
+        }
+
+        // Update limit price field based on last trade price from market snapshot
+        function updateLimitPriceFromMarket() {
+            if (!client.currentMarketId) return;
+            const snapshot = client.getMarketSnapshot(client.currentMarketId);
+            if (snapshot && snapshot.tradeData && snapshot.tradeData.lastTradePrice) {
+                elements.orderPrice.value = snapshot.tradeData.lastTradePrice.value;
+                log(`Limit price set to last trade: ${snapshot.tradeData.lastTradePrice.value}`, 'info');
+            }
+        }
+
+        // Order type toggle: when OCO is chosen, hide the standard single-order
+        // fields (they don't apply) and reveal the two-leg OCO builder; restore
+        // them for Limit/Market.
+        const standardOrderGroups = [
+            elements.orderSide.closest('.form-group'),
+            elements.orderVolume.closest('.form-group'),
+            document.getElementById('priceGroup'),
+            document.querySelector('.bracket-mode-group'),
+            document.getElementById('takeProfitPrice').closest('.form-group'),
+            document.getElementById('stopLossPrice').closest('.form-group'),
+        ];
+        elements.orderType.addEventListener('change', () => {
+            const isOco = elements.orderType.value === 'oco';
+            standardOrderGroups.forEach(g => { if (g) g.style.display = isOco ? 'none' : ''; });
+            elements.ocoGroup.style.display = isOco ? '' : 'none';
+        });
+
+        // Bracket mode toggle handler
+        document.querySelectorAll('input[name="bracketMode"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const mode = e.target.value;
+                const tpLabel = document.getElementById('takeProfitLabel');
+                const slLabel = document.getElementById('stopLossLabel');
+                const tpInput = document.getElementById('takeProfitPrice');
+                const slInput = document.getElementById('stopLossPrice');
+
+                if (mode === 'dollars') {
+                    tpLabel.textContent = 'Take Profit ($):';
+                    slLabel.textContent = 'Stop Loss ($):';
+                    tpInput.step = '1';
+                    slInput.step = '1';
+                    tpInput.placeholder = 'Optional';
+                    slInput.placeholder = 'Optional';
+                } else {
+                    tpLabel.textContent = 'Take Profit (Price):';
+                    slLabel.textContent = 'Stop Loss (Price):';
+                    tpInput.step = '0.01';
+                    slInput.step = '0.01';
+                    tpInput.placeholder = 'Absolute price';
+                    slInput.placeholder = 'Absolute price';
+                }
+
+                // Clear values on mode switch
+                tpInput.value = '';
+                slInput.value = '';
+            });
+        });
+
+        // Read the two OCO legs off the form. Shared by submitOrder (single send) and
+        // addToBatch (staging), so both build identical leg specs. Validation lives in
+        // client.buildOcoSubmit — this only snapshots the fields.
+        function readOcoLegsFromForm() {
+            const buildLeg = (n) => ({
+                side: parseInt(elements[`ocoLeg${n}Side`].value),
+                priceType: elements[`ocoLeg${n}Type`].value,
+                volume: parseInt(elements[`ocoLeg${n}Volume`].value),
+                price: parseFloat(elements[`ocoLeg${n}Price`].value),
+            });
+            return [buildLeg(1), buildLeg(2)];
+        }
+
+        async function submitOrder() {
+            try {
+                // OCO mode: build two independent legs and submit as one-cancels-other.
+                if (elements.orderType.value === 'oco') {
+                    await client.submitOcoOrder(readOcoLegsFromForm());
+                    return;
+                }
+
+                const side = parseInt(elements.orderSide.value);
+                const volume = parseInt(elements.orderVolume.value);
+                const priceType = elements.orderType.value; // 'limit' or 'market'
+                const price = parseFloat(elements.orderPrice.value);
+
+                // Guard before sending: a cleared field parses to NaN, which would reach
+                // buildOrderSubmit and serialize as a "NaN" volume/price string.
+                if (!Number.isFinite(volume) || volume < 1) {
+                    log('Order: volume must be a positive integer.', 'error');
+                    return;
+                }
+                if (priceType !== 'market' && !Number.isFinite(price)) {
+                    log('Order: enter a valid price for a limit order.', 'error');
+                    return;
+                }
+
+                // Get bracket mode
+                const bracketMode = document.querySelector('input[name="bracketMode"]:checked').value;
+
+                // Get take profit and stop loss values if provided
+                const takeProfitElement = document.getElementById('takeProfitPrice');
+                const stopLossElement = document.getElementById('stopLossPrice');
+                const trailingStopElement = document.getElementById('trailingStopToggle');
+
+                const trailingStop = trailingStopElement ? trailingStopElement.checked : false;
+
+                // Both modes pass the raw typed value straight through; buildOrderSubmit
+                // does the conversion (dollars → signed AUTO_OCO offset) or takes the
+                // value as an absolute price (AOCO_P). Keeps a single source of truth.
+                const takeProfit = takeProfitElement && takeProfitElement.value ? parseFloat(takeProfitElement.value) : null;
+                const stopLoss   = stopLossElement   && stopLossElement.value   ? parseFloat(stopLossElement.value)   : null;
+
+                await client.submitOrder(side, volume, price, priceType, takeProfit, stopLoss, trailingStop, bracketMode);
+            } catch (error) {
+                log(`Order submission error: ${error.message}`, 'error');
+            }
+        }
+
+        // ----- Atomic batch ordering -----
+        // Staged rows; each is one flat entry order. Snapshotting the form + the
+        // currently selected account/market means switching account or contract
+        // between "Add" clicks naturally produces a multi-account batch.
+        const batchRows = [];
+
+        const BATCH_SIZE_WARN = 10;        // advisory only — NOT a cap; real limit is server-side
+        const BATCH_ACK_TIMEOUT_MS = 6000; // if no ack/reject arrives, assume a silent server drop
+        const batchTimers = new Map();     // batchId -> timeout handle
+
+        // Show/clear the batch status banner. kind: info | warn | error | success.
+        function setBatchStatus(msg, kind = 'info') {
+            const el = elements.batchStatus;
+            if (!msg) { el.hidden = true; el.textContent = ''; return; }
+            el.hidden = false;
+            el.textContent = msg;
+            el.className = `batch-status batch-status--${kind}`;
+        }
+
+        function accountLabel(accountId) {
+            const a = client.accounts?.get(accountId);
+            return a?.displayName || a?.accountName || accountId || '-';
+        }
+
+        // A staged batch row renders as editable controls (Side / Type / Vol / Price)
+        // bound to the row model by data-index/data-field; the delegated 'change'
+        // handler on #batchTable mutates batchRows[i] in place. Account/Market stay
+        // read-only — they're tied to the live connection/contract at staging time.
+        function renderBatch() {
+            elements.batchTable.innerHTML = '';
+            batchRows.forEach((row, i) => {
+                const tr = document.createElement('tr');
+                if (row.error) { tr.classList.add('batch-row-error'); tr.title = row.error; }
+
+                tr.appendChild(textCell(i + 1));
+                tr.appendChild(textCell(accountLabel(row.accountId), row.accountId));
+                tr.appendChild(textCell(row.marketId));
+
+                // OCO rows are read-only (two legs don't map onto the single-order
+                // Side/Type/Vol/Price cells): show a summary spanning those columns +
+                // the Bracket column, then the Remove button. Remove and re-stage to edit.
+                if (row.isOco) {
+                    const summary = ocoSummary(row);
+                    const legCell = document.createElement('td');
+                    legCell.colSpan = 5; // Side, Type, Vol, Price, Bracket
+                    legCell.textContent = summary;
+                    legCell.title = summary;
+                    tr.appendChild(legCell);
+
+                    const removeCellOco = document.createElement('td');
+                    const removeBtnOco = document.createElement('button');
+                    removeBtnOco.className = 'batch-remove-btn';
+                    removeBtnOco.dataset.index = i;
+                    removeBtnOco.textContent = '✕';
+                    removeCellOco.appendChild(removeBtnOco);
+                    tr.appendChild(removeCellOco);
+
+                    elements.batchTable.appendChild(tr);
+                    return;
+                }
+
+                const isMarket = row.priceType === 'market';
+
+                // Side: Buy (1) / Sell (-1)
+                tr.appendChild(controlCell(buildSelect(i, 'side', String(row.side), [
+                    { value: '1', label: 'Buy' },
+                    { value: '-1', label: 'Sell' },
+                ])));
+
+                // Type: mirror the main #orderType options (limit / market)
+                tr.appendChild(controlCell(buildSelect(i, 'priceType', row.priceType, [
+                    { value: 'limit', label: 'Limit' },
+                    { value: 'market', label: 'Market' },
+                ])));
+
+                // Volume
+                const vol = document.createElement('input');
+                vol.type = 'number';
+                vol.min = '1';
+                vol.value = row.volume;
+                vol.dataset.index = i;
+                vol.dataset.field = 'volume';
+                tr.appendChild(controlCell(vol));
+
+                // Price — disabled + blank for market orders (no price).
+                const price = document.createElement('input');
+                price.type = 'number';
+                price.step = '0.01';
+                price.dataset.index = i;
+                price.dataset.field = 'price';
+                price.value = isMarket || row.price == null ? '' : row.price;
+                price.disabled = isMarket;
+                tr.appendChild(controlCell(price));
+
+                // Read-only bracket badge (edit by removing + re-staging from the form).
+                const summary = bracketSummary(row);
+                tr.appendChild(textCell(summary, summary === '—' ? null : summary));
+
+                const removeCell = document.createElement('td');
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'batch-remove-btn';
+                removeBtn.dataset.index = i;
+                removeBtn.textContent = '✕';
+                removeCell.appendChild(removeBtn);
+                tr.appendChild(removeCell);
+
+                elements.batchTable.appendChild(tr);
+            });
+
+            elements.submitBatchBtn.textContent = `Submit Batch (${batchRows.length})`;
+            elements.submitBatchBtn.disabled =
+                batchRows.length === 0 || !client.isConnected || !client.selectedAccount;
+        }
+
+        // --- renderBatch cell helpers ---
+        // One-line summary of a row's AOCO bracket for the read-only Bracket column.
+        // Returns '—' for flat rows (no TP/SL). Mode tag: '$' = dollar-distance
+        // (AUTO_OCO), 'price' = absolute price (AUTO_OCO_P).
+        function bracketSummary(row) {
+            const hasTp = row.takeProfitDollars != null;
+            const hasSl = row.stopLossDollars != null;
+            if (!hasTp && !hasSl) return '—';
+            const parts = [];
+            if (hasTp) parts.push(`TP ${row.takeProfitDollars}`);
+            if (hasSl) parts.push(`SL ${row.stopLossDollars}${row.trailingStop ? ' (trail)' : ''}`);
+            const mode = row.bracketMode === 'price' ? 'price' : 'dist';
+            return `${parts.join(' / ')} · ${mode}`;
+        }
+        // One-line summary of a staged true-OCO row (independent legs, one-cancels-other)
+        // for the read-only OCO batch row, e.g. "OCO: BUY 1 limit @ 4200 / SELL 1 stop @ 4180".
+        function ocoSummary(row) {
+            const legText = (row.legs || []).map(l => {
+                const side = l.side === 1 ? 'BUY' : 'SELL';
+                const price = l.priceType === 'market' ? 'Market' : l.price;
+                return `${side} ${l.volume} ${l.priceType} @ ${price}`;
+            }).join(' / ');
+            return `OCO: ${legText}`;
+        }
+        function textCell(text, title) {
+            const td = document.createElement('td');
+            td.textContent = text;
+            if (title != null) td.title = title;
+            return td;
+        }
+        function controlCell(control) {
+            const td = document.createElement('td');
+            td.appendChild(control);
+            return td;
+        }
+        function buildSelect(index, field, selected, options) {
+            const sel = document.createElement('select');
+            sel.dataset.index = index;
+            sel.dataset.field = field;
+            options.forEach(o => {
+                const opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.label;
+                if (o.value === selected) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            return sel;
+        }
+
+        function addToBatch() {
+            setBatchStatus(null); // editing the batch clears any prior submit result
+            if (!client.selectedAccount || !client.currentMarketId) {
+                log('Select an account and market before staging a batch order.', 'error');
+                return;
+            }
+
+            // OCO: stage two independent legs as one read-only row (linked ORDER_LINK_OCO
+            // at submit). Account/market are snapshotted like flat rows so an OCO row can
+            // join a multi-account batch. Light client check here; buildOcoSubmit validates.
+            if (elements.orderType.value === 'oco') {
+                const legs = readOcoLegsFromForm();
+                const bad = legs.findIndex(l =>
+                    !Number.isFinite(l.volume) || l.volume < 1 ||
+                    (l.priceType !== 'market' && !Number.isFinite(l.price)));
+                if (bad !== -1) {
+                    log(`Batch: OCO leg ${bad + 1} needs a positive volume and (for limit/stop) a price.`, 'error');
+                    return;
+                }
+                batchRows.push({
+                    isOco: true,
+                    accountId: client.selectedAccount,
+                    marketId: client.currentMarketId,
+                    legs,
+                });
+                renderBatch();
+                log(`Batch: staged ${ocoSummary(batchRows[batchRows.length - 1])} on ${client.currentMarketId} (${batchRows.length} staged)`, 'info');
+                return;
+            }
+
+            const side = parseInt(elements.orderSide.value);
+            const volume = parseInt(elements.orderVolume.value);
+            const priceType = elements.orderType.value; // 'limit' or 'market'
+
+            if (!Number.isFinite(volume) || volume < 1) {
+                log('Batch: volume must be a positive integer.', 'error');
+                return;
+            }
+
+            // Limit orders capture the CURRENT last-trade price for the contract at
+            // the instant of staging (the form field can be stale — it's only auto-
+            // filled once after login). Market orders carry no price.
+            let price = null;
+            if (priceType !== 'market') {
+                price = getLiveLastTrade(client.currentMarketId);
+                if (price === null) {
+                    // No trade has printed yet — fall back to the form field.
+                    const fieldPrice = parseFloat(elements.orderPrice.value);
+                    if (!Number.isFinite(fieldPrice)) {
+                        log('Batch: no live price available yet for this contract; set a price first.', 'error');
+                        return;
+                    }
+                    price = fieldPrice;
+                }
+                elements.orderPrice.value = price; // reflect the staged price for visibility
+            }
+
+            // Carry the single-order bracket controls onto the row so it stages as an
+            // AOCO parent+offspring group (same inputs submitOrder reads). Bracket
+            // fields are only attached when a TP/SL is set, keeping flat rows clean.
+            const bracketMode = document.querySelector('input[name="bracketMode"]:checked').value;
+            const tpEl = document.getElementById('takeProfitPrice');
+            const slEl = document.getElementById('stopLossPrice');
+            const trailEl = document.getElementById('trailingStopToggle');
+            const trailingStop = trailEl ? trailEl.checked : false;
+
+            // Stage the raw typed values; buildOrderSubmit converts them at submit time
+            // (dollars → signed AUTO_OCO offset, or absolute price for AOCO_P), so a
+            // staged row matches exactly what submitOrder would send.
+            const takeProfitDollars = tpEl && tpEl.value ? parseFloat(tpEl.value) : null;
+            const stopLossDollars   = slEl && slEl.value ? parseFloat(slEl.value) : null;
+
+            batchRows.push({
+                accountId: client.selectedAccount,
+                marketId: client.currentMarketId,
+                side, volume, price, priceType,
+                ...(takeProfitDollars !== null ? { takeProfitDollars } : {}),
+                ...(stopLossDollars   !== null ? { stopLossDollars }   : {}),
+                ...(takeProfitDollars !== null || stopLossDollars !== null
+                    ? { trailingStop, bracketMode } : {}),
+            });
+            renderBatch();
+            const stagedPriceText = priceType === 'market' ? 'Market' : price;
+            const bracketText = (takeProfitDollars !== null || stopLossDollars !== null)
+                ? ` | ${bracketSummary(batchRows[batchRows.length - 1])}`
+                : '';
+            log(`Batch: staged ${side === 1 ? 'Buy' : 'Sell'} ${volume} @ ${stagedPriceText} on ${client.currentMarketId}${bracketText} (${batchRows.length} staged)`, 'info');
+        }
+
+        function clearBatch() {
+            batchRows.length = 0;
+            setBatchStatus(null);
+            renderBatch();
+        }
+
+        async function submitBatch() {
+            if (batchRows.length === 0) return;
+            const n = batchRows.length;
+
+            // Catch obviously-bad inline edits before a server round-trip: a limit row
+            // needs a finite price, every row needs volume >= 1. Flag offenders via the
+            // same row.error mechanism the server reject path uses.
+            let invalid = false;
+            batchRows.forEach(r => {
+                if (r.isOco) {
+                    // OCO rows are read-only, so bad values can only come from staging —
+                    // re-check each leg (volume >= 1; limit/stop leg needs a price).
+                    const bad = (r.legs || []).findIndex(l =>
+                        !Number.isFinite(l.volume) || l.volume < 1 ||
+                        (l.priceType !== 'market' && !Number.isFinite(l.price)));
+                    if ((r.legs || []).length < 2 || bad !== -1) {
+                        r.error = bad !== -1 ? `OCO leg ${bad + 1} is invalid` : 'OCO needs two legs';
+                        invalid = true;
+                    }
+                    return;
+                }
+                const badVol = !Number.isFinite(r.volume) || r.volume < 1;
+                const badPrice = r.priceType !== 'market' && !Number.isFinite(r.price);
+                if (badVol || badPrice) {
+                    r.error = badVol ? 'volume must be >= 1' : 'limit order needs a price';
+                    invalid = true;
+                }
+            });
+            if (invalid) {
+                renderBatch();
+                setBatchStatus('Fix the flagged row(s) before submitting.', 'error');
+                return;
+            }
+
+            // Warn but allow: the server (not the client) caps batch size. Flag a
+            // large batch so a server reject/drop isn't a surprise, then submit anyway.
+            if (n > BATCH_SIZE_WARN) {
+                setBatchStatus(`⚠ Submitting ${n} orders — T4 may reject batches larger than ~${BATCH_SIZE_WARN}.`, 'warn');
+                log(`Batch warning: ${n} orders exceeds the typical server limit (~${BATCH_SIZE_WARN}); submitting anyway.`, 'warning');
+            } else {
+                setBatchStatus(`Submitting ${n} order(s)…`, 'info');
+            }
+
+            try {
+                batchRows.forEach(r => { delete r.error; });
+                renderBatch();
+                const batchId = await client.submitBatch(batchRows.map(({ error, ...spec }) => spec));
+
+                // Detect a silent server drop: if no ack/reject arrives in time, say so.
+                const t = setTimeout(() => {
+                    batchTimers.delete(batchId);
+                    setBatchStatus(`No response from server for batch ${batchId} after ${BATCH_ACK_TIMEOUT_MS / 1000}s — it may have been rejected (e.g. too large). Connection is still active; orders were NOT confirmed.`, 'error');
+                }, BATCH_ACK_TIMEOUT_MS);
+                batchTimers.set(batchId, t);
+            } catch (error) {
+                setBatchStatus(`Batch submission error: ${error.message}`, 'error');
+                log(`Batch submission error: ${error.message}`, 'error');
+            }
+        }
+
+        // Server response: clear the staging table on acknowledge; on reject, surface
+        // the batch-level reason (even when there are no per-order errors) and flag any
+        // offending rows (submissionIndex maps 1:1 to staged-row index).
+        client.onBatchUpdate = (evt) => {
+            const t = batchTimers.get(evt.batchId);
+            if (t) { clearTimeout(t); batchTimers.delete(evt.batchId); }
+
+            if (evt.status === 'acknowledged') {
+                const count = (evt.ack?.accepted || []).reduce((s, a) => s + (a.uniqueId?.length || 0), 0);
+                setBatchStatus(`Batch ${evt.batchId} accepted — ${count} order(s) working.`, 'success');
+                clearBatch();
+            } else if (evt.status === 'rejected') {
+                const reason = evt.reject?.reason || 'validation failed';
+                const errs = evt.reject?.errors || [];
+                errs.forEach(err => {
+                    const row = batchRows[err.submissionIndex];
+                    if (row) row.error = err.reason || 'rejected';
+                });
+                const detail = errs.length ? ` (${errs.length} order error(s) flagged below)` : '';
+                setBatchStatus(`Batch ${evt.batchId} rejected: ${reason}${detail}`, 'error');
+                renderBatch();
+            }
+        };
+
+        // Event listeners
+        elements.connectBtn.addEventListener('click', connect);
+        elements.disconnectBtn.addEventListener('click', disconnect);
+
+        // SSO connect flow
+        const ssoOverlay   = document.getElementById('ssoOverlay');
+        const ssoIdTokenEl = document.getElementById('ssoIdToken');
+
+        function openSsoDialog() { ssoOverlay.style.display = 'flex'; ssoIdTokenEl.focus(); }
+        function closeSsoDialog() { ssoOverlay.style.display = 'none'; }
+
+        document.getElementById('connectSsoBtn').addEventListener('click', openSsoDialog);
+        document.getElementById('ssoCloseBtn').addEventListener('click', closeSsoDialog);
+        document.getElementById('ssoCancelBtn').addEventListener('click', closeSsoDialog);
+        ssoOverlay.addEventListener('click', (e) => { if (e.target === ssoOverlay) closeSsoDialog(); });
+
+        document.getElementById('ssoConnectBtn').addEventListener('click', async () => {
+            const token = ssoIdTokenEl.value.trim();
+            if (!token) { log('Paste an ID token first.', 'error'); return; }
+            closeSsoDialog();
+            try {
+                await client.connectWithSso(token);
+            } catch (error) {
+                log(`SSO connection error: ${error.message}`, 'error');
+            }
+        });
+
+        elements.submitOrderBtn.addEventListener('click', submitOrder);
+
+        // Market subscription — the quote type (dropdown) and the trade ticker
+        // (checkbox) are the two independent axes of the V2 MarketSubscribe. Either
+        // change unsubscribes the current market and re-subscribes with the new pair.
+        client.subscriptionType = elements.subscriptionType.value;
+        client.ticker = elements.subscriptionTicker.checked;
+        elements.subscriptionType.addEventListener('change', async () => {
+            try {
+                await client.setSubscriptionType(elements.subscriptionType.value);
+            } catch (error) {
+                log(`Error changing subscription type: ${error.message}`, 'error');
+            }
+        });
+        elements.subscriptionTicker.addEventListener('change', async () => {
+            try {
+                await client.setTicker(elements.subscriptionTicker.checked);
+            } catch (error) {
+                log(`Error changing trade ticker: ${error.message}`, 'error');
+            }
+        });
+        elements.addToBatchBtn.addEventListener('click', addToBatch);
+        elements.submitBatchBtn.addEventListener('click', submitBatch);
+        elements.clearBatchBtn.addEventListener('click', clearBatch);
+        elements.batchTable.addEventListener('click', (e) => {
+            const btn = e.target.closest('.batch-remove-btn');
+            if (!btn) return;
+            batchRows.splice(parseInt(btn.dataset.index), 1);
+            setBatchStatus(null);
+            renderBatch();
+        });
+
+        // Inline editing: a Side/Type/Vol/Price control changed. Mutate the row model
+        // in place (no renderBatch — that would rebuild the table and drop focus) and
+        // do targeted DOM toggling on the price input when the type flips.
+        elements.batchTable.addEventListener('change', (e) => {
+            const el = e.target;
+            const field = el.dataset && el.dataset.field;
+            if (!field) return;
+            const index = parseInt(el.dataset.index, 10);
+            const row = batchRows[index];
+            if (!row) return;
+
+            if (field === 'side') {
+                row.side = parseInt(el.value, 10);
+            } else if (field === 'volume') {
+                row.volume = Math.max(1, parseInt(el.value, 10) || 1);
+                el.value = row.volume;
+            } else if (field === 'price') {
+                const p = parseFloat(el.value);
+                row.price = Number.isFinite(p) ? p : null;
+            } else if (field === 'priceType') {
+                row.priceType = el.value;
+                const priceInput = el.closest('tr').querySelector('input[data-field="price"]');
+                if (row.priceType === 'market') {
+                    // Market = no price.
+                    row.price = null;
+                    if (priceInput) { priceInput.value = ''; priceInput.disabled = true; }
+                } else if (priceInput) {
+                    priceInput.disabled = false;
+                    // Seed from the live last-trade if the cell is empty.
+                    if (!priceInput.value) {
+                        const live = getLiveLastTrade(row.marketId);
+                        if (live !== null) { row.price = live; priceInput.value = live; }
+                    }
+                }
+            }
+
+            // Any edit invalidates a prior server reject on this row / the banner.
+            if (row.error) {
+                delete row.error;
+                const tr = el.closest('tr');
+                if (tr) { tr.classList.remove('batch-row-error'); tr.removeAttribute('title'); }
+            }
+            setBatchStatus(null);
+        });
+
+        // Click on bid/ask/last to set limit price
+        ['bestBid', 'bestOffer', 'lastTrade'].forEach(id => {
+            elements[id].addEventListener('click', () => {
+                const text = elements[id].textContent;
+                if (!text || text === '-') return;
+
+                // Format is "volume@price" — extract the price portion
+                const parts = text.split('@');
+                const price = parts.length === 2 ? parts[1] : parts[0];
+                const parsed = parseFloat(price);
+
+                if (!isNaN(parsed)) {
+                    elements.orderPrice.value = parsed;
+                    log(`Limit price set to ${parsed} from ${id.replace('best', '').replace('lastTrade', 'Last Trade')}`, 'info');
+                }
+            });
+        });
+
+        // Contract picker handler
+        document.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('market-contract-link')) {
+                if (!client.isConnected) return;
+
+                const contractPicker = new ContractPicker(client.config);
+                const result = await contractPicker.show();
+
+                if (result) {
+                    log(`Contract selected: ${result.contractId} (${result.exchangeId})`, 'info');
+
+                    try {
+                        await client.getMarketId(result.exchangeId, result.contractId);
+                        await client.subscribeMarket(result.exchangeId, result.contractId, client.currentMarketId);
+                        resetChartForMarket(client.currentMarketId);
+                        setTimeout(() => updateLimitPriceFromMarket(), 2000);
+                    } catch (error) {
+                        log(`Error subscribing to new contract: ${error.message}`, 'error');
+                    }
+                }
+            }
+        });
+
+        document.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('calendar-icon')) {
+                if (!client.isConnected || !client.currentSubscription) {
+                    log('Connect and select a contract first', 'error');
+                    return;
+                }
+
+                const expiryPicker = new ExpiryPicker(
+                    client.config,
+                    client.currentSubscription.exchangeId,
+                    client.currentSubscription.contractId
+                );
+
+                const result = await expiryPicker.show();
+
+                if (result) {
+                    log(`Expiry selected: ${result.description} (Market ID: ${result.marketId})`, 'info');
+
+                    try {
+                        await client.subscribeMarket(result.exchangeId, result.contractId, result.marketId);
+                        resetChartForMarket(result.marketId);
+                        setTimeout(() => updateLimitPriceFromMarket(), 2000);
+                    } catch (error) {
+                        log(`Error subscribing to new expiry: ${error.message}`, 'error');
+                    }
+                }
+            }
+        });
+
+        // ---------- Trade History panel --------------------------------------
+        // Session blotter of executed fills, fed by client.onFillsUpdate. The
+        // order link reuses the existing revise dialog.
+        try {
+            const thHost = document.getElementById('tradeHistoryPanel');
+            if (thHost && window.TradeHistory) {
+                window.tradeHistory = new window.TradeHistory({
+                    host: thHost,
+                    client,
+                    log,
+                    onOrderClick: (uniqueId) => {
+                        const order = client.orders.get(uniqueId);
+                        if (order && typeof window.showOrderEditDialog === 'function') {
+                            window.showOrderEditDialog(order);
+                        } else {
+                            log(`Order ${uniqueId} not found (may be finished)`, 'info');
+                        }
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('Trade history panel init failed:', err);
+        }
+
+        // Initialize
+        log('T4 WebSocket Demo initialized', 'info');
+        log('Click Connect to start', 'info');
+    });

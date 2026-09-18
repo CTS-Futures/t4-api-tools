@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T4 Experimental — Algo Trader &amp; Backtester</title>
+    <!-- TEMP CLS DIAGNOSTIC — remove after layout tuning. Logs the largest
+         layout-shift contributors to the console; call __clsReport() any time
+         for the full breakdown. -->
+    <script>
+    (function () {
+        if (!('PerformanceObserver' in window)) return;
+        var total = 0;
+        var byEl = new Map();
+        function describe(node) {
+            if (!node || node.nodeType !== 1) return '(non-element/text)';
+            var el = node, s = el.tagName.toLowerCase();
+            if (el.id) s += '#' + el.id;
+            if (typeof el.className === 'string' && el.className.trim()) {
+                s += '.' + el.className.trim().split(/\s+/).slice(0, 3).join('.');
+            }
+            return s;
+        }
+        try {
+            var obs = new PerformanceObserver(function (list) {
+                for (var entry of list.getEntries()) {
+                    if (entry.hadRecentInput) continue; // ignore user-driven shifts
+                    total += entry.value;
+                    var srcs = entry.sources || [];
+                    if (!srcs.length) byEl.set('(no source)', (byEl.get('(no source)') || 0) + entry.value);
+                    for (var src of srcs) {
+                        var key = describe(src.node);
+                        byEl.set(key, (byEl.get(key) || 0) + entry.value);
+                    }
+                }
+                var rows = Array.from(byEl.entries())
+                    .sort(function (a, b) { return b[1] - a[1]; }).slice(0, 12)
+                    .map(function (r) { return { element: r[0], cls: +r[1].toFixed(4) }; });
+                console.log('%c[CLS] cumulative=' + total.toFixed(4), 'color:#e6b800;font-weight:bold');
+                console.table(rows);
+            });
+            obs.observe({ type: 'layout-shift', buffered: true });
+            window.__clsReport = function () {
+                return { total: +total.toFixed(4),
+                         byElement: Array.from(byEl.entries()).sort(function (a, b) { return b[1] - a[1]; }) };
+            };
+        } catch (e) { console.warn('[CLS] observer unavailable', e); }
+    })();
+    </script>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="contract-picker.css">
+    <link rel="stylesheet" href="expiry-picker.css">
+    <link rel="stylesheet" href="revise-dialog.css">
+    <link rel="stylesheet" href="chart.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+<div class="section" role="note"><h1>Experimental — incomplete</h1><p>Algo Trader and Backtester are under development and are not part of the main demo.</p><a href="index.html">Back to main demo</a></div>
+<div class="container">
+    <!-- Connection Status & Account Selection -->
+    <div class="section full-width">
+        <h2 class="connection-header">
+            <span class="connection-header-left">
+                <span class="status-indicator" id="connectionStatus"></span>
+                <span id="connectionText">Disconnected</span>
+            </span>
+            <span class="connection-header-right">
+                <button id="connectBtn">Connect</button>
+                <button id="disconnectBtn" disabled>Disconnect</button>
+            </span>
+        </h2>
+        <div class="table-container" id="accountTableContainer">
+            <table id="accountsTable">
+                <thead>
+                <tr>
+                    <th class="account-active-col"></th>
+                    <th id="accountsHeader">Account</th>
+                    <th>Status</th>
+                    <th>Balance</th>
+                    <th>Available Cash</th>
+                    <th>P&L</th>
+                    <th>UP&L</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Market Data -->
+    <div class="section">
+        <h2 id="marketDataHeader">
+            <div class="market-header-container">
+                <span>Market Data - (<span class="market-contract-link">...</span>)</span>
+                <div class="market-header-controls">
+                    <select id="subscriptionType" title="Market Subscription Type">
+                        <option value="top_of_book">Top of Book</option>
+                        <option value="full_order_book" selected>Full Order Book</option>
+                        <option value="mbo">Market by Order</option>
+                    </select>
+                    <label class="ticker-toggle" title="Also stream trade prints"><input type="checkbox" id="subscriptionTicker"> Trades</label>
+                    <i class="far fa-calendar-alt calendar-icon" title="Change Expiry"></i>
+                </div>
+            </div>
+        </h2>
+        <div class="market-data">
+            <div class="market-item">
+                <h4>Best Bid</h4>
+                <div class="market-value bid" id="bestBid">-</div>
+            </div>
+            <div class="market-item">
+                <h4>Best Offer</h4>
+                <div class="market-value offer" id="bestOffer">-</div>
+            </div>
+            <div class="market-item">
+                <h4>Last Trade</h4>
+                <div class="market-value last" id="lastTrade">-</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Submit Order -->
+    <div class="section">
+        <h2>Submit Order</h2>
+        <div class="order-form">
+            <div class="form-group">
+                <label for="orderType">Type:</label>
+                <select id="orderType">
+                    <option value="limit">Limit</option>
+                    <option value="market">Market</option>
+                    <option value="oco">OCO</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="orderSide">Side:</label>
+                <select id="orderSide">
+                    <option value="1">Buy</option>
+                    <option value="-1">Sell</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="orderVolume">Volume:</label>
+                <input type="number" id="orderVolume" value="1" min="1">
+            </div>
+            <div class="form-group" id="priceGroup">
+                <label for="orderPrice">Price:</label>
+                <input type="number" id="orderPrice" step="0.01" value="100">
+            </div>
+            <div class="form-group bracket-mode-group">
+                <label>Bracket Mode:</label>
+                <div class="bracket-toggle">
+                    <input type="radio" name="bracketMode" id="bracketModeDollars" value="dollars" checked>
+                    <label for="bracketModeDollars">Dollars ($)</label>
+                    <input type="radio" name="bracketMode" id="bracketModePrice" value="price">
+                    <label for="bracketModePrice">Price (AOCO_P)</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="takeProfitPrice" id="takeProfitLabel">Take Profit ($):</label>
+                <input type="number" id="takeProfitPrice" step="1" placeholder="Optional">
+            </div>
+            <div class="form-group">
+                <label for="stopLossPrice" id="stopLossLabel">Stop Loss ($):</label>
+                <input type="number" id="stopLossPrice" step="1" placeholder="Optional">
+                <div class="trailing-toggle">
+                    <input type="checkbox" id="trailingStopToggle">
+                    <label for="trailingStopToggle">Trailing</label>
+                </div>
+            </div>
+            <!-- OCO builder: two independent, simultaneously-working legs (one cancels the other).
+                 Shown only when Type = OCO; the standard single-order fields above are hidden. -->
+            <div id="ocoGroup" style="display: none;">
+                <div class="form-group oco-leg" data-leg="1">
+                    <label>Leg 1:</label>
+                    <div class="oco-leg-fields">
+                        <select id="ocoLeg1Side">
+                            <option value="1">Buy</option>
+                            <option value="-1">Sell</option>
+                        </select>
+                        <select id="ocoLeg1Type">
+                            <option value="limit">Limit</option>
+                            <option value="market">Market</option>
+                            <option value="stop">Stop</option>
+                        </select>
+                        <input type="number" id="ocoLeg1Volume" value="1" min="1" placeholder="Vol">
+                        <input type="number" id="ocoLeg1Price" step="0.01" value="100" placeholder="Price">
+                    </div>
+                </div>
+                <div class="form-group oco-leg" data-leg="2">
+                    <label>Leg 2:</label>
+                    <div class="oco-leg-fields">
+                        <select id="ocoLeg2Side">
+                            <option value="1">Buy</option>
+                            <option value="-1">Sell</option>
+                        </select>
+                        <select id="ocoLeg2Type">
+                            <option value="limit">Limit</option>
+                            <option value="market">Market</option>
+                            <option value="stop">Stop</option>
+                        </select>
+                        <input type="number" id="ocoLeg2Volume" value="1" min="1" placeholder="Vol">
+                        <input type="number" id="ocoLeg2Price" step="0.01" value="100" placeholder="Price">
+                    </div>
+                </div>
+            </div>
+            <div class="form-group submit-btn-container">
+                <button id="submitOrderBtn" class="submit-order-btn">Submit Order</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Batch Orders (atomic OrderBatch) -->
+    <div class="section">
+        <h2>Batch Orders</h2>
+        <p class="batch-hint">
+            Stage orders from the form above (Side / Type / Volume / Price); set a
+            Take Profit / Stop Loss there first to stage an <strong>AOCO bracket</strong>
+            (parent + offspring) row, or select Type = <strong>OCO</strong> to stage a
+            true one-cancels-other row (two independent legs). Edit Side / Type / Vol /
+            Price directly in the table (bracket and OCO rows are read-only — remove and
+            re-stage to change them), then submit as one <strong>atomic</strong> batch —
+            if any order fails validation, none are sent. Switch account and/or contract
+            between adds to build a multi-account batch.
+        </p>
+        <div class="form-group submit-btn-container">
+            <button id="addToBatchBtn" class="submit-order-btn">Add Current Order to Batch</button>
+        </div>
+        <div class="table-container">
+            <table id="batchTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Account</th>
+                        <th>Market</th>
+                        <th>Side</th>
+                        <th>Type</th>
+                        <th>Vol</th>
+                        <th>Price</th>
+                        <th>Bracket</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="form-group submit-btn-container">
+            <button id="submitBatchBtn" class="submit-order-btn" disabled>Submit Batch (0)</button>
+            <button id="clearBatchBtn" class="submit-order-btn batch-clear-btn">Clear</button>
+        </div>
+        <div id="batchStatus" class="batch-status" hidden></div>
+    </div>
+
+    <!-- Positions -->
+    <div class="section">
+        <h2>Positions</h2>
+        <div class="table-container">
+            <table id="positionsTable">
+                <thead>
+                <tr>
+                    <th>Account</th>
+                    <th>Market</th>
+                    <th>Net</th>
+                    <th>P&L</th>
+                    <th>UP&L</th>
+                    <th>Working</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Orders -->
+    <div class="section full-width">
+        <h2>Orders</h2>
+        <div class="table-container">
+            <table id="ordersTable">
+                <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Market</th>
+                    <th>Side</th>
+                    <th>Volume</th>
+                    <th>Price</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Trade History -->
+    <div class="section full-width trade-history-section">
+        <h2>Trade History <span class="th-session-badge">fills + tape</span></h2>
+        <div id="tradeHistoryPanel"></div>
+    </div>
+
+    <!-- Price Chart -->
+    <div class="section full-width chart-section">
+        <div class="chart-header">
+            <h2 style="margin:0;">Price Chart</h2>
+            <div class="chart-controls">
+                <label for="chartInterval">Interval:</label>
+                <select id="chartInterval">
+                    <option value="15000">15s</option>
+                    <option value="60000" selected>1m</option>
+                    <option value="300000">5m</option>
+                    <option value="900000">15m</option>
+                </select>
+                <label class="quick-trade-toggle" title="Click the chart to place/cancel orders instantly, bypassing the form">
+                    <input type="checkbox" id="chartQuickTrade"> Quick Trade
+                </label>
+                <label class="quick-trade-toggle" title="Show a confirmation step before submitting orders from the right-click chart menu">
+                    <input type="checkbox" id="chartConfirmOrders"> Confirm
+                </label>
+                <label for="chartQuickQty">Qty:</label>
+                <input type="number" id="chartQuickQty" value="1" min="1" class="chart-qty-input">
+            </div>
+        </div>
+        <div class="chart-tools" id="chartTools"></div>
+        <div class="chart-body">
+            <div class="chart-container" id="chartContainer">
+                <div class="chart-empty-overlay" id="chartEmptyOverlay">Waiting for trades…</div>
+            </div>
+            <aside class="dom-ladder-panel" id="domLadderPanel"></aside>
+            <aside class="chart-positions-panel" id="chartPositionsPanel">
+                <div class="chart-positions-title">Open Positions</div>
+                <div class="chart-positions-body" id="chartPositionsBody">
+                    <div class="chart-positions-empty">No positions for this market</div>
+                </div>
+            </aside>
+        </div>
+        <!-- Strategy View: the active strategy's traces/markers, time-synced to
+             the candles above. Driven by the Algo Trader / Backtester panels. -->
+        <div class="strategy-chart-wrap" id="strategyChartWrap" style="display:none;">
+            <div class="strategy-chart-header">
+                <span class="strategy-chart-title">Strategy View</span>
+                <span class="strategy-chart-legend" id="strategyChartLegend"></span>
+            </div>
+            <div class="strategy-chart" id="strategyChart"></div>
+        </div>
+    </div>
+
+    <!-- Algo Trader -->
+    <div class="section full-width">
+        <h2>Algo Trader <span class="algo-demo-badge">experimental · incomplete</span></h2>
+        <div id="algoPanel"></div>
+    </div>
+
+    <!-- Backtester: single-instrument JS engine over the active market's loaded history. -->
+    <div class="section full-width">
+        <h2>Backtester <span class="algo-demo-badge" id="backtestBadge">loaded chart history</span></h2>
+        <div id="backtestPanel"></div>
+    </div>
+
+    <!-- Console -->
+    <div class="section full-width">
+        <h2>Console</h2>
+        <div class="console" id="console"></div>
+    </div>
+</div>
+
+<script src="config.js"></script>
+<script src="t4-proto-v2.js"></script>
+<script type="module" src="decoder/loader.js"></script>
+<script src="MarketByOrderBook.js"></script>
+<script src="T4APIClient.js"></script>
+<script src="ContractPicker.js"></script>
+<script src="ExpiryPicker.js"></script>
+<script src="ReviseDialog.js"></script>
+<script src="TradeHistory.js"></script>
+<script src="DomLadder.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="chart/EventBus.js"></script>
+<script src="chart/features/OrderLines.js"></script>
+<script src="chart/features/PositionLine.js"></script>
+<script src="chart/features/indicators/math.js"></script>
+<script src="chart/features/indicators/IndicatorFeature.js"></script>
+<script src="chart/features/FillMarkers.js"></script>
+<script src="chart/drawings/DrawingGeometry.js"></script>
+<script src="chart/drawings/DrawingTypes.js"></script>
+<script src="chart/drawings/DrawingsOverlay.js"></script>
+<script src="chart/features/Drawings.js"></script>
+<script src="chart/orderflow/colormap.js"></script>
+<script src="chart/orderflow/DepthSnapshotBuffer.js"></script>
+<script src="chart/orderflow/TradeTape.js"></script>
+<script src="chart/orderflow/DepthHeatmapRenderer.js"></script>
+<script src="chart/features/OrderflowHeatmap.js"></script>
+<script src="chart/features/ContextMenu.js"></script>
+<script src="chart/features/DragOrder.js"></script>
+<script src="chart/ui/IndicatorToolbar.js"></script>
+<script src="chart/ui/DrawingToolbar.js"></script>
+<script src="chart/ui/OrderToolbar.js"></script>
+<script src="chart/persistence/LayoutStore.js"></script>
+<script src="chart/StrategyChart.js"></script>
+<script src="ChartService.js"></script>
+
+<!-- Algo trading layer (strategy <-> IBroker <-> live/sim) -->
+<script src="algo/IBroker.js"></script>
+<script src="algo/LiveBroker.js"></script>
+<script src="algo/strategies/Strategy.js"></script>
+<script src="algo/strategies/indicators.js"></script>
+<script src="algo/strategies/SmaCrossover.js"></script>
+<script src="algo/strategies/RsiReversion.js"></script>
+<script src="algo/strategies/BollingerReversion.js"></script>
+<script src="algo/strategies/DonchianBreakout.js"></script>
+<script src="algo/strategies/MacdCross.js"></script>
+<script src="algo/strategies/MomentumScalper.js"></script>
+<script src="algo/DataHealth.js"></script>
+<script src="algo/RiskManager.js"></script>
+<script src="algo/AlgoRunner.js"></script>
+<script src="algo/Portfolio.js"></script>
+<script src="algo/SimBroker.js"></script>
+<script src="algo/Backtester.js"></script>
+<script src="algo/ui/ParamForm.js"></script>
+<script src="algo/ui/AlgoPanel.js"></script>
+<script src="algo/ui/BacktestPanel.js"></script>
+
+<script src="DemoPage.js"></script>
+<script src="algo/ExperimentalPage.js"></script>
+
+<div class="order-edit-overlay" id="orderEditOverlay" style="display: none;">
+    <div class="order-edit-dialog">
+        <div class="order-edit-header">
+            <h3>Modify Order</h3>
+            <button class="close-btn">&times;</button>
+        </div>
+        <div class="order-edit-content">
+            <div class="form-group">
+                <label for="editOrderVolume">Volume:</label>
+                <input type="number" id="editOrderVolume" min="1">
+            </div>
+            <div class="form-group">
+                <label for="editOrderPrice">Price:</label>
+                <input type="number" id="editOrderPrice" step="0.01">
+            </div>
+        </div>
+        <div class="order-edit-footer">
+            <button class="btn pull-btn" id="pullOrderBtn">Pull</button>
+            <button class="btn confirm-btn" id="reviseOrderBtn">Revise</button>
+            <button class="btn cancel-btn" id="cancelEditBtn">Cancel</button>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

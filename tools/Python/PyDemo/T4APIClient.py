@@ -1,223 +1,739 @@
+"""Async WebSocket/REST client for the T4 API v2 demo.
+
+The v2 protocol uses one ``MarketSubscribe`` request, decimal order volumes,
+and a single ``OrderUpdate`` message for the order lifecycle. The client keeps
+the callback-oriented surface used by the Tk demo and chart tools.
+"""
+
 import asyncio
+import math
+import os
+import sys
 import time
-import websockets
-from tools.ClientMessageHelper import ClientMessageHelper
-from tools.ProtoUtils import encode_message, decode_message
-from proto.t4.v1.auth import auth_pb2
-from proto.t4.v1 import service_pb2
-from proto.t4.v1.market import market_pb2
-from proto.t4.v1.common.enums_pb2 import DepthBuffer, DepthLevels, PriceType, BuySell, OrderLink, TimeType, ActivationType
-from proto.t4.v1.common.price_pb2 import Price
-from proto.t4.v1.account import account_pb2
-from proto.t4.v1.orderrouting import orderrouting_pb2
-from google.protobuf.json_format import MessageToDict
 import uuid
+
 import httpx
+import websockets
+
+# Generated bindings are emitted as the top-level ``t4`` package. Keep this
+# import path setup in the client as well as in the small helper modules so the
+# client can be imported from either the demo directory or a test runner.
+_PROTO_ROOT = os.path.join(os.path.dirname(__file__), "proto")
+if _PROTO_ROOT not in sys.path:
+    sys.path.insert(0, _PROTO_ROOT)
+
+from tools.ClientMessageHelper import ClientMessageHelper
+from tools.ProtoUtils import decode_message, encode_message
+from t4.v2 import service_pb2
+from t4.v2.account import account_pb2
+from t4.v2.auth import auth_pb2
+from t4.v2.common.enums_pb2 import (
+    ActivationType,
+    BuySell,
+    OrderLink,
+    PriceType,
+    Quotes,
+    TimeType,
+)
+from t4.v2.common.price_pb2 import Decimal, Price
+from t4.v2.market import market_pb2
+from t4.v2.orderrouting import orderrouting_pb2
+
+
 class Client:
+    """T4 v2 client used by ``PyDemo`` and its companion chart."""
 
-    #initializes core attributes
     def __init__(self, config):
-        #config file settings
-        self.config = config   # retained so UI features can read optional blocks (e.g. portfolio_study)
-        self.wsUrl = config['websocket']['url']
-        self.apiUrl = config['websocket']['api']
-        self.apiKey = None 
-        self.firm= config['websocket']['firm']
-        self.username=config['websocket']['username']
-        self.password=config['websocket']['password']
-        self.app_name= config['websocket']['app_name']
-        self.app_license= config['websocket']['app_license']
-        self.priceFormat= config['websocket']['priceFormat']
+        self.config = config
+        websocket_config = config["websocket"]
 
-        #current market and exchange
-        self.md_exchange_id = config['websocket']['md_exchange_id']
-        self.md_contract_id = config['websocket']['md_contract_id']
+        self.wsUrl = websocket_config["url"]
+        self.apiUrl = websocket_config["api"]
+        self.apiKey = websocket_config.get("api_key") or None
+        self.firm = websocket_config.get("firm", "")
+        self.username = websocket_config.get("username", "")
+        self.password = websocket_config.get("password", "")
+        self.app_name = websocket_config.get("app_name", "")
+        self.app_license = websocket_config.get("app_license", "")
+        self.priceFormat = int(websocket_config.get("priceFormat", 2))
+        self.auto_subscribe_accounts = bool(
+            websocket_config.get("auto_subscribe_accounts", False)
+        )
+
+        self.md_exchange_id = websocket_config.get("md_exchange_id", "")
+        self.md_contract_id = websocket_config.get("md_contract_id", "")
 
         self.ws = None
-        self.lastMessage = None
         self.running = False
-        self.heartbeat_time = 20 
+        self.lastMessage = None
+        self.heartbeat_time = 20
         self.login_event = asyncio.Event()
-
-        #accounts
-        self.accounts = {}
-        self.selected_account = None
-        self.on_account_update = None
-        #connection
-        self.login_response = None
-
-        #main tasks
         self.listen_task = None
         self.heartbeat_task = None
 
-        #tokens
-        self.jw_token = None
-        self.jw_expiration = None
-        self.pending_token_request = None
-        self.token_resolvers = {} #maps a requestID to a resolve/reject callback
+        self.accounts = {}
+        self.selected_account = None
+        self.login_response = None
+        self.on_account_update = None
 
-        #market data
+        self.jw_token = None
+        self.jw_expiration = None  # milliseconds since epoch
+        self.pending_token_request = None
+        self.token_resolvers = {}
+
         self.current_market_id = None
         self.current_subscription = None
         self.market_details = {}
         self.market_snapshots = {}
+        self.market_by_order_books = {}
         self.market_update = None
         self.market_header_update = None
-        self.on_market_switch = None  # Callback from GUI
+        self.on_market_update = None
+        self.on_market_switch = None
+        self.market_subscription_type = websocket_config.get(
+            "subscription_type", "full_order_book"
+        )
+        if self.market_subscription_type not in {"top_of_book", "full_order_book", "mbo"}:
+            self.market_subscription_type = "full_order_book"
+        self.market_ticker = bool(websocket_config.get("ticker", False))
 
-        #orders and positions ui
         self.orders = {}
         self.positions = {}
+        self.account_updates = {}
+        self.account_profits = {}
+        self.subscribed_accounts = set()
+        self.on_trade = None
+        self.on_depth = None
+        self.on_batch_update = None
+        self.pending_batches = {}
+        self._last_ttv_by_market = {}
+        self._last_trade_key_by_market = {}
 
-        
+    # ------------------------------------------------------------------
+    # Connection and framing
+    # ------------------------------------------------------------------
 
-    
-    #connects to websocket api
     async def connect(self):
-    
+        if self.running:
+            return
+
+        self.login_event.clear()
+        self.ws = await websockets.connect(self.wsUrl)
+        self.running = True
+        self.listen_task = asyncio.create_task(self.listen())
+        self.heartbeat_task = asyncio.create_task(self.send_heartbeat())
+        await self.authenticate()
+
         try:
-            #establishes websocket connection
-            self.ws = await websockets.connect(self.wsUrl)
-            self.running = True
+            await asyncio.wait_for(self.login_event.wait(), timeout=10)
+        except asyncio.TimeoutError as exc:
+            await self.disconnect()
+            raise RuntimeError("Login timed out") from exc
 
-            #start background tasks
-            asyncio.create_task(self.authenticate())
-            self.heartbeat_task = asyncio.create_task(self.send_heartbeat())
-            self.listen_task = asyncio.create_task(self.listen()) 
+        if self.login_response is None or self.login_response.result != 0:
+            await self.disconnect()
+            raise RuntimeError("Authentication failed")
 
-            #wait for log in to complete.
-            try:
-                await asyncio.wait_for(self.login_event.wait(), timeout=10)
-            except asyncio.TimeoutError:
-                print("Login timed out.")
-                self.running = False   
-            if not self.running: #if authentication fails give error message
-                print("authentication failed")
-        except Exception as e:
-            print("Failure", e)
-
-    #disconnects from websocket safely
     async def disconnect(self):
-        self.running = False #turns off all the loops going
-        if self.ws:
+        self.running = False
+        if self.ws is not None:
             await self.ws.close(code=1000, reason="client disconnect")
-            print("disconnect success")
-        else:
-            print("already disconnected")
-        
-        #cancels the recurring listening and heartbeat monitors.
-        if self.heartbeat_task:
-            self.heartbeat_task.cancel()
-        if self.listen_task:
-            self.listen_task.cancel()
+            self.ws = None
 
-        #gathers the tasks together to cancel
-        await asyncio.gather(self.listen_task, self.heartbeat_task)
-        
+        tasks = [task for task in (self.listen_task, self.heartbeat_task) if task]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self.listen_task = None
+        self.heartbeat_task = None
+        self.selected_account = None
+        self.subscribed_accounts.clear()
 
-    #envelopes, encrypts, and sends message to the server
     async def send_message(self, message):
+        if self.ws is None or not self.running:
+            raise RuntimeError("WebSocket not connected")
         request = ClientMessageHelper.create_client_message(message)
-        encrypted_request = encode_message(request)
-        await self.ws.send(encrypted_request)
+        self.lastMessage = request
+        await self.ws.send(encode_message(request))
 
-    #sends login request
+    async def listen(self):
+        try:
+            while self.running and self.ws is not None:
+                try:
+                    raw = await asyncio.wait_for(self.ws.recv(), timeout=2)
+                except asyncio.TimeoutError:
+                    continue
+                if raw is None:
+                    break
+                self.process_server_message(raw)
+        except asyncio.CancelledError:
+            return
+        except websockets.exceptions.ConnectionClosed:
+            self.running = False
+        except Exception as exc:  # noqa: BLE001 - keep the demo loop alive
+            print(f"Error while listening: {exc}")
+            self.running = False
+
+    async def send_heartbeat(self):
+        try:
+            while self.running:
+                await asyncio.sleep(self.heartbeat_time)
+                if self.running:
+                    await self.send_message(
+                        {"heartbeat": service_pb2.Heartbeat(timestamp=int(time.time() * 1000))}
+                    )
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:  # noqa: BLE001
+            print(f"Heartbeat stopped: {exc}")
+
+    # ------------------------------------------------------------------
+    # Authentication and REST token handling
+    # ------------------------------------------------------------------
+
     async def authenticate(self):
-
-        #login request info
-        login_info = auth_pb2.LoginRequest(
-          firm = self.firm,
-          username = self.username,
-          password =self.password,
-          app_name = self.app_name,
-          app_license = self.app_license
-        )
-
-        #envelope and encrypt request
+        if self.apiKey:
+            login_info = auth_pb2.LoginRequest(api_key=self.apiKey)
+        else:
+            login_info = auth_pb2.LoginRequest(
+                firm=self.firm,
+                username=self.username,
+                password=self.password,
+                app_name=self.app_name,
+                app_license=self.app_license,
+                price_format=self.priceFormat,
+            )
         await self.send_message({"login_request": login_info})
 
-        #let's program know that the websocket is now connected
-        self.running = True
-       
-
     def handle_login(self, message):
-        
-        #successful connection = 0    
-        if message.result == 0:
-            self.login_response = message
-            
-            # store token   
-            if message.authentication_token and message.authentication_token.token:
-            
-                self.jw_token = message.authentication_token.token
-                if message.authentication_token.expire_time:
-                    self.jw_expiration = int(message.authentication_token.expire_time.seconds) * 1000
-                    print(self.jw_expiration)
-            
-            #store accounts
-            if message.accounts:
-                for acc in message.accounts:
-                    self.accounts[acc.account_id] = acc
-
-            #begins the login event (allows for a buffer time to onset)
+        self.login_response = message
+        if message.result != 0:
+            print(f"Login failed (result={message.result}): {message.error_message}")
             self.login_event.set()
-            
-            #updates account info
-            if self.on_account_update:
-                self.on_account_update({
-                    'type': 'accounts',
-                    'accounts': list(self.accounts.values())
-                })
-        else:
-            print("login failed")
-    
-    #runs when client is given new token
+            return
+
+        if message.HasField("authentication_token"):
+            self._store_token(message.authentication_token)
+
+        for account in message.accounts:
+            self.accounts[account.account_id] = account
+
+        if self.auto_subscribe_accounts:
+            asyncio.create_task(self._subscribe_all_accounts())
+
+        self.login_event.set()
+        self._notify({"type": "accounts", "accounts": list(self.accounts.values())})
+
+    async def _subscribe_all_accounts(self):
+        await self.send_message(
+            {
+                "account_subscribe": account_pb2.AccountSubscribe(
+                    subscribe=2,
+                    subscribe_all_accounts=True,
+                    upl_mode=1,
+                )
+            }
+        )
+
+    def _store_token(self, token_message):
+        if token_message.HasField("token"):
+            self.jw_token = token_message.token
+        if token_message.HasField("expire_time"):
+            self.jw_expiration = int(token_message.expire_time.seconds) * 1000
+
     def handle_authentication_token(self, message):
-        #reinitialize the new token
-        self.jw_token = message.token
-
-        #reinitialize the expire time
-        self.jw_expiration = int(message.expire_time.seconds) * 1000
-
-        request_id = getattr(message, "request_id", None)
-        if request_id and request_id in self.token_resolvers:
-            future = self.token_resolvers.pop(request_id)
-            if not future.done():
+        self._store_token(message)
+        request_id = message.request_id
+        future = self.token_resolvers.pop(request_id, None)
+        if future is not None and not future.done():
+            if message.HasField("token"):
                 future.set_result(message.token)
+            else:
+                future.set_exception(RuntimeError(message.fail_message or "Token request failed"))
 
-    #caches given market details
-    def handle_market_detail(self, message): 
+    async def refresh_token(self):
+        request_id = str(uuid.uuid4())
+        future = asyncio.get_running_loop().create_future()
+        self.token_resolvers[request_id] = future
+        await self.send_message(
+            {
+                "authentication_token_request": auth_pb2.AuthenticationTokenRequest(
+                    request_id=request_id
+                )
+            }
+        )
+        try:
+            return await asyncio.wait_for(future, timeout=30)
+        except Exception:
+            self.token_resolvers.pop(request_id, None)
+            raise
+
+    async def get_auth_token(self):
+        if self.jw_token and self.jw_expiration and self.jw_expiration > time.time() * 1000 + 30_000:
+            return self.jw_token
+        if self.pending_token_request is None:
+            self.pending_token_request = asyncio.create_task(self.refresh_token())
+        try:
+            return await self.pending_token_request
+        finally:
+            self.pending_token_request = None
+
+    # ------------------------------------------------------------------
+    # Account and market subscriptions
+    # ------------------------------------------------------------------
+
+    async def subscribe_account(self, account_id):
+        if self.selected_account == account_id:
+            return
+
+        if self.selected_account and not self.auto_subscribe_accounts:
+            await self.send_message(
+                {
+                    "account_subscribe": account_pb2.AccountSubscribe(
+                        subscribe=0,
+                        account_id=[self.selected_account],
+                    )
+                }
+            )
+            self.subscribed_accounts.discard(self.selected_account)
+
+        self.selected_account = account_id
+        if account_id and not self.auto_subscribe_accounts:
+            await self.send_message(
+                {
+                    "account_subscribe": account_pb2.AccountSubscribe(
+                        subscribe=2,
+                        account_id=[account_id],
+                        upl_mode=1,
+                    )
+                }
+            )
+            self.subscribed_accounts.add(account_id)
+
+    async def ensure_accounts_subscribed(self, account_ids):
+        if self.auto_subscribe_accounts:
+            return
+        requested = {account_id for account_id in account_ids if account_id}
+        missing = sorted(requested - self.subscribed_accounts)
+        if not missing:
+            return
+        await self.send_message(
+            {
+                "account_subscribe": account_pb2.AccountSubscribe(
+                    subscribe=2,
+                    account_id=missing,
+                    upl_mode=1,
+                )
+            }
+        )
+        self.subscribed_accounts.update(missing)
+
+    async def set_market_subscription(self, subscription_type=None, ticker=None):
+        if subscription_type is not None:
+            self.market_subscription_type = subscription_type
+        if ticker is not None:
+            self.market_ticker = bool(ticker)
+        previous = self.current_subscription
+        if previous:
+            await self.unsubscribe_market()
+            await self.subscribe_market(
+                previous["exchange_id"], previous["contract_id"], previous["market_id"]
+            )
+
+    async def set_subscription_type(self, subscription_type):
+        """Change the quote depth while preserving the current market/ticker."""
+        await self.set_market_subscription(subscription_type=subscription_type)
+
+    async def set_ticker(self, ticker):
+        """Toggle standalone MarketTrade messages for the current subscription."""
+        await self.set_market_subscription(ticker=ticker)
+
+    async def unsubscribe_market(self):
+        if not self.current_subscription:
+            return
+        subscription = self.current_subscription
+        await self.send_message(
+            {
+                "market_subscribe": market_pb2.MarketSubscribe(
+                    exchange_id=subscription["exchange_id"],
+                    contract_id=subscription["contract_id"],
+                    market_id=subscription["market_id"],
+                    quotes=Quotes.QUOTES_NONE,
+                )
+            }
+        )
+        self.market_by_order_books.pop(subscription["market_id"], None)
+        self.market_snapshots.pop(subscription["market_id"], None)
+        self._last_ttv_by_market.pop(subscription["market_id"], None)
+        self._last_trade_key_by_market.pop(subscription["market_id"], None)
+        self.current_subscription = None
+
+    def _market_quotes(self):
+        return {
+            "top_of_book": Quotes.QUOTES_TOP_OF_BOOK,
+            "full_order_book": Quotes.QUOTES_FULL_ORDER_BOOK,
+            "mbo": Quotes.QUOTES_MARKET_BY_ORDER,
+        }.get(self.market_subscription_type, Quotes.QUOTES_FULL_ORDER_BOOK)
+
+    async def subscribe_market(self, exchange_id, contract_id, market_id):
+        if not market_id:
+            raise ValueError("Market id is required")
+        if self.on_market_switch:
+            self.on_market_switch()
+        if self.current_subscription:
+            await self.unsubscribe_market()
+
+        self.md_exchange_id = exchange_id
+        self.md_contract_id = contract_id
+        self.current_market_id = market_id
+        self.current_subscription = {
+            "exchange_id": exchange_id,
+            "contract_id": contract_id,
+            "market_id": market_id,
+        }
+        await self.send_message(
+            {
+                "market_subscribe": market_pb2.MarketSubscribe(
+                    exchange_id=exchange_id,
+                    contract_id=contract_id,
+                    market_id=market_id,
+                    quotes=self._market_quotes(),
+                    ticker=self.market_ticker,
+                )
+            }
+        )
+
+    async def get_market_id(self, exchange_id, contract_id):
+        headers = {"Content-Type": "application/json"}
+        if self.apiKey:
+            headers["Authorization"] = f"APIKey {self.apiKey}"
+        else:
+            headers["Authorization"] = f"Bearer {await self.get_auth_token()}"
+
+        async with httpx.AsyncClient() as rest:
+            response = await rest.get(
+                f"{self.apiUrl}/markets/picker/firstmarket"
+                f"?exchangeid={exchange_id}&contractid={contract_id}",
+                headers=headers,
+            )
+            response.raise_for_status()
+            data = response.json()
+        return data.get("marketID") or data.get("marketId")
+
+    # ------------------------------------------------------------------
+    # Server message dispatch and market/account state
+    # ------------------------------------------------------------------
+
+    def process_server_message(self, raw_message):
+        message = decode_message(raw_message)
+        self.lastMessage = message
+        message_type = message.WhichOneof("payload")
+        if not message_type:
+            return
+
+        handlers = {
+            "login_response": lambda: self.handle_login(message.login_response),
+            "authentication_token": lambda: self.handle_authentication_token(message.authentication_token),
+            "account_subscribe_response": lambda: self.handle_subscribe_response(message.account_subscribe_response),
+            "account_details": lambda: self.handle_account_details(message.account_details),
+            "account_position": lambda: self.handle_account_position(message.account_position),
+            "account_update": lambda: self.handle_account_update(message.account_update),
+            "account_snapshot": lambda: self.handle_account_snapshot(message.account_snapshot),
+            "account_profit": lambda: self.handle_account_profit(message.account_profit),
+            "account_position_profit": lambda: self.handle_account_position_profit(message.account_position_profit),
+            "market_details": lambda: self.handle_market_detail(message.market_details),
+            "market_depth": lambda: self.handle_market_depth(message.market_depth),
+            "market_trade": lambda: self.handle_market_trade(message.market_trade),
+            "market_snapshot": lambda: self.handle_market_snapshot(message.market_snapshot),
+            "market_by_order_snapshot": lambda: self.handle_market_by_order_snapshot(message.market_by_order_snapshot),
+            "market_by_order_update": lambda: self.handle_market_by_order_update(message.market_by_order_update),
+            "market_subscribe_reject": lambda: print(f"Market subscribe rejected: {message.market_subscribe_reject}"),
+            "order_update": lambda: self.handle_order_update(message.order_update),
+            "order_trade": lambda: self.handle_order_trade(message.order_trade),
+            "order_batch_acknowledge": lambda: self.handle_order_batch_acknowledge(message.order_batch_acknowledge),
+            "order_batch_reject": lambda: self.handle_order_batch_reject(message.order_batch_reject),
+            "margin_inquiry_response": lambda: print(f"Margin inquiry: {message.margin_inquiry_response}"),
+        }
+        handler = handlers.get(message_type)
+        if handler:
+            handler()
+
+    def handle_market_detail(self, message):
         self.market_details[message.market_id] = message
-        print('market details stored')
+        if message.contract_id and message.expiry_date:
+            self.update_market_header(message.contract_id, message.expiry_date)
 
     def handle_market_snapshot(self, message):
-        print("received market snapshot")
+        for item in message.messages:
+            payload = item.WhichOneof("payload")
+            if payload == "market_depth":
+                self.handle_market_depth(item.market_depth)
+            elif payload == "market_trade":
+                self.handle_market_trade(item.market_trade)
 
-        #each message snapshot has a market detph and other important info
-        if message.messages:
-            for msg in message.messages:
-                if msg.market_settlement:
-                    pass # skip the messages that have market settlement
-                elif msg and hasattr(msg, "market_depth"): 
-                    self.handle_market_depth(msg.market_depth)
-        
-        #if we have all the necessary info, we will update the market header
-        market_details = self.market_details.get(message.market_id)
-    
-        if market_details and market_details.contract_id and market_details.expiry_date:
-            self.update_market_header(market_details.contract_id, market_details.expiry_date)
+    def handle_market_depth(self, message):
+        self.market_snapshots[message.market_id] = message
+        if self.on_depth:
+            self.on_depth(message)
 
-    #client stores all of the active postiions of the user
-    def handle_account_position(self, message):
-        key = f'{message.account_id}_{message.market_id}'
-        self.positions[key] = message
+        details = self.market_details.get(message.market_id)
+        if details and details.contract_id and details.expiry_date:
+            self.update_market_header(details.contract_id, details.expiry_date)
 
-        # Convert proto to dict with default values and add P&L fields
-        avg_open_price = (
-            message.average_open_price.value
-            if message.HasField("average_open_price")
-            else None
+        trade_data = message.trade_data if message.HasField("trade_data") else None
+        has_trade = trade_data is not None and trade_data.HasField("last_trade_price")
+        best_bid = self._depth_line_text(message.bids)
+        best_offer = self._depth_line_text(message.offers)
+        last_trade = (
+            f"{trade_data.last_trade_volume}@{trade_data.last_trade_price.value}"
+            if has_trade
+            else "-"
         )
+        if has_trade:
+            self._emit_trade_tick(
+                message.market_id,
+                trade_data.last_trade_price.value,
+                trade_data.last_trade_volume,
+                trade_data.total_traded_volume,
+            )
+
+        market_update = {
+            "market_id": message.market_id,
+            "contract_id": details.contract_id if details else "",
+            "exchange_id": details.exchange_id if details else "",
+            "expiry_date": details.expiry_date if details else 0,
+            "best_bid": best_bid,
+            "best_offer": best_offer,
+            "last_trade": last_trade,
+            "last_trade_price": trade_data.last_trade_price.value if has_trade else None,
+            "last_trade_volume": trade_data.last_trade_volume if has_trade else 0,
+            "total_traded_volume": trade_data.total_traded_volume if has_trade else 0,
+        }
+        if self.on_market_update:
+            self.on_market_update(market_update)
+
+    def handle_market_trade(self, message):
+        if not message.HasField("last_trade_price"):
+            return
+
+        self._emit_trade_tick(
+            message.market_id,
+            message.last_trade_price.value,
+            message.last_trade_volume,
+            message.total_traded_volume,
+        )
+        if message.market_id in self.market_by_order_books:
+            # MBO trades are delivered as the unified MarketTrade message in v2.
+            # Keep the last print on the order book so the market panel continues
+            # to move even when no MarketDepth messages are being sent.
+            self.market_by_order_books[message.market_id]["last_trade"] = message
+            self._publish_market_by_order(message.market_id)
+            return
+
+        if self.on_market_update:
+            depth = self.market_snapshots.get(message.market_id)
+            details = self.market_details.get(message.market_id)
+            self.on_market_update(
+                {
+                    "market_id": message.market_id,
+                    "contract_id": details.contract_id if details else "",
+                    "exchange_id": details.exchange_id if details else "",
+                    "expiry_date": details.expiry_date if details else 0,
+                    "best_bid": self._depth_line_text(depth.bids) if depth else "-",
+                    "best_offer": self._depth_line_text(depth.offers) if depth else "-",
+                    "last_trade": f"{message.last_trade_volume}@{message.last_trade_price.value}",
+                    "last_trade_price": message.last_trade_price.value,
+                    "last_trade_volume": message.last_trade_volume,
+                    "total_traded_volume": message.total_traded_volume,
+                }
+            )
+
+    def handle_market_by_order_snapshot(self, message):
+        book = self._new_market_by_order_book()
+        for order in message.orders:
+            self._mbo_add_order(book, order)
+        book["mode"] = message.mode
+        book["time"] = message.time
+        book["last_sequence"] = message.last_sequence
+        self.market_by_order_books[message.market_id] = book
+        self._publish_market_by_order(message.market_id)
+
+    def handle_market_by_order_update(self, message):
+        book = self.market_by_order_books.setdefault(
+            message.market_id, self._new_market_by_order_book()
+        )
+        for update in message.updates:
+            if update.update_type == 1:  # UPDATE_TYPE_DELETE
+                self._mbo_remove_order(book, update.order_id)
+            elif update.update_type == 2:  # UPDATE_TYPE_CLEAR
+                self._mbo_clear(book)
+            else:
+                self._mbo_add_order(book, update)
+        book["mode"] = message.mode
+        book["time"] = message.time
+        book["sequence"] = message.sequence
+        self._publish_market_by_order(message.market_id)
+
+    @staticmethod
+    def _new_market_by_order_book():
+        return {
+            "orders": {},
+            "bids": {},
+            "offers": {},
+            "last_trade": None,
+            "mode": None,
+            "time": None,
+            "last_sequence": 0,
+            "sequence": 0,
+        }
+
+    @staticmethod
+    def _mbo_clear(book):
+        book["orders"].clear()
+        book["bids"].clear()
+        book["offers"].clear()
+
+    @staticmethod
+    def _mbo_levels(book, bid_offer):
+        if bid_offer == 1:  # BidOffer.BID_OFFER_BID
+            return book["bids"]
+        if bid_offer == 2:  # BidOffer.BID_OFFER_OFFER
+            return book["offers"]
+        return None
+
+    @staticmethod
+    def _mbo_price_key(price):
+        if price is None or not price.value:
+            return None
+        try:
+            value = float(price.value)
+        except (TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) else None
+
+    def _mbo_remove_order(self, book, order_id):
+        order = book["orders"].pop(order_id, None)
+        if order is None:
+            return
+
+        levels = self._mbo_levels(book, order["bid_offer"])
+        if levels is None:
+            return
+        level = levels.get(order["price_key"])
+        if level is None:
+            return
+
+        level["volume"] -= order["volume"]
+        level["order_count"] -= 1
+        if level["order_count"] <= 0:
+            levels.pop(order["price_key"], None)
+
+    def _mbo_add_order(self, book, source):
+        # ADD_OR_UPDATE can change side or price, so remove the old level first.
+        self._mbo_remove_order(book, source.order_id)
+        price_key = self._mbo_price_key(source.price)
+        levels = self._mbo_levels(book, source.bid_offer)
+        if levels is None or price_key is None:
+            return
+
+        volume = int(source.volume)
+        book["orders"][source.order_id] = {
+            "bid_offer": source.bid_offer,
+            "price": source.price,
+            "price_key": price_key,
+            "volume": volume,
+        }
+        level = levels.get(price_key)
+        if level is None:
+            levels[price_key] = {
+                "price": source.price,
+                "volume": volume,
+                "order_count": 1,
+            }
+        else:
+            level["volume"] += volume
+            level["order_count"] += 1
+
+    @staticmethod
+    def _mbo_best_level(levels, reverse=False):
+        if not levels:
+            return None
+        price_key = max(levels) if reverse else min(levels)
+        return levels[price_key]
+
+    def _publish_market_by_order(self, market_id):
+        book = self.market_by_order_books.get(market_id)
+        if book is None:
+            return
+
+        details = self.market_details.get(market_id)
+        if details and details.contract_id and details.expiry_date:
+            self.update_market_header(details.contract_id, details.expiry_date)
+
+        trade = book.get("last_trade")
+        has_trade = trade is not None and trade.HasField("last_trade_price")
+        if self.on_market_update:
+            best_bid = self._mbo_best_level(book["bids"], reverse=True)
+            best_offer = self._mbo_best_level(book["offers"])
+            self.on_market_update(
+                {
+                    "market_id": market_id,
+                    "contract_id": details.contract_id if details else "",
+                    "exchange_id": details.exchange_id if details else "",
+                    "expiry_date": details.expiry_date if details else 0,
+                    "best_bid": self._mbo_level_text(best_bid),
+                    "best_offer": self._mbo_level_text(best_offer),
+                    "last_trade": (
+                        f"{trade.last_trade_volume}@{trade.last_trade_price.value}"
+                        if has_trade
+                        else "-"
+                    ),
+                    "last_trade_price": trade.last_trade_price.value if has_trade else None,
+                    "last_trade_volume": trade.last_trade_volume if has_trade else 0,
+                    "total_traded_volume": trade.total_traded_volume if has_trade else 0,
+                }
+            )
+
+    @staticmethod
+    def _mbo_level_text(level):
+        if level is None:
+            return "-"
+        return f"{level['volume']}@{level['price'].value}"
+
+    @staticmethod
+    def _depth_line_text(lines):
+        if not lines:
+            return "-"
+        return f"{lines[0].volume}@{lines[0].price.value}"
+
+    def handle_account_snapshot(self, message):
+        for item in message.messages:
+            payload = item.WhichOneof("payload")
+            if payload == "account_details":
+                self.handle_account_details(item.account_details)
+            elif payload == "account_update":
+                self.handle_account_update(item.account_update)
+            elif payload == "account_position":
+                self.handle_account_position(item.account_position)
+            elif payload == "market_details":
+                self.handle_market_detail(item.market_details)
+            elif payload == "order_status":
+                self.handle_order_update(item.order_status)
+
+    def handle_account_details(self, message):
+        if message.account_id:
+            existing = self.accounts.get(message.account_id)
+            if existing is not None:
+                if message.account_name:
+                    existing.account_name = message.account_name
+                if message.display_name:
+                    existing.display_name = message.display_name
+            self._notify({"type": "accounts", "accounts": list(self.accounts.values())})
+
+    def handle_account_position(self, message):
+        key = f"{message.account_id}_{message.market_id}"
+        existing = self.positions.get(key, {})
         self.positions[key] = {
             "account_id": message.account_id,
             "exchange_id": message.exchange_id,
@@ -227,680 +743,486 @@ class Client:
             "sells": message.sells,
             "working_buys": message.working_buys,
             "working_sells": message.working_sells,
-            # net + average open price drive the chart's position overlay line
             "net": message.buys - message.sells,
-            "average_open_price": avg_open_price,
-            "upl": 0.0,
-            "rpl": 0.0,
-            "total_pnl": 0.0,
+            "average_open_price": self._optional_price(message, "average_open_price"),
+            "upl": existing.get("upl", message.overnight_upl),
+            "rpl": existing.get("rpl", message.rpl),
+            "total_pnl": existing.get("total_pnl", message.overnight_upl + message.rpl),
         }
+        self._notify_positions()
 
-        if self.on_account_update:
-            self.on_account_update({'type': 'positions', 
-                                    'positions': [ p for p in self.positions.values()
-                                    if p["account_id"] == self.selected_account]})
-    
-    #snapshot/rundown of account info is sent from server on initial login.
-    #this sends all of that info to its corresponding location
-    def handle_account_snapshot(self, message):
-        if message.messages:
-            for msg in message.messages:
-                message_type = msg.WhichOneof("payload")
-                match message_type:
-                    case "account_details":
-                        self.handle_account_details(msg.account_details)
-                    case "account_update":
-                        self.handle_account_update(msg.account_update)
-                    case "account_position":
-                        self.handle_account_position(msg.account_position)
-                    case "order_update_multi":
-                        self.handle_order_update_multi(msg.order_update_multi)
-                    case "order_update":
-                        self.handle_order_update(msg.order_update)
-                    case _:
-                        print(f"unknown message {msg}")
-
-        print("handled snapshot")
-
-    def handle_account_details(self, message):
-        if not message.account_id:
-            return  
-        if not message.account_id in self.accounts:
-            return
-        print(f"account details received ${message.account_id}")
-    
     def handle_account_update(self, message):
-        pass
-        #TODO displays account info (balance, p&l, etc)
-    
+        if message.account_id:
+            self.account_updates[message.account_id] = message
+            self.account_profits.setdefault(message.account_id, {}).update(
+                {
+                    "account_id": message.account_id,
+                    "balance": message.balance,
+                    "rpl": message.rpl,
+                }
+            )
+        self._notify({"type": "account_update", "account_id": message.account_id})
 
-    def handle_account_proift(self, account_profit):
-        pass
-        #display the account profit if wante
+    def handle_account_profit(self, message):
+        profit = self.account_profits.setdefault(message.account_id, {})
+        profit.update(
+            {
+                "account_id": message.account_id,
+                "rpl": message.rpl if message.HasField("rpl") else profit.get("rpl", 0.0),
+                "upl": message.upl_trade if message.HasField("upl_trade") else message.upl,
+                "available_cash": message.available_cash if message.HasField("available_cash") else profit.get("available_cash", 0.0),
+            }
+        )
+        self._notify({"type": "account_profit", "account_id": message.account_id})
 
-    def handle_account_position_profit(self, position_profit):
-        key = f"{position_profit.account_id}_{position_profit.market_id}"
-
-    # Get existing position or create a new one
-        position = self.positions.get(key)
-        if not position:
-            position = {
-                "account_id": position_profit.account_id,
-                "exchange_id": position_profit.exchange_id,
-                "contract_id": position_profit.contract_id,
-                "market_id": position_profit.market_id,
+    def handle_account_position_profit(self, message):
+        key = f"{message.account_id}_{message.market_id}"
+        position = self.positions.setdefault(
+            key,
+            {
+                "account_id": message.account_id,
+                "exchange_id": message.exchange_id,
+                "contract_id": message.contract_id,
+                "market_id": message.market_id,
                 "buys": 0,
                 "sells": 0,
                 "working_buys": 0,
                 "working_sells": 0,
-                "upl": 0.0,
-                "rpl": 0.0,
-                "total_pnl": 0.0
-            }
-
-        # Update with profit data
-        position["upl"] = getattr(position_profit, "upl_trade", 0.0)
-        position["rpl"] = getattr(position_profit, "rpl", 0.0)
+            },
+        )
+        position["upl"] = message.upl_trade if message.HasField("upl_trade") else 0.0
+        position["rpl"] = message.rpl if message.HasField("rpl") else 0.0
         position["total_pnl"] = position["upl"] + position["rpl"]
+        if message.HasField("net"):
+            position["net"] = message.net
+        self._notify_positions()
 
-        # Store updated position
-        self.positions[key] = position
+    # ------------------------------------------------------------------
+    # Order routing and updates
+    # ------------------------------------------------------------------
 
-        # Get market snapshot for this position if available
-        market_snapshot = self.market_snapshots.get(position_profit.market_id)
-        market_info = ""
-
-        if market_snapshot:
-            bids = getattr(market_snapshot, "bids", [])
-            offers = getattr(market_snapshot, "offers", [])
-            trade_data = getattr(market_snapshot, "trade_data", None)
-
-            best_bid = f"{bids[0].volume}@{bids[0].price.value}" if bids else "-"
-            best_offer = f"{offers[0].volume}@{offers[0].price.value}" if offers else "-"
-            last_trade = (
-                f"{trade_data.last_trade_volume}@{trade_data.last_trade_price.value}"
-                if trade_data and trade_data.last_trade_price
-                else "-"
-            )
-
-            market_info = f" (Bid: {best_bid}, Offer: {best_offer}, Last: {last_trade})"
-
-        # Trigger UI/account update
-        if self.on_account_update:
-            self.on_account_update({
-                "type": "positions",
-                "positions": [
-                    pos for pos in self.positions.values()
-                    if pos["account_id"] == self.selected_account
-                ]
-            })
-        #handles all the market info (bids, offers, and trades)
-    #stores it for the ui
-    def handle_market_depth(self, message):
-        #store the latest market snapshot
-        self.market_snapshots[message.market_id] = message
-
-        # Get market details (could be None)
-        market_detail = self.market_details.get(message.market_id)
-    
-        # Update market header if all required fields exist
-        if market_detail and market_detail.contract_id and market_detail.expiry_date:
-            self.update_market_header(market_detail.contract_id, market_detail.expiry_date)
-
-        # Notify listener if set
-        if self.on_market_update:
-            best_bid = (
-                f"{message.bids[0].volume}@{message.bids[0].price.value}"
-                if len(message.bids) > 0
-                else "-"
-            )
-            best_offer = (
-                f"{message.offers[0].volume}@{message.offers[0].price.value}"
-                if len(message.offers) > 0
-                else "-"
-            )
-            has_trade = (
-                message.HasField("trade_data")
-                and message.trade_data.HasField("last_trade_price")
-            )
-            last_trade = (
-                f"{message.trade_data.last_trade_volume}@{message.trade_data.last_trade_price.value}"
-                if has_trade
-                else "-"
-            )
-
-            # Numeric trade fields for the chart. total_traded_volume lets the
-            # chart de-dupe: market-depth updates re-send the same last trade on
-            # every bid/offer change, so the chart only aggregates volume when
-            # the cumulative traded volume advances.
-            last_trade_price = (
-                message.trade_data.last_trade_price.value if has_trade else None
-            )
-            last_trade_volume = (
-                message.trade_data.last_trade_volume if has_trade else 0
-            )
-            total_traded_volume = (
-                getattr(message.trade_data, "total_traded_volume", 0)
-                if message.HasField("trade_data")
-                else 0
-            )
-
-            self.on_market_update({
-                "market_id": message.market_id,
-                "contract_id": market_detail.contract_id,
-                "exchange_id": getattr(market_detail, "exchange_id", None),
-                "expiry_date": market_detail.expiry_date,
-                "best_bid": best_bid,
-                "best_offer": best_offer,
-                "last_trade": last_trade,
-                "last_trade_price": last_trade_price,
-                "last_trade_volume": last_trade_volume,
-                "total_traded_volume": total_traded_volume,
-            })
-
-    #subscriber response (debug)
     def handle_subscribe_response(self, message):
-        pass
-        print(message)
-    
-    #similar to account snapshot
-    #order multi has many different messages nested within
-    #this sends each message to its corresponding handler
-    def handle_order_update_multi(self, update_multi):
-        updates_processed = 0
-        if update_multi.updates:
-            for update in update_multi.updates:
-                if update.HasField("order_update"):
-                    updates_processed += 1
-                    self.handle_order_update(update.order_update)
-                elif update.HasField("order_update_status"):
-                    updates_processed += 1
-                    self.handle_order_update_status(update.order_update_status)
-                elif update.HasField("order_update_trade"):
-                    updates_processed += 1
-                    self.handle_order_update_trade(update.order_update_trade)
-                elif update.HasField("order_update_trade_leg"):
-                    updates_processed += 1
-                    self.handle_order_update_trade_leg(update.order_update_trade_leg)
-                elif update.HasField("order_update_failed"):
-                    updates_processed += 1
-                    self.handle_order_update_failed(update.order_update_failed)
-                else:
-                    print(f"Unknown update type in message")
-        if updates_processed != len(update_multi.updates):
-            print(f"Order update multi mismatch: expected {len(update_multi.updates)}, processed {updates_processed}")
-        else:
-            print(f"Order update multi processed: {updates_processed}")
+        if not message.success:
+            print(f"Account subscribe failed: {', '.join(message.errors)}")
 
-    #caches the order
-    def handle_order_update(self, order_update):
-        self.orders[order_update.unique_id] = order_update
-        print(f"Order update received: {order_update.unique_id}, market: {order_update.market_id}")
-        self.trigger_orders_update()
-    
-    #updates order data
-    def handle_order_update_status(self, status_update):
-
-        print(f"order status update {status_update.unique_id}")
-        
-
-        existing_order = self.orders[status_update.unique_id]
-        existing_order.status = status_update.status
-        existing_order.time - status_update.time
-        existing_order.price_type = status_update.price_type
-        existing_order.current_volume = status_update.current_volume
-        existing_order.working_volume = status_update.working_volume
-        # existing_order.instruction_extra = status_update.instruction_extra
-        existing_order.exchange_order_id = status_update.exchange_order_id
-        existing_order.status_detail = status_update.status_detail
-
-        self.orders[status_update.unique_id] = existing_order
-
+    def handle_order_update(self, message):
+        self.orders[message.unique_id] = message
         self.trigger_orders_update()
 
-    #debug functions
-    def handle_order_update_trade(self, trade_update):
-        print(f"Trade update: {trade_update.unique_id}, trade: {trade_update.exchange_trade_id}")
-        # Emit a fill event so the chart can place a buy/sell marker. The trade
-        # message carries no side, so we look it up from the cached order.
-        if self.on_account_update:
-            order = self.orders.get(trade_update.unique_id)
-            if order is None or not hasattr(order, "buy_sell"):
-                return  # can't infer side -> don't emit a misleading marker event
-            self.on_account_update({
-                "type": "fill",
-                "market_id": trade_update.market_id,
-                "unique_id": trade_update.unique_id,
-                "price": trade_update.price.value if trade_update.HasField("price") else None,
-                "volume": getattr(trade_update, "volume", 0),
-                "buy_sell": getattr(order, "buy_sell"),
-                "time": trade_update.time.seconds if trade_update.HasField("time") else None,
-            })
+    def handle_order_trade(self, message):
+        order = self.orders.get(message.order_id)
+        side = getattr(order, "buy_sell", None)
+        fill = {
+            "type": "fill",
+            "market_id": message.market_id,
+            "unique_id": message.order_id,
+            "price": message.price.value if message.HasField("price") else None,
+            "volume": message.volume.value,
+            "buy_sell": side,
+            "time": message.time.seconds if message.HasField("time") else None,
+        }
+        self._notify(fill)
+        if self.on_trade:
+            self.on_trade(fill)
 
-    def handle_order_update_trade_leg(self, leg_update):
-        print(f"Trade leg update: {leg_update.unique_id}, leg index: {leg_update.leg_index}")
-
-    def handle_order_update_failed(self, failed_update):
-        print(f"Order failed: {failed_update.unique_id}, status: {failed_update.status}")
-
-    
     def trigger_orders_update(self):
-        if self.on_account_update:
-            self.on_account_update({
+        self._notify(
+            {
                 "type": "orders",
-                "orders": [o for o in self.orders.values() if o.account_id == self.selected_account]
-            })
-
-    #key function
-    #listens for any websocket messages
-    async def listen(self): 
-        try:
-            while self.running:
-                try:
-                    msg = await asyncio.wait_for(self.ws.recv(), timeout=2)
-                    self.process_server_message(msg)
-                except asyncio.TimeoutError:
-                    continue  # keep looping to check `self.running`
-    
-        except asyncio.CancelledError:
-            print("listen() task cancelled.")
-        except websockets.exceptions.ConnectionClosed:
-            print("Connection closed by server.")
-            self.running = False
-        except Exception as e:
-            print("Error while listening:", e)
-            self.running = False
-
-    #this will be inside of the listen function.
-    #sends each message to a handling funciton. Which will just parse the data that is needed
-    def process_server_message(self, msg):
-        
-        msg = decode_message(msg)
-       
-        if not hasattr(msg, 'WhichOneof'):
-            print("[process_server_message] msg has no WhichOneof: ", msg)
-            return
-        
-        message_type = msg.WhichOneof("payload")
-    
-        match message_type:
-            case "login_response":
-                self.handle_login(msg.login_response)
-            case "authentication_token":
-                self.handle_authentication(msg.authentication_token)
-            case "account_subscribe_response":
-                self.handle_subscribe_response(msg.account_subscribe_response)
-            case "account_update":
-                self.handle_account_update(msg.account_update)
-            case "account_snapshot":
-                self.handle_account_snapshot(msg.account_snapshot)
-            case "account_position":
-                self.handle_account_position(msg.account_position)
-            case "market_details":
-                self.handle_market_detail(msg.market_details)
-            case "market_snapshot":
-                self.handle_market_snapshot(msg.market_snapshot)
-            case "account_profit":
-                pass
-            case "account_position_profit":
-                self.handle_account_position_profit(msg.account_position_profit)
-            case "market_depth":
-                self.handle_market_depth(msg.market_depth)
-            case "order_update_multi":
-                self.handle_order_update_multi(msg.order_update_multi)
-            case "order_update":
-                self.handle_order_update(msg.order_update)
-            case _:
-                print("unknown message type")
-
-    #will continuously send heartbeats until connection breaks
-    async def send_heartbeat(self):
-        try:
-            while self.running:
-                heartbeat_msg = service_pb2.Heartbeat(timestamp=int(time.time() * 1000))
-                await self.send_message({"heartbeat": heartbeat_msg})
-                print("Heartbeat sent.")
-                await asyncio.sleep(self.heartbeat_time)
-        except asyncio.CancelledError:
-            print("heartbeat() task cancelled.")
-        finally:
-            print("Exiting heartbeat()")
-
-
-    #function to retrieve a new token
-    async def refresh_token(self):   
-        ID = str(uuid.uuid4()) #gets uuid from python library (random)
-
-        future = asyncio.get_event_loop().create_future()
-        self.token_resolvers[ID] = future
-
-        ID = auth_pb2.AuthenticationTokenRequest(requestID=ID)
-        await self.send_message({"authentication_token_request": ID})
-
-
-        try:
-            #waits up to 30 seconds for a response
-            token = await asyncio.wait_for(future, timeout=30)
-            return token
-
-        except asyncio.TimeoutError:
-            del self.token_resolvers[ID]
-            raise Exception("Token request timeout")
-
-
-
-    async def get_auth_token(self):
-
-        # check if there is a valid jwt token from login
-        # condtions: it exists and it hasnt expired yet
-        # if the expiration time is farther then the curernt time, then it hasnt expired yet
-        if self.jw_token and self.jw_expiration and self.jw_expiration > time.time() + 30:
-            return self.jw_token
-            
-        #make sure that we don't already have a token request present
-        elif self.pending_token_request:
-            return await self.pending_token_request
-        
-        #gets a new token now
-        self.pending_token_request = asyncio.create_task(self.refresh_token())
-        try:
-            token = await self.pending_token_request
-            print("renewed the token")
-            return token
-        finally:
-            self.pending_token_request = None
-
-
-    async def get_market_id(self, exchange_id, contract_id):
-        try:
-
-            #this section checks which authorization type to use
-            headers = {'Content-type': 'application/json'}
-
-            if (self.apiKey):
-                headers['Authorization'] = f'APIKey {self.apikey}'
-            else:
-                token = await self.get_auth_token()
-                if (token):
-                    headers['Authorization'] = f'Bearer {token}'
-            
-            #calls api to get the market id
-            async with httpx.AsyncClient() as rest:
-              
-                response = await rest.get(f'{self.apiUrl}/markets/picker/firstmarket?exchangeid={exchange_id}&contractid={contract_id}'
-                                        , headers=headers)
-                #check if the response is valid
-                if not response.status_code == 200:
-                     print('error inside')
-                     return
-                
-                #get the marketid.
-                data = response.json()
-                #self.current_market_id = data.get("marketID")
-               
-                return data.get("marketID")
-
-        except Exception as e:
-            print("error outside:", e)
-    
-    #subsribes to an account
-    async def subscribe_account(self, account_id):
-        if self.selected_account == account_id:
-            return  # Already subscribed
-
-        # Unsubscribe from previous account
-        if self.selected_account:
-            unsub_msg = account_pb2.AccountSubscribe(
-                subscribe=0,
-                subscribe_all_accounts=False,
-                account_id=[self.selected_account]
-            )
-            await self.send_message({"account_subscribe": unsub_msg})
-
-        # Update selected
-        self.selected_account = account_id
-
-        # Subscribe to new account
-        sub_msg = account_pb2.AccountSubscribe(
-            subscribe=2,  # ALL_UPDATES
-            subscribe_all_accounts=False,
-            account_id=[account_id],
-            upl_mode=1
-        )
-        await self.send_message({"account_subscribe": sub_msg})
-
-        print(f"Subscribed to account: {account_id}")
-
-    #subscribes to a new market
-    async def subscribe_market(self, exchange_id, contract_id, market_id):
-        if self.on_market_switch:
-            self.on_market_switch() #connected to gui. refreshes the ui
-        
-        key = f'{exchange_id}_{contract_id}_{market_id}'
-
-        # Skip if it's the same contract
-        if getattr(self, "_latest_requested_key", None) == key:
-            print("[subscribe_market] Duplicate request, skipping")
-            return
-
-        # Mark as the latest request
-        self._latest_requested_key = key
-
-        # If already subscribed to something else, unsubscribe first
-        if self.current_subscription:
-            prev_exchange_id = self.md_exchange_id
-            prev_contract_id = self.md_contract_id
-            prev_market_id = self.current_market_id
-
-            # Unsubscribe from previous contract
-            depth_unsub = market_pb2.MarketDepthSubscribe(
-                exchange_id=prev_exchange_id,
-                contract_id=prev_contract_id,
-                market_id=prev_market_id,
-                buffer=DepthBuffer.DEPTH_BUFFER_NO_SUBSCRIPTION,
-                depth_levels=DepthLevels.DEPTH_LEVELS_UNDEFINED
-            )
-            await self.send_message({"market_depth_subscribe": depth_unsub})
-            print("Unsubscribed from previous market")
-
-        # Only after successful unsubscribe, update current state
-        self.md_exchange_id = exchange_id
-        self.md_contract_id = contract_id
-        self.current_market_id = market_id
-        self.current_subscription = {exchange_id, contract_id, market_id}
-
-        # Now subscribe to the new contract
-        depth_sub = market_pb2.MarketDepthSubscribe(
-            exchange_id=exchange_id,
-            contract_id=contract_id,
-            market_id=market_id,
-            buffer=DepthBuffer.DEPTH_BUFFER_SMART,
-            depth_levels=DepthLevels.DEPTH_LEVELS_BEST_ONLY  # or whatever default
+                "orders": [
+                    order
+                    for order in self.orders.values()
+                    if not self.selected_account or order.account_id == self.selected_account
+                ],
+            }
         )
 
-        await self.send_message({"market_depth_subscribe": depth_sub})
-        print("Subscribed to new market")
-
-    async def submit_order(self, side, volume, price, price_type = 'limit', take_profit_dollars = None, stop_loss_dollars = None):
-       
-        if not self.current_market_id:
-            print("No market selected")
-            return
-
-        market_details = self.market_details.get(self.current_market_id)
-        if not market_details:
-            print("Market details not found")
-            return
-    
-        if not self.current_market_id:
-            print("error, no market selected")
-        
-        market_details = self.market_details.get(self.current_market_id)
-
-        #conver string price to enum
-        price_type_val = (
-            PriceType.PRICE_TYPE_MARKET if price_type.lower() == "market"
-            else PriceType.PRICE_TYPE_LIMIT
+    async def submit_order(
+        self,
+        side,
+        volume,
+        price,
+        price_type="limit",
+        take_profit_dollars=None,
+        stop_loss_dollars=None,
+        trailing_stop=False,
+        bracket_mode="dollars",
+    ):
+        if not self.selected_account or not self.current_market_id:
+            raise RuntimeError("No account or market selected")
+        submission = self.build_order_submit(
+            self.selected_account,
+            self.current_market_id,
+            side,
+            volume,
+            price,
+            price_type,
+            take_profit_dollars,
+            stop_loss_dollars,
+            trailing_stop,
+            bracket_mode,
         )
+        await self.send_message({"order_submit": submission})
 
-        #convert buy/sell 
-        if isinstance(side, str):
-            buy_sell_value = (
-                BuySell.BUY_SELL_BUY if side.lower() == "buy"
-                else BuySell.BUY_SELL_SELL
-            )
+    async def submit_oco_order(self, legs):
+        """Submit two or more independent orders linked with true OCO semantics."""
+        if not self.selected_account or not self.current_market_id:
+            raise RuntimeError("No account or market selected")
+        submission = self.build_oco_submit(
+            legs, self.selected_account, self.current_market_id
+        )
+        await self.send_message({"order_submit": submission})
+
+    def build_order_submit(
+        self,
+        account_id,
+        market_id,
+        side,
+        volume,
+        price,
+        price_type="limit",
+        take_profit_dollars=None,
+        stop_loss_dollars=None,
+        trailing_stop=False,
+        bracket_mode="dollars",
+    ):
+        details = self.market_details.get(market_id)
+        if not account_id or not market_id or details is None:
+            raise RuntimeError("No account, market, or market details selected")
+
+        volume_value = float(volume)
+        if not math.isfinite(volume_value) or not volume_value > 0:
+            raise ValueError("Order volume must be positive")
+        buy_sell = self._buy_sell(side)
+        price_type_value = self._price_type(price_type)
+        if price_type_value != PriceType.PRICE_TYPE_MARKET:
+            if price is None or not math.isfinite(float(price)):
+                raise ValueError("Limit/stop orders require a finite price")
+        has_brackets = take_profit_dollars is not None or stop_loss_dollars is not None
+        if bracket_mode == "price" and has_brackets:
+            link = OrderLink.ORDER_LINK_AUTO_OCO_P
+        elif has_brackets:
+            link = OrderLink.ORDER_LINK_AUTO_OCO
         else:
-            buy_sell_value = side
+            link = OrderLink.ORDER_LINK_NONE
 
-        #determining if we need oco order linking
-        has_bracket_orders = take_profit_dollars is not None or stop_loss_dollars is not None
-
-        order_link_value = (
-            OrderLink.ORDER_LINK_AUTO_OCO if has_bracket_orders
-            else OrderLink.ORDER_LINK_NONE
+        main = orderrouting_pb2.OrderSubmit.Order(
+            buy_sell=buy_sell,
+            price_type=price_type_value,
+            time_type=TimeType.TIME_TYPE_NORMAL,
+            volume=Decimal(value=self._number_text(volume_value)),
         )
+        if price_type_value == PriceType.PRICE_TYPE_LIMIT:
+            main.limit_price.CopyFrom(Price(value=self._number_text(price)))
+        elif price_type_value == PriceType.PRICE_TYPE_STOP_MARKET:
+            main.stop_price.CopyFrom(Price(value=self._number_text(price)))
+        orders = [main]
+        protection_side = self._opposite_side(buy_sell)
+        decimals = details.real_decimals if self.priceFormat else details.decimals
+        point_value = float(details.point_value.value or 0)
+        if point_value <= 0:
+            raise ValueError("Market details have no point value")
 
-        orders = []
-        #create orders array with main order first
-        main_order = orderrouting_pb2.OrderSubmit.Order(
-                buy_sell=buy_sell_value,
-                price_type=price_type_val,
-                time_type=TimeType.TIME_TYPE_NORMAL,
-                volume=volume
-            )
-
-        # Convert price to ticks
-        tick_price = float(price)
-            # Set limit price only if it's a LIMIT order
-        if price_type_val == PriceType.PRICE_TYPE_LIMIT:
-            main_order.limit_price.CopyFrom(Price(value=str(tick_price)))
-
-        orders.append(main_order)
-        #for bracket orders, we need to use the opposite side
-        protection_side = (
-            BuySell.BUY_SELL_SELL if buy_sell_value == BuySell.BUY_SELL_BUY
-            else BuySell.BUY_SELL_BUY
-        )
-        #add take profit order 
         if take_profit_dollars is not None:
-            take_profit_points = take_profit_dollars / market_details.point_value.value
-            take_profit_price = take_profit_points * market_details.min_price_increment.value
-
-            take_profit_order = orderrouting_pb2.OrderSubmit.Order(
+            if not math.isfinite(float(take_profit_dollars)):
+                raise ValueError("Take-profit value must be finite")
+            if bracket_mode == "price":
+                tp_price = float(take_profit_dollars)
+            else:
+                offset = abs(float(take_profit_dollars) / volume_value) / point_value / (10 ** decimals)
+                tp_price = offset if buy_sell == BuySell.BUY_SELL_BUY else -offset
+            take_profit = orderrouting_pb2.OrderSubmit.Order(
                 buy_sell=protection_side,
                 price_type=PriceType.PRICE_TYPE_LIMIT,
                 time_type=TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
-                volume=0,
+                volume=Decimal(value="0"),
                 activation_type=ActivationType.ACTIVATION_TYPE_HOLD,
             )
-            take_profit_order.limit_price.CopyFrom(Price(value=str(take_profit_price)))
-            orders.append(take_profit_order)
+            take_profit.limit_price.CopyFrom(Price(value=self._number_text(tp_price)))
+            orders.append(take_profit)
 
-        # --- Stop Loss ---
         if stop_loss_dollars is not None:
-            stop_loss_points = stop_loss_dollars / market_details.point_value.value
-            stop_loss_price = stop_loss_points * market_details.min_price_increment.value
-
-            stop_loss_order = orderrouting_pb2.OrderSubmit.Order(
+            if not math.isfinite(float(stop_loss_dollars)):
+                raise ValueError("Stop-loss value must be finite")
+            if bracket_mode == "price":
+                sl_price = float(stop_loss_dollars)
+            else:
+                offset = abs(float(stop_loss_dollars) / volume_value) / point_value / (10 ** decimals)
+                sl_price = -offset if buy_sell == BuySell.BUY_SELL_BUY else offset
+            stop_loss = orderrouting_pb2.OrderSubmit.Order(
                 buy_sell=protection_side,
                 price_type=PriceType.PRICE_TYPE_STOP_MARKET,
                 time_type=TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
-                volume=0,
+                volume=Decimal(value="0"),
                 activation_type=ActivationType.ACTIVATION_TYPE_HOLD,
             )
-            stop_loss_order.stop_price.CopyFrom(Price(value=str(stop_loss_price)))
-            orders.append(stop_loss_order)
+            stop_loss.stop_price.CopyFrom(Price(value=self._number_text(sl_price)))
+            if trailing_stop:
+                if price is None or not math.isfinite(float(price)):
+                    raise ValueError("Trailing stops require an entry price")
+                stop_loss.trail_distance.CopyFrom(
+                    Price(value=self._number_text(abs(float(price) - sl_price)))
+                )
+            orders.append(stop_loss)
 
-        order_submit = orderrouting_pb2.OrderSubmit(
-            account_id = self.selected_account,
-            market_id = self.current_market_id,
-            order_link = order_link_value,
-            manual_order_indicator = True,
-            orders = orders
+        return orderrouting_pb2.OrderSubmit(
+            account_id=account_id,
+            market_id=market_id,
+            order_link=link,
+            manual_order_indicator=True,
+            orders=orders,
         )
 
-        await self.send_message({"order_submit": order_submit})
+    def build_oco_submit(self, legs, account_id=None, market_id=None):
+        """Build a true OCO submission from independent live order legs."""
+        account_id = account_id or self.selected_account
+        market_id = market_id or self.current_market_id
+        if not account_id or not market_id:
+            raise RuntimeError("No account or market selected")
+        if not isinstance(legs, (list, tuple)) or len(legs) < 2:
+            raise ValueError("OCO requires at least two legs")
 
+        orders = []
+        for index, leg in enumerate(legs, start=1):
+            price_type = self._price_type(leg.get("price_type", "limit"))
+            volume = float(leg.get("volume"))
+            if not math.isfinite(volume) or volume <= 0:
+                raise ValueError(f"OCO leg {index}: volume must be positive")
 
-        #print console statements
-        side_text = "Buy" if buy_sell_value == BuySell.BUY_SELL_BUY else "Sell"
-        price_text = "Market" if price_type_val == PriceType.PRICE_TYPE_MARKET else price
+            price = leg.get("price")
+            if price_type != PriceType.PRICE_TYPE_MARKET:
+                if price is None or not math.isfinite(float(price)):
+                    raise ValueError(f"OCO leg {index}: price is required")
 
-        print(f"Order submitted: {side_text} {volume} @ {price_text} (Type: {price_type})")
+            order = orderrouting_pb2.OrderSubmit.Order(
+                buy_sell=self._buy_sell(leg.get("side")),
+                price_type=price_type,
+                time_type=TimeType.TIME_TYPE_NORMAL,
+                volume=Decimal(value=self._number_text(volume)),
+            )
+            if price_type == PriceType.PRICE_TYPE_LIMIT:
+                order.limit_price.CopyFrom(Price(value=self._number_text(price)))
+            elif price_type == PriceType.PRICE_TYPE_STOP_MARKET:
+                order.stop_price.CopyFrom(Price(value=self._number_text(price)))
+            orders.append(order)
 
-        if take_profit_dollars is not None:
-            tp_side = "Buy" if protection_side == BuySell.BUY_SELL_BUY else "Sell"
-            print(f"Take profit: ${take_profit_dollars} ({tp_side})")
+        return orderrouting_pb2.OrderSubmit(
+            account_id=account_id,
+            market_id=market_id,
+            order_link=OrderLink.ORDER_LINK_OCO,
+            manual_order_indicator=True,
+            orders=orders,
+        )
 
-        if stop_loss_dollars is not None:
-            sl_side = "Buy" if protection_side == BuySell.BUY_SELL_BUY else "Sell"
-            print(f"Stop loss: ${stop_loss_dollars} ({sl_side})")
+    async def submit_batch(self, rows, batch_id=None):
+        if not rows:
+            raise ValueError("No orders provided")
+        await self.ensure_accounts_subscribed(
+            [row.get("account_id", self.selected_account) for row in rows]
+        )
+        submissions = [
+            self.build_oco_submit(
+                row.get("legs", []),
+                row.get("account_id", self.selected_account),
+                row.get("market_id", self.current_market_id),
+            )
+            if row.get("is_oco")
+            else self.build_order_submit(
+                row.get("account_id", self.selected_account),
+                row.get("market_id", self.current_market_id),
+                row["side"],
+                row["volume"],
+                row.get("price"),
+                row.get("price_type", "limit"),
+                row.get("take_profit_dollars"),
+                row.get("stop_loss_dollars"),
+                row.get("trailing_stop", False),
+                row.get("bracket_mode", "dollars"),
+            )
+            for row in rows
+        ]
+        batch_id = batch_id or f"b-{int(time.time() * 1000)}"
+        self.pending_batches[batch_id] = rows
+        await self.send_message(
+            {
+                "order_batch": orderrouting_pb2.OrderBatch(
+                    batch_id=batch_id,
+                    submissions=submissions,
+                )
+            }
+        )
+        return batch_id
 
-        if has_bracket_orders:
-            print("OCO (One Cancels Other) bracket order applied")
+    def handle_order_batch_acknowledge(self, message):
+        rows = self.pending_batches.pop(message.batch_id, None)
+        event = {
+            "type": "batch",
+            "status": "acknowledged",
+            "batch_id": message.batch_id,
+            "batch": rows,
+            "message": message,
+        }
+        if self.on_batch_update:
+            self.on_batch_update(event)
+        self._notify(event)
 
+    def handle_order_batch_reject(self, message):
+        rows = self.pending_batches.pop(message.batch_id, None)
+        event = {
+            "type": "batch",
+            "status": "rejected",
+            "batch_id": message.batch_id,
+            "batch": rows,
+            "message": message,
+        }
+        if self.on_batch_update:
+            self.on_batch_update(event)
+        self._notify(event)
 
     async def pull_order(self, order_id):
         if not self.selected_account:
-            print("error, no account selected. (pull order)")
-            return
-        pull = orderrouting_pb2.OrderPull.Pull(
-            unique_id=order_id
+            raise RuntimeError("No account selected")
+        order = self.orders.get(order_id)
+        market_id = order.market_id if order is not None and order.market_id else self.current_market_id
+        await self.send_message(
+            {
+                "order_pull": orderrouting_pb2.OrderPull(
+                    account_id=self.selected_account,
+                    market_id=market_id,
+                    manual_order_indicator=True,
+                    pulls=[orderrouting_pb2.OrderPull.Pull(unique_id=order_id)],
+                )
+            }
         )
-        order_pull = orderrouting_pb2.OrderPull(
-            account_id = self.selected_account,
-            market_id = self.current_market_id,
-            manual_order_indicator = True,
-            pulls = [pull]
-        )
 
-
-        await self.send_message({"order_pull": order_pull})
-
-        print(f'order_cancelled {order_id}')
-    
-    async def revise_order(self, order_id, volume, price, price_type = 'limit'):
+    async def revise_order(self, order_id, volume, price, price_type="limit"):
         if not self.selected_account:
-            print("no selected account, (revise order)")
-            return
-        # Create the Price object if this is a limit order
-        limit_price = Price(value=str(price)) if price_type.lower() == "limit" else None
-
-        revise = orderrouting_pb2.OrderRevise.Revise(
+            raise RuntimeError("No account selected")
+        order = self.orders.get(order_id)
+        market_id = order.market_id if order is not None and order.market_id else self.current_market_id
+        revision = orderrouting_pb2.OrderRevise.Revise(
             unique_id=order_id,
-            volume=volume,
-            limit_price=limit_price if limit_price else None
+            volume=Decimal(value=self._number_text(volume)),
         )
-        order_revise = orderrouting_pb2.OrderRevise(
-            account_id = self.selected_account,
-            market_id = self.current_market_id,
-            manual_order_indicator = True,
-            revisions = [revise]
+        price_message = Price(value=self._number_text(price))
+        if price_type.lower() == "stop":
+            revision.stop_price.CopyFrom(price_message)
+        else:
+            revision.limit_price.CopyFrom(price_message)
+        await self.send_message(
+            {
+                "order_revise": orderrouting_pb2.OrderRevise(
+                    account_id=self.selected_account,
+                    market_id=market_id,
+                    manual_order_indicator=True,
+                    revisions=[revision],
+                )
+            }
         )
 
-        await self.send_message({"order_revise": order_revise})
+    # ------------------------------------------------------------------
+    # Small helpers and callback compatibility
+    # ------------------------------------------------------------------
 
-        print(f"order revised {order_id} - new vol: {volume} - new price ")
+    @staticmethod
+    def _number_text(value):
+        text = str(value)
+        return text.rstrip("0").rstrip(".") if "." in text else text
+
+    @staticmethod
+    def _buy_sell(side):
+        if isinstance(side, str):
+            value = side.lower()
+            if value == "buy":
+                return BuySell.BUY_SELL_BUY
+            if value == "sell":
+                return BuySell.BUY_SELL_SELL
+            raise ValueError(f"Invalid buy/sell side: {side}")
+        numeric = int(side)
+        if numeric == 1:
+            return BuySell.BUY_SELL_BUY
+        if numeric in (-1, 2):
+            return BuySell.BUY_SELL_SELL
+        raise ValueError(f"Invalid buy/sell side: {side}")
+
+    @staticmethod
+    def _opposite_side(side):
+        return BuySell.BUY_SELL_SELL if side == BuySell.BUY_SELL_BUY else BuySell.BUY_SELL_BUY
+
+    @staticmethod
+    def _price_type(price_type):
+        value = str(price_type).lower()
+        if value == "market":
+            return PriceType.PRICE_TYPE_MARKET
+        if value in ("stop", "stop_market"):
+            return PriceType.PRICE_TYPE_STOP_MARKET
+        return PriceType.PRICE_TYPE_LIMIT
+
+    @staticmethod
+    def _optional_price(message, field):
+        return getattr(message, field).value if message.HasField(field) else None
+
+    def _notify(self, data):
+        if self.on_account_update:
+            self.on_account_update(data)
+
+    def _notify_positions(self):
+        self._notify(
+            {
+                "type": "positions",
+                "positions": [
+                    position
+                    for position in self.positions.values()
+                    if not self.selected_account or position["account_id"] == self.selected_account
+                ],
+            }
+        )
+
+    def _notify_trade(self, market_id, price, volume, total_volume):
+        if self.on_trade:
+            self.on_trade(
+                {
+                    "market_id": market_id,
+                    "price": float(price),
+                    "volume": volume,
+                    "total_traded_volume": total_volume,
+                }
+            )
+
+    def _emit_trade_tick(self, market_id, price, volume, total_volume):
+        """Emit each print once when it arrives via depth and/or MarketTrade."""
+        if not self.on_trade:
+            return
+        try:
+            raw_price = float(price)
+            trade_volume = float(volume)
+            total = int(total_volume) if total_volume is not None else None
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(raw_price) or not math.isfinite(trade_volume) or trade_volume == 0:
+            return
+
+        if total is not None:
+            previous = self._last_ttv_by_market.get(market_id)
+            if previous is not None and total <= previous:
+                return
+            self._last_ttv_by_market[market_id] = total
+        else:
+            key = (raw_price, trade_volume)
+            if self._last_trade_key_by_market.get(market_id) == key:
+                return
+            self._last_trade_key_by_market[market_id] = key
+
+        self._notify_trade(market_id, raw_price, trade_volume, total)
 
     def update_market_header(self, contract_id, expiry_date):
-
-        #extracts the first 6 digits from the expiry date(YYYYMM FORMAT)
-        expiry_short = str(expiry_date)[:6] if expiry_date else ""
-
-        #format as a contract + expirty (e.g. "ESM25")
-        display_text = contract_id or ""
-
-        if expiry_short and len(expiry_short) == 6:
-            year = expiry_short[2:4] ##gets last two digits of the year
-            month = expiry_short[4:6] # gets month
-
-            #CONVERST THE MONTHS TO ITS CORRESPONDING LETTER
-            month_codes = {
-                '01': 'F', '02': 'G', '03': 'H', '04': 'J', '05': 'K', '06': 'M',
-                '07': 'N', '08': 'Q', '09': 'U', '10': 'V', '11': 'X', '12': 'Z'
-            }
-            month_code = month_codes[month] or month
-            display_text += month_code + year
-
+        expiry = str(expiry_date)[:6]
+        month_codes = {
+            "01": "F", "02": "G", "03": "H", "04": "J", "05": "K", "06": "M",
+            "07": "N", "08": "Q", "09": "U", "10": "V", "11": "X", "12": "Z",
+        }
+        text = contract_id or ""
+        if len(expiry) == 6:
+            text += month_codes.get(expiry[4:6], expiry[4:6]) + expiry[2:4]
         if self.market_header_update:
-            self.market_header_update(display_text)
+            self.market_header_update(text)

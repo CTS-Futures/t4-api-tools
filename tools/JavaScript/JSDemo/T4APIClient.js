@@ -378,15 +378,18 @@ class T4APIClient {
         const priceTypeValue = ptLower === 'market'
             ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET       // 0
             : ptLower === 'stop'
-                ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
+                ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET  // 2
                 : T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT;       // 1
 
-        // Convert buy/sell string to enum value
-        const buySellValue = typeof side === 'string'
-            ? (side.toLowerCase() === 'buy'
-                ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY    // 1
-                : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // -1
-            : side;
+        // UI callers use -1 for Sell; V2 uses 2 on the wire.
+        const normalizedSide = typeof side === 'string' ? side.toLowerCase() : side;
+        const { BUY_SELL_BUY, BUY_SELL_SELL } = T4ProtoV2.t4proto.v2.common.BuySell;
+        const buySellValue = normalizedSide === 'buy' || normalizedSide === BUY_SELL_BUY
+            ? BUY_SELL_BUY
+            : normalizedSide === 'sell' || normalizedSide === -1 || normalizedSide === BUY_SELL_SELL
+                ? BUY_SELL_SELL
+                : null;
+        if (buySellValue === null) throw new Error('Order: invalid buy/sell side');
 
         // Determine if we need OCO order linking
         const hasBracketOrders = takeProfitDollars !== null || stopLossDollars !== null;
@@ -642,7 +645,7 @@ class T4APIClient {
             const priceTypeValue = ptLower === 'market'
                 ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_MARKET       // 0
                 : ptLower === 'stop'
-                    ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET  // 5
+                    ? T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET  // 2
                     : T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT;       // 1
 
             // Validate before building: an unvalidated leg would otherwise send a
@@ -661,7 +664,7 @@ class T4APIClient {
             const buySellValue = typeof leg.side === 'string'
                 ? (leg.side.toLowerCase() === 'buy'
                     ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY    // 1
-                    : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // -1
+                    : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL)  // 2
                 : (leg.side === 1
                     ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY
                     : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL);
@@ -808,7 +811,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
         // To flatten: sell if long (net > 0), buy if short (net < 0)
         const buySellValue = netPosition > 0
-            ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL   // -1
+            ? T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_SELL   // 2
             : T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY;   //  1
 
         const volume = Math.abs(netPosition);
@@ -1928,9 +1931,6 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     // Warm-up-only callers just wanted to kick the cache; a
                     // cold handle envelope is the expected response, so return
                     // quietly without throwing.
-                    if (warmOnly && isHandleEnvelope) return [];
-
-                    throw extractErr;
                 }
             }
 

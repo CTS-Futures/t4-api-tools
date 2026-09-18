@@ -88,7 +88,7 @@ class OrderLines:
         if not info:
             return
         try:
-            await self._client.revise_order(uid, int(info["volume"]),
+            await self._client.revise_order(uid, float(info["volume"]),
                                             float(new_price), "limit")
             info["price"] = float(new_price)
             log.info("revise order %s -> %s", uid, new_price)
@@ -113,6 +113,17 @@ class OrderLines:
 
     @staticmethod
     def _order_volume(o):
-        return (getattr(o, "working_volume", 0)
-                or getattr(o, "current_volume", 0)
-                or getattr(o, "new_volume", 0))
+        # v1 exposed integer quantities; v2 exposes Decimal protobuf messages.
+        # Normalize both to a numeric value so labels and revise_order work for
+        # whole and fractional quantities alike.
+        for field in ("working_volume", "current_volume", "new_volume"):
+            value = getattr(o, field, None)
+            raw = getattr(value, "value", value)
+            if raw in (None, ""):
+                continue
+            try:
+                number = float(raw)
+            except (TypeError, ValueError):
+                continue
+            return int(number) if number.is_integer() else number
+        return 0
