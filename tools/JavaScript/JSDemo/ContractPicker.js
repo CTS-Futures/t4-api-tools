@@ -17,6 +17,10 @@ class ContractPicker {
         this.searchInput = null;
         this.exchangesList = null;
         this.loadingIndicator = null;
+
+        // Cached for the lifetime of this dialog to avoid re-fetching on every request
+        this._authHeaders = null;
+        this._searchDebounceTimer = null;
     }
 
     async show() {
@@ -64,7 +68,7 @@ class ContractPicker {
         overlay.querySelector('.btn-cancel').addEventListener('click', () => this.close(null));
         overlay.querySelector('.btn-select').addEventListener('click', () => this.selectContract());
 
-        this.searchInput.addEventListener('input', (e) => this.handleSearch(e.target.value));
+        this.searchInput.addEventListener('input', (e) => this.scheduleSearch(e.target.value));
 
         // Close on overlay click
         overlay.addEventListener('click', (e) => {
@@ -72,21 +76,24 @@ class ContractPicker {
         });
     }
 
+    async getAuthHeaders() {
+        if (this._authHeaders) return this._authHeaders;
+        const headers = { 'Content-Type': 'application/json' };
+        if (this.config.apiKey) {
+            headers['Authorization'] = `APIKey ${this.config.apiKey}`;
+        } else {
+            const token = await this.getAuthToken();
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+        }
+        this._authHeaders = headers;
+        return headers;
+    }
+
     async loadExchanges() {
         this.showLoading(true);
 
         try {
-            const headers = { 'Content-Type': 'application/json' };
-
-            if (this.config.apiKey) {
-                headers['Authorization'] = `APIKey ${this.config.apiKey}`;
-            } else {
-                const token = await this.getAuthToken();
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-            }
-
+            const headers = await this.getAuthHeaders();
             const response = await fetch(`${this.config.apiUrl}/markets/exchanges`, { headers });
 
             if (!response.ok) {
@@ -97,6 +104,10 @@ class ContractPicker {
             this.exchanges.sort((a, b) => a.description.localeCompare(b.description));
             this.renderExchanges();
 
+            // Pre-fetch contracts for all exchanges in the background so search and
+            // expand are instant after the initial load.
+            this.prefetchAllContracts();
+
         } catch (error) {
             console.error('Error loading exchanges:', error);
             this.exchangesList.innerHTML = '<div class="error">Failed to load exchanges</div>';
@@ -105,23 +116,22 @@ class ContractPicker {
         }
     }
 
+    prefetchAllContracts() {
+        // Fire all requests in parallel; results land in the cache as they arrive.
+        this.exchanges.forEach(exchange => {
+            if (!this.contractsCache.has(exchange.exchangeId)) {
+                this.loadContractsForExchange(exchange.exchangeId);
+            }
+        });
+    }
+
     async loadContractsForExchange(exchangeId) {
         if (this.contractsCache.has(exchangeId)) {
             return this.contractsCache.get(exchangeId);
         }
 
         try {
-            const headers = { 'Content-Type': 'application/json' };
-
-            if (this.config.apiKey) {
-                headers['Authorization'] = `APIKey ${this.config.apiKey}`;
-            } else {
-                const token = await this.getAuthToken();
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-            }
-
+            const headers = await this.getAuthHeaders();
             const response = await fetch(`${this.config.apiUrl}/markets/contracts?exchangeid=${exchangeId}`, { headers });
 
             if (!response.ok) {
@@ -139,34 +149,67 @@ class ContractPicker {
         }
     }
 
+    scheduleSearch(searchTerm) {
+        clearTimeout(this._searchDebounceTimer);
+        this._searchDebounceTimer = setTimeout(() => this.handleSearch(searchTerm), 300);
+    }
+
+    contractMatchesTokens(contract, tokens) {
+        const exchange = this.exchanges.find(e => e.exchangeId === contract.exchangeID);
+        const fields = [
+            contract.description || '',
+            contract.contractID || '',
+            contract.contractType || '',
+            exchange ? exchange.description : '',
+            exchange ? exchange.exchangeId : '',
+            contract.exchangeID || '',
+        ].map(f => f.toLowerCase());
+        return tokens.every(token => fields.some(f => f.includes(token)));
+    }
+
     async handleSearch(searchTerm) {
-        this.isSearchMode = searchTerm.length >= 2;
+        const trimmed = searchTerm.trim();
+        this.isSearchMode = trimmed.length >= 2;
 
         if (!this.isSearchMode) {
             this.renderExchanges();
             return;
         }
 
+        const tokens = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
+
+        // If the cache is fully populated, search entirely locally — no network round-trip.
+        const allCached = this.exchanges.length > 0 &&
+            this.exchanges.every(e => this.contractsCache.has(e.exchangeId));
+
+        if (allCached) {
+            const results = [];
+            this.contractsCache.forEach((contracts, exchangeId) => {
+                contracts.forEach(c => {
+                    if (this.contractMatchesTokens(c, tokens)) results.push(c);
+                });
+            });
+            this.renderSearchResults(results);
+            return;
+        }
+
+        // Fall back to the API using the first token (broadest match), then
+        // client-side filter the response by all tokens and extra fields.
         try {
-            const headers = { 'Content-Type': 'application/json' };
-
-            if (this.config.apiKey) {
-                headers['Authorization'] = `APIKey ${this.config.apiKey}`;
-            } else {
-                const token = await this.getAuthToken();
-                if (token) {
-                    headers['Authorization'] = `Bearer ${token}`;
-                }
-            }
-
-            const response = await fetch(`${this.config.apiUrl}/markets/contracts/search?search=${searchTerm.toLowerCase()}`, { headers });
+            const headers = await this.getAuthHeaders();
+            const apiToken = encodeURIComponent(tokens[0]);
+            const response = await fetch(
+                `${this.config.apiUrl}/markets/contracts/search?search=${apiToken}`,
+                { headers }
+            );
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
-            const searchResults = await response.json();
-            this.renderSearchResults(searchResults);
+            const rawResults = await response.json();
+            const filtered = rawResults.filter(c => this.contractMatchesTokens(c, tokens));
+            this.renderSearchResults(filtered);
 
         } catch (error) {
             console.error('Error searching contracts:', error);
@@ -207,20 +250,20 @@ class ContractPicker {
     }
 
     renderSearchResults(searchResults) {
-        // Group results by exchange
-        const groupedResults = {};
+        // Group results by exchange, preserving sorted exchange order
+        const groupedResults = new Map();
         searchResults.forEach(contract => {
-            if (!groupedResults[contract.exchangeID]) {
-                groupedResults[contract.exchangeID] = [];
-            }
-            groupedResults[contract.exchangeID].push(contract);
+            const key = contract.exchangeID;
+            if (!groupedResults.has(key)) groupedResults.set(key, []);
+            groupedResults.get(key).push(contract);
         });
 
         this.exchangesList.innerHTML = '';
 
-        Object.keys(groupedResults).forEach(exchangeId => {
-            const exchange = this.exchanges.find(e => e.exchangeId === exchangeId);
-            if (!exchange) return;
+        // Render in the same order exchanges are listed (already alphabetically sorted)
+        this.exchanges.forEach(exchange => {
+            const contracts = groupedResults.get(exchange.exchangeId);
+            if (!contracts || contracts.length === 0) return;
 
             const exchangeDiv = document.createElement('div');
             exchangeDiv.className = 'exchange-item';
@@ -229,6 +272,7 @@ class ContractPicker {
                 <div class="exchange-header expanded">
                     <span class="expand-icon">▼</span>
                     <span class="exchange-name">${exchange.description}</span>
+                    <span class="exchange-count">(${contracts.length})</span>
                 </div>
                 <div class="contracts-container" style="display: block">
                     <div class="contracts-list"></div>
@@ -237,12 +281,15 @@ class ContractPicker {
 
             this.exchangesList.appendChild(exchangeDiv);
 
-            // Render contracts
             const contractsList = exchangeDiv.querySelector('.contracts-list');
-            groupedResults[exchangeId].forEach(contract => {
-                this.renderContract(contractsList, contract, exchangeId);
+            contracts.forEach(contract => {
+                this.renderContract(contractsList, contract, exchange.exchangeId);
             });
         });
+
+        if (groupedResults.size === 0) {
+            this.exchangesList.innerHTML = '<div class="no-results">No contracts found</div>';
+        }
     }
 
     async toggleExchange(exchangeId) {
