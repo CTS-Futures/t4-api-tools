@@ -65,6 +65,7 @@
             </span>
             <span class="connection-header-right">
                 <button id="connectBtn">Connect</button>
+                <button id="connectSsoBtn">Connect via SSO</button>
                 <button id="disconnectBtn" disabled>Disconnect</button>
             </span>
         </h2>
@@ -374,9 +375,34 @@
 <script src="chart/ui/OrderToolbar.js"></script>
 <script src="chart/persistence/LayoutStore.js"></script>
 <script src="ChartService.js"></script>
-
-
 <script src="DemoPage.js"></script>
+
+<!-- SSO Token Dialog -->
+<div class="order-edit-overlay" id="ssoOverlay" style="display: none;">
+    <div class="order-edit-dialog" style="width:520px;max-width:95vw;">
+        <div class="order-edit-header">
+            <h3>Connect via SSO (OIDC)</h3>
+            <button class="close-btn" id="ssoCloseBtn">&times;</button>
+        </div>
+        <div class="order-edit-content">
+            <p style="margin:0 0 10px;font-size:13px;opacity:.8;">
+                Paste a Google ID token below. Get one from
+                <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener" style="color:var(--accent,#4a9eff)">Google OAuth Playground</a>
+                (Step 1: type <code>openid email profile</code> → Authorize APIs; Step 2: Exchange → copy <code>id_token</code>).
+            </p>
+            <div class="form-group">
+                <label for="ssoIdToken">ID Token:</label>
+                <textarea id="ssoIdToken" rows="6"
+                    style="width:100%;box-sizing:border-box;font-family:monospace;font-size:11px;resize:vertical;"
+                    placeholder="eyJhbGciOiJSUzI1NiIs..."></textarea>
+            </div>
+        </div>
+        <div class="order-edit-footer">
+            <button class="btn confirm-btn" id="ssoConnectBtn">Connect</button>
+            <button class="btn cancel-btn" id="ssoCancelBtn">Cancel</button>
+        </div>
+    </div>
+</div>
 
 <div class="order-edit-overlay" id="orderEditOverlay" style="display: none;">
     <div class="order-edit-dialog">

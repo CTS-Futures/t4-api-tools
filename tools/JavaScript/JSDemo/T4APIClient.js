@@ -350,7 +350,11 @@ class T4APIClient {
     // WebSocket Event Handlers
     handleOpen() {
         this.log('WebSocket connected', 'info');
-        this.authenticate();
+        if (this._ssoIdToken) {
+            this.authenticateWithSso(this._ssoIdToken);
+        } else {
+            this.authenticate();
+        }
         this.startHeartbeat();
     }
 
@@ -896,6 +900,26 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         };
 
         await this.sendMessage(loginRequest);
+    }
+
+    async authenticateWithSso(idToken) {
+        const loginRequest = {
+            loginRequest: {
+                idToken,
+                appName: this.config.appName,
+                appLicense: this.config.appLicense,
+                priceFormat: this.config.priceFormat,
+            }
+        };
+        await this.sendMessage(loginRequest);
+    }
+
+    // Connect using an OIDC ID token instead of username/password.
+    // Opens the WebSocket normally but sends an SSO LoginRequest.
+    async connectWithSso(idToken) {
+        if (this.isConnected) return;
+        this._ssoIdToken = idToken;
+        await this.connect();
     }
 
     // Message Processing

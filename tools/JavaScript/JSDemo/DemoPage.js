@@ -610,6 +610,7 @@
             elements.connectionStatus.classList.toggle('connected', connected);
             elements.connectionText.textContent = connected ? 'Connected' : 'Disconnected';
             elements.connectBtn.disabled = connected;
+            document.getElementById('connectSsoBtn').disabled = connected;
             elements.disconnectBtn.disabled = !connected;
             elements.submitOrderBtn.disabled = !connected || !client.selectedAccount;
 
@@ -1308,6 +1309,30 @@
         // Event listeners
         elements.connectBtn.addEventListener('click', connect);
         elements.disconnectBtn.addEventListener('click', disconnect);
+
+        // SSO connect flow
+        const ssoOverlay   = document.getElementById('ssoOverlay');
+        const ssoIdTokenEl = document.getElementById('ssoIdToken');
+
+        function openSsoDialog() { ssoOverlay.style.display = 'flex'; ssoIdTokenEl.focus(); }
+        function closeSsoDialog() { ssoOverlay.style.display = 'none'; }
+
+        document.getElementById('connectSsoBtn').addEventListener('click', openSsoDialog);
+        document.getElementById('ssoCloseBtn').addEventListener('click', closeSsoDialog);
+        document.getElementById('ssoCancelBtn').addEventListener('click', closeSsoDialog);
+        ssoOverlay.addEventListener('click', (e) => { if (e.target === ssoOverlay) closeSsoDialog(); });
+
+        document.getElementById('ssoConnectBtn').addEventListener('click', async () => {
+            const token = ssoIdTokenEl.value.trim();
+            if (!token) { log('Paste an ID token first.', 'error'); return; }
+            closeSsoDialog();
+            try {
+                await client.connectWithSso(token);
+            } catch (error) {
+                log(`SSO connection error: ${error.message}`, 'error');
+            }
+        });
+
         elements.submitOrderBtn.addEventListener('click', submitOrder);
 
         // Market subscription — the quote type (dropdown) and the trade ticker
