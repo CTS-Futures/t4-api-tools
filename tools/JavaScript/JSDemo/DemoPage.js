@@ -1310,14 +1310,73 @@
         elements.connectBtn.addEventListener('click', connect);
         elements.disconnectBtn.addEventListener('click', disconnect);
 
-        // SSO connect flow
+        // SSO connect flow.
+        //
+        // Two modes:
+        //   * T4_CONFIG.oauth configured -> real OIDC redirect flow: the "Connect
+        //     via SSO" button sends the browser to the provider's hosted login
+        //     screen, and on return we exchange the code for an id_token and log in.
+        //   * otherwise                  -> legacy dialog: paste an id_token by hand.
         const ssoOverlay   = document.getElementById('ssoOverlay');
         const ssoIdTokenEl = document.getElementById('ssoIdToken');
 
         function openSsoDialog() { ssoOverlay.style.display = 'flex'; ssoIdTokenEl.focus(); }
         function closeSsoDialog() { ssoOverlay.style.display = 'none'; }
 
-        document.getElementById('connectSsoBtn').addEventListener('click', openSsoDialog);
+        const oauthCfg = (typeof T4_CONFIG !== 'undefined') ? T4_CONFIG.oauth : null;
+        let oidc = null;
+        let ssoLoggedIn = false;   // true once an SSO session is established; drives Auth0 logout on Disconnect
+        if (oauthCfg && oauthCfg.clientId) {
+            try {
+                oidc = new OidcClient(oauthCfg);
+            } catch (e) {
+                log(`SSO config error: ${e.message}`, 'error');
+            }
+        }
+
+        // If we were just redirected back from the provider, finish the exchange
+        // and connect. Runs on every page load; a no-op when there's no ?code=.
+        if (oidc) {
+            oidc.handleRedirectCallback()
+                .then(async (result) => {
+                    if (result && result.idToken) {
+                        log('SSO login complete — connecting…', 'info');
+                        await client.connectWithSso(result.idToken);
+                        ssoLoggedIn = true;
+                    }
+                })
+                .catch((error) => log(`SSO error: ${error.message}`, 'error'));
+        }
+
+        document.getElementById('connectSsoBtn').addEventListener('click', async () => {
+            if (oidc) {
+                // Redirects to the hosted login screen; nothing runs after this.
+                try {
+                    await oidc.login();
+                } catch (error) {
+                    log(`SSO error: ${error.message}`, 'error');
+                }
+            } else {
+                openSsoDialog();
+            }
+        });
+
+        // When the session was established via SSO, Disconnect also ends the Auth0
+        // session (full-page redirect to Auth0 logout, then back to location.origin),
+        // so the next login shows Universal Login again instead of silently
+        // re-authenticating from the cached SSO cookie. The regular `disconnect`
+        // listener (registered earlier) drops the WebSocket first.
+        elements.disconnectBtn.addEventListener('click', async () => {
+            if (oidc && ssoLoggedIn) {
+                ssoLoggedIn = false;
+                try {
+                    await oidc.logout();   // redirects away; nothing after runs
+                } catch (error) {
+                    log(`SSO logout error: ${error.message}`, 'error');
+                }
+            }
+        });
+
         document.getElementById('ssoCloseBtn').addEventListener('click', closeSsoDialog);
         document.getElementById('ssoCancelBtn').addEventListener('click', closeSsoDialog);
         ssoOverlay.addEventListener('click', (e) => { if (e.target === ssoOverlay) closeSsoDialog(); });

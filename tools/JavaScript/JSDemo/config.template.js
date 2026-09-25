@@ -16,6 +16,18 @@ const T4_CONFIG = {
     appName: 'your_app_name',
     appLicense: 'your_app_license_guid',
 
+    // Option 3: SSO / OIDC via the official Auth0 SPA SDK.
+    // When this block is set, "Connect via SSO" runs the full Universal Login
+    // redirect flow instead of showing the paste-a-token dialog.
+    // appName + appLicense above are still required for the SSO LoginRequest.
+    oauth: {
+        domain:   'YOUR_TENANT.us.auth0.com',  // Auth0 tenant domain
+        clientId: 'YOUR_SPA_CLIENT_ID',        // registered SPA application client id
+        scope:    'openid email profile',
+        // redirectUri: 'https://localhost:8443', // defaults to location.origin
+        // audience:    'https://your-api-identifier', // optional (Auth0 API audience)
+    },
+
     // Which product to load market data for.
     mdExchangeId: 'CME_Eq',
     mdContractId: 'ES',
