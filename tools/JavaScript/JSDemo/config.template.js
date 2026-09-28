@@ -3,7 +3,7 @@
 
 const T4_CONFIG = {
     // Connection URLs - T4 Simulator
-    wsUrl: 'wss://wss-sim.t4login.com/v1',
+    wsUrl: 'wss://wss-sim.t4login.com/v2',
     apiUrl: 'https://api-sim.t4login.com',
 
     // Option 1: API Key
