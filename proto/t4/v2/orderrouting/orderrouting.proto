@@ -26,7 +26,8 @@ message OrderActivation {
 }    
 
 // Places one or more orders into a single account+market. The account must be subscribed
-// first. Set user_id only to route on behalf of another user (requires the order-routing role).
+// first. user_id is the requesting user; to route on behalf of another user set
+// on_behalf_of_user_name and/or on_behalf_of_user_id (requires the order-routing role).
 message OrderSubmit {
   optional string user_id = 1;
   string account_id = 2;
@@ -58,6 +59,14 @@ message OrderSubmit {
   }
 
   repeated Order orders = 6;
+
+  // Username of the user this order is submitted on behalf of (B2B2C order routing). Requires the
+  // authenticated user to have the OrderRouting role. Empty = the authenticated user.
+  optional string on_behalf_of_user_name = 7;
+
+  // UserID of the user this order is submitted on behalf of (B2B2C order routing). May be used
+  // instead of, or together with, on_behalf_of_user_name; if both are set they must be the same user.
+  optional string on_behalf_of_user_id = 8;
 }
 
 // Multiple OrderSubmits validated together: if any order fails validation the whole batch is
@@ -94,6 +103,14 @@ message OrderRevise {
   
   repeated Revise revisions = 5;
 
+  // Username of the user this revision is submitted on behalf of (B2B2C order routing). Requires the
+  // authenticated user to have the OrderRouting role. Empty = the authenticated user.
+  optional string on_behalf_of_user_name = 6;
+
+  // UserID of the user this request is submitted on behalf of (B2B2C order routing). May be used
+  // instead of, or together with, on_behalf_of_user_name; if both are set they must be the same user.
+  optional string on_behalf_of_user_id = 7;
+
 }
 
 // Cancels one or more working orders in a single account+market.
@@ -111,6 +128,14 @@ message OrderPull {
   }
 
   repeated Pull pulls = 5;
+
+  // Username of the user this pull is submitted on behalf of (B2B2C order routing). Requires the
+  // authenticated user to have the OrderRouting role. Empty = the authenticated user.
+  optional string on_behalf_of_user_name = 6;
+
+  // UserID of the user this request is submitted on behalf of (B2B2C order routing). May be used
+  // instead of, or together with, on_behalf_of_user_name; if both are set they must be the same user.
+  optional string on_behalf_of_user_id = 7;
 }
 
 // Defines a user-defined strategy (custom spread) from its legs so it can be traded as a
@@ -351,4 +376,4 @@ message MarginInquiryResponse {
   optional double pre_trade_margin_impact = 16;
   optional double day_margin_impact = 17;
   optional double full_margin_impact = 18;
-}
+}
