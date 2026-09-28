@@ -21,6 +21,7 @@ message LoginRequest {
   // OIDC ID token for SSO authentication — preferred over access_token as it is always a JWT
   // and explicitly carries the user's identity (sub claim). Send whichever token your OIDC flow produces.
   string id_token = 8;
+
   // How Price values are formatted for this session (decimal / real / clearing).
   t4proto.v2.common.PriceFormat price_format = 10;
 }
@@ -35,7 +36,7 @@ message LoginResponse {
   repeated string roles = 5;   // Permissions for this session (e.g. order routing).
   string error_message = 6;
 
-  // One exchange the session is entitled to, and the market data it may receive there.
+  // An exchange the session is entitled to, and the market data it may receive there.
   message Exchange {
     string exchange_id = 1;
     string user_id = 2;
@@ -57,7 +58,10 @@ message LoginResponse {
     t4proto.v2.common.AccountMode mode = 5;
   }
 
+  // List of exchanges authroized for this user.
   repeated Exchange exchanges = 7;
+
+  // List of accounts this user is authorized to access.
   repeated Account accounts = 8;
 
   // A token issued at login for authenticating to T4 REST services (see AuthenticationToken).
