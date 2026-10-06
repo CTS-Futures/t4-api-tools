@@ -153,6 +153,7 @@ message AccountSnapshotMessage {
         AccountCurrency account_currency = 6;
         t4proto.v2.market.MarketDetails market_details = 7;
         t4proto.v2.orderrouting.OrderUpdate order_status = 8;   // A working order (update_type SNAPSHOT).
+        t4proto.v2.orderrouting.OrderTrade order_trade = 9;
     }
 }
 
