@@ -748,9 +748,18 @@ class T4_GUI(tk.Tk):
         account_names = [v.account_name for v in self.client.accounts.values()]
 
         self.account_dropdown['values'] = account_names
-        if account_names:
-            self.account_dropdown.set(account_names[0])
-            asyncio.create_task(self.on_account_selected())
+        if not account_names:
+            return
+
+        # Keep whatever the user picked. AccountDetails arrives inside every account
+        # snapshot, so this runs again on each subscribe; forcing the first account
+        # here would snap the dropdown back and re-subscribe it, undoing the choice.
+        # The combobox is empty on connect, so the initial auto-select still happens.
+        if self.account_dropdown.get() in account_names:
+            return
+
+        self.account_dropdown.set(account_names[0])
+        asyncio.create_task(self.on_account_selected())
         
     async def on_account_selected(self):
         selected_name = self.account_dropdown.get()
