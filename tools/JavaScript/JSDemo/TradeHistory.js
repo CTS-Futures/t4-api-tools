@@ -2,7 +2,7 @@
  * TradeHistory.js
  *
  * Tabbed trade panel with two views:
- *   • My Fills      — the session's executed fills (own trades), rich detail.
+ *   • My Fills      — the account's executed fills (own trades), rich detail.
  *   • Market Trades — the public Time & Sales tape for the charted contract.
  *
  * Data sources (two independent feeds):
@@ -15,11 +15,6 @@
  *                    only has Time/Price/Volume; aggressor Side is *inferred*
  *                    (quote rule vs best bid/offer, tick-rule fallback) and is
  *                    therefore approximate.
- *
- * Scope: live-session only — T4 has no historical backfill on connect. The tape
- * is per-contract (the currently subscribed market) and resets on contract
- * change. Busy markets emit hundreds of prints/sec, so the tape buffers cheaply
- * on every tick and only renders (throttled) while its tab is visible.
  *
  * Wiring (host glue in index.html):
  *   new TradeHistory({ host, client, log, onOrderClick });
@@ -198,7 +193,7 @@
             });
             this.host.querySelector('#thClearBtn').addEventListener('click', () => {
                 if (this._activeTab === 'fills') {
-                    if (this.client?.fills) this.client.fills.length = 0;
+                    this.client?.clearFills?.();
                     this._expanded.clear();
                     this.log('Trade history cleared', 'info');
                 } else {
@@ -284,7 +279,7 @@
             const net = buys - sells;
             this._summaryEl.textContent = filtered.length
                 ? `${filtered.length} trade${filtered.length === 1 ? '' : 's'} · ${lots} lot${lots === 1 ? '' : 's'} · ${buys} buy / ${sells} sell · net ${net > 0 ? '+' : ''}${net}`
-                : 'No trades yet this session';
+                : 'No trades';
 
             const rows = filtered.slice().reverse();
             this._tbodyEl.innerHTML = '';
