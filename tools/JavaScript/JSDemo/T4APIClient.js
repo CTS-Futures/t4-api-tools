@@ -418,6 +418,8 @@ class T4APIClient {
             stopPrice: priceTypeValue === T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET
                 ? { value: price.toString() }
                 : null,
+            ClOrdId: crypto.randomUUID()
+
         }];
 
         // For bracket orders, we need to use the opposite side
@@ -454,7 +456,8 @@ class T4APIClient {
                 timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
                 volume: { value: '0' },
                 limitPrice: { value: takeProfitLimitPrice.toString() },
-                activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD
+                activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
+                ClOrdId: crypto.randomUUID()
             });
         }
 
@@ -487,7 +490,8 @@ class T4APIClient {
                     stopPrice: { value: stopLossStopPrice.toString() },
                     trailDistance: { value: trailDistance },
                     activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
-                    activationData: "SL-TRAIL"
+                    activationData: "SL-TRAIL",
+                    ClOrdId: crypto.randomUUID()
                 });
 
             } else {
@@ -498,7 +502,8 @@ class T4APIClient {
                     volume: { value: '0' },
                     stopPrice: { value: stopLossStopPrice.toString() },
                     activationType: T4ProtoV2.t4proto.v2.common.ActivationType.ACTIVATION_TYPE_HOLD,
-                    activationData: "SL"
+                    activationData: "SL",
+                    ClOrdId: crypto.randomUUID()
                 });
             }
         }
@@ -534,6 +539,7 @@ class T4APIClient {
 
         // Send the order
         await this.sendMessage({ orderSubmit: submission });
+        this.logSubmittedClOrdIds(submission);
 
         // Log order details
         const sideText = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
@@ -614,6 +620,7 @@ class T4APIClient {
         this.pendingBatches.set(id, { rows, submissions, sentAt: Date.now(), cleanupTimer });
 
         await this.sendMessage({ orderBatch: { batchId: id, submissions } });
+        submissions.forEach((submission, i) => this.logSubmittedClOrdIds(submission, `Batch ${id}, row ${i + 1}`));
 
         this.log(`Batch submitted: ${submissions.length} order(s), batchId ${id}`, 'info');
         return id;
@@ -682,6 +689,7 @@ class T4APIClient {
                     ? { value: Number(leg.price).toString() }
                     : null,
                 // No activationType: both legs are live working orders immediately.
+                ClOrdId: crypto.randomUUID()
             };
         });
 
@@ -705,6 +713,7 @@ class T4APIClient {
 
         const { submission } = this.buildOcoSubmit(legs, this.selectedAccount, this.currentMarketId);
         await this.sendMessage({ orderSubmit: submission });
+        this.logSubmittedClOrdIds(submission);
 
         this.log(`OCO order submitted: ${legs.length} legs (one-cancels-other)`, 'info');
         legs.forEach((leg, i) => {
@@ -826,12 +835,14 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     buySell: buySellValue,
                     priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_FLATTEN, // 16
                     timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL,
-                    volume: { value: String(volume) }
+                    volume: { value: String(volume) },
+                    ClOrdId: crypto.randomUUID()
                 }]
             }
         };
 
         await this.sendMessage(orderSubmit);
+        this.logSubmittedClOrdIds(orderSubmit.orderSubmit);
 
         const sideText = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY ? 'Buy' : 'Sell';
         this.log(`Flatten submitted: ${sideText} ${volume} @ Flatten (Market: ${marketId})`, 'info');
@@ -1524,7 +1535,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         this.orders.set(orderUpdate.uniqueId, orderUpdate);
 
         this.log(`Order update received: ${orderUpdate.uniqueId}, type: ${orderUpdate.updateType}, status: ${orderUpdate.status}, market: ${orderUpdate.marketId}`, 'info');
-
+        this.log(`success ${orderUpdate.applicationId}, ${orderUpdate.applicationName}`);
         this.triggerOrdersUpdate();
     }
 
@@ -2031,6 +2042,12 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     }
 
     // Utility Methods
+    logSubmittedClOrdIds(submission, context = 'Order') {
+        submission.orders.forEach((order, i) => {
+            this.log(`${context} ${i + 1} ClOrdID: ${order.ClOrdId}`, 'info');
+        });
+    }
+
     log(message, type = 'info') {
         const timestamp = new Date().toLocaleTimeString();
         const logEntry = {
