@@ -1535,7 +1535,6 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
         this.orders.set(orderUpdate.uniqueId, orderUpdate);
 
         this.log(`Order update received: ${orderUpdate.uniqueId}, type: ${orderUpdate.updateType}, status: ${orderUpdate.status}, market: ${orderUpdate.marketId}`, 'info');
-        this.log(`success ${orderUpdate.applicationId}, ${orderUpdate.applicationName}`);
         this.triggerOrdersUpdate();
     }
 
