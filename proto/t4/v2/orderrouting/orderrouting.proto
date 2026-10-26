@@ -277,6 +277,8 @@ message OrderUpdate {
     google.protobuf.Timestamp receive_time = 76;
     string activation_details = 77;
     string ClOrdId = 78;
+    string application_id = 79;
+    string application_name = 80;
 }
 
 // A single fill against an order. For strategy orders, one OrderTrade per leg (leg_index set).

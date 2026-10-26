@@ -43,6 +43,7 @@ message OrderSubmit {
     optional string tag = 10;
     optional t4proto.v1.common.ActivationType activation_type = 11;
     optional OrderActivation activation_data = 12;
+    optional string ClOrdId = 13;                         // Your order id; echoed as tag_cl_ord_id.
   }
 
   repeated Order orders = 6;
@@ -72,8 +73,9 @@ message OrderRevise {
   string market_id = 3;
   bool manual_order_indicator = 4;
 
+  // One order to change. Identify it by unique_id or ClOrdId; set only the fields to change.
   message Revise {
-    string unique_id = 1;   
+    string unique_id = 1;
     optional int32 volume = 2;
     optional int32 max_show = 3;
     optional int32 max_volume = 4;
@@ -82,6 +84,7 @@ message OrderRevise {
     optional t4proto.v1.common.Price trail_price = 7;
     optional string tag = 8;
     optional OrderActivation activation_data = 9;
+    optional string ClOrdId = 10;
   }
   
   repeated Revise revisions = 5;
@@ -101,9 +104,11 @@ message OrderPull {
   string market_id = 3;
   bool manual_order_indicator = 4;
 
+  // One order to cancel. Identify it by unique_id or ClOrdId.
   message Pull {
     string unique_id = 1;
     optional string tag = 2;
+    optional string ClOrdId = 3;
   }
   
   repeated Pull pulls = 5;
@@ -350,6 +355,8 @@ message OrderUpdate {
   string activation_details = 76;
   repeated Trade trades = 77;
   repeated TradeLeg trade_legs = 78;
+  string application_id = 79;
+  string application_name = 80;
 }
 
 message OrderUpdateMultiMessage {
@@ -380,6 +387,8 @@ message OrderBatchAcknowledge {
     string market_id = 2;
     // Assigned unique ids, in the submission's orders order.
     repeated string unique_id = 3;
+    // Client order ids, positional with unique_id; empty string where none was supplied.
+    repeated string ClOrdId = 4;
   }
 
   repeated Accepted accepted = 2;
@@ -399,6 +408,8 @@ message OrderBatchReject {
     string account_id = 3;
     string market_id = 4;
     string reason = 5;
+    // The order's ClOrdId, or empty for a submission-level error.
+    string ClOrdId = 6;
   }
 
   repeated OrderError errors = 3;
