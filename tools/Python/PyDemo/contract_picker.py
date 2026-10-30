@@ -153,7 +153,7 @@ class Contract_Picker:
        
 
     async def get_auth_token(self):
-        if (Client and Client.get_auth_token):
-            return await Client.get_auth_token()
+        if self.client and hasattr(self.client, "get_auth_token"):
+            return await self.client.get_auth_token()
         
         return None
