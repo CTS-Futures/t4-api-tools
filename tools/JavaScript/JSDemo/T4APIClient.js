@@ -407,6 +407,9 @@ class T4APIClient {
 
         // Create orders array with main order first
         const orders = [{
+            ocoRole: hasBracketOrders
+                ? T4ProtoV2.t4proto.v2.common.OCORole.OCO_ROLE_TRIGGER
+                : T4ProtoV2.t4proto.v2.common.OCORole.OCO_ROLE_UNDEFINED,
             buySell: buySellValue,
             priceType: priceTypeValue,
             timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_NORMAL, // 0
@@ -451,6 +454,7 @@ class T4APIClient {
             }
 
             orders.push({
+                ocoRole: T4ProtoV2.t4proto.v2.common.OCORole.OCO_ROLE_TAKE_PROFIT,
                 buySell: protectionSide,
                 priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_LIMIT,
                 timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
@@ -483,6 +487,7 @@ class T4APIClient {
                     : Math.abs(stopLossStopPrice).toFixed(priceDecimals);
 
                 orders.push({
+                    ocoRole: T4ProtoV2.t4proto.v2.common.OCORole.OCO_ROLE_STOP_LOSS,
                     buySell: protectionSide,
                     priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET,
                     timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
@@ -496,6 +501,7 @@ class T4APIClient {
 
             } else {
                 orders.push({
+                    ocoRole: T4ProtoV2.t4proto.v2.common.OCORole.OCO_ROLE_STOP_LOSS,
                     buySell: protectionSide,
                     priceType: T4ProtoV2.t4proto.v2.common.PriceType.PRICE_TYPE_STOP_MARKET,
                     timeType: T4ProtoV2.t4proto.v2.common.TimeType.TIME_TYPE_GOOD_TILL_CANCELLED,
