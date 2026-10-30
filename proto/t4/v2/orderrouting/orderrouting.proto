@@ -56,6 +56,8 @@ message OrderSubmit {
     optional bool margin_inquiry = 13;
     optional string margin_inquiry_id = 14;               // Correlates the MarginInquiryResponse.
     optional string ClOrdId = 15;                         // Your order id; echoed as tag_cl_ord_id.
+    // Role of this order within a linked (OCO / AutoOCO) group: trigger, take-profit or stop-loss.
+    t4proto.v2.common.OCORole oco_role = 16;
   }
 
   repeated Order orders = 6;
@@ -279,6 +281,9 @@ message OrderUpdate {
     string ClOrdId = 78;
     string application_id = 79;
     string application_name = 80;
+
+    // Role of this order within a linked (OCO / AutoOCO) group: trigger, take-profit or stop-loss.
+    t4proto.v2.common.OCORole oco_role = 81;
 }
 
 // A single fill against an order. For strategy orders, one OrderTrade per leg (leg_index set).
