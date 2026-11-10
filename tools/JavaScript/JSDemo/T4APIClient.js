@@ -809,8 +809,10 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
     // Source-of-truth guard for every caller (dialog + chart-drag revise): a non-finite
     // volume/price would otherwise be sent as "NaN" (Number(NaN).toFixed() === "NaN").
-    if (!Number.isFinite(Number(volume)) || Number(volume) < 1) {
-        throw new Error('Revise: volume must be a positive integer');
+    // A held bracket leg has volume 0 until its trigger fills, so 0 is valid for held orders.
+    const minVolume = this.orders.get(orderId)?.status === T4ProtoV2.t4proto.v2.common.OrderStatus.ORDER_STATUS_HELD ? 0 : 1;
+    if (!Number.isFinite(Number(volume)) || Number(volume) < minVolume) {
+        throw new Error(minVolume === 0 ? 'Revise: volume must be zero or more' : 'Revise: volume must be a positive integer');
     }
     if (!Number.isFinite(Number(price))) {
         throw new Error('Revise: price must be a number');

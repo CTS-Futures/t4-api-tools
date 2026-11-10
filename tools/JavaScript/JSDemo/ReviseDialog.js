@@ -6,6 +6,9 @@ const PRICE_TYPE_LIMIT = 1;
 const PRICE_TYPE_STOP_MARKET = 2;
 const PRICE_TYPE_STOP_LIMIT = 3;
 
+// Match T4ProtoV2.t4proto.v2.common.OrderStatus. A held bracket leg has volume 0 until its trigger fills.
+const ORDER_STATUS_HELD = 4;
+
 document.addEventListener('DOMContentLoaded', function () {
     const orderEditOverlay = document.getElementById('orderEditOverlay');
     const closeBtn = document.querySelector('#orderEditOverlay .close-btn');
@@ -111,7 +114,8 @@ function handleOrderRevise() {
 
     // Reject cleared/non-numeric fields before they reach the API (a NaN would be
     // sent as a "NaN" volume/price string). Keep the dialog open so the user can fix it.
-    if (!Number.isFinite(newVolume) || newVolume < 1 || !Number.isFinite(newPrice)) {
+    const minVolume = currentEditingOrder.status === ORDER_STATUS_HELD ? 0 : 1;
+    if (!Number.isFinite(newVolume) || newVolume < minVolume || !Number.isFinite(newPrice)) {
         const msg = 'Revise: enter a positive volume and a valid price.';
         if (window.client?.log) window.client.log(msg, 'error'); else console.error(msg);
         return;
