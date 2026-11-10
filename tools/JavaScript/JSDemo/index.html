@@ -423,10 +423,21 @@
                 <label for="editOrderPrice">Price:</label>
                 <input type="number" id="editOrderPrice" step="0.01">
             </div>
+            <div id="editBracketGroup">
+                <div class="form-group">
+                    <label for="editBracketTp">Add Take Profit (price):</label>
+                    <input type="number" id="editBracketTp" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label for="editBracketSl">Add Stop Loss (price):</label>
+                    <input type="number" id="editBracketSl" step="0.01">
+                </div>
+            </div>
         </div>
         <div class="order-edit-footer">
             <button class="btn pull-btn" id="pullOrderBtn">Pull</button>
             <button class="btn confirm-btn" id="reviseOrderBtn">Revise</button>
+            <button class="btn confirm-btn" id="addBracketsBtn">Add Brackets</button>
             <button class="btn cancel-btn" id="cancelEditBtn">Cancel</button>
         </div>
     </div>

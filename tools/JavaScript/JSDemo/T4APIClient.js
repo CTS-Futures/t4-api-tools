@@ -362,7 +362,7 @@ class T4APIClient {
     // given account/market. Shared by submitOrder (single send) and submitBatch
     // (atomic multi-submission). Returns { submission, info }; info carries the
     // derived values submitOrder needs for its log lines.
-    buildOrderSubmit({ accountId, marketId, side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars' }) {
+    buildOrderSubmit({ accountId, marketId, side, volume, price, priceType = 'limit', takeProfitDollars = null, stopLossDollars = null, trailingStop = false, bracketMode = 'dollars', existingOrderId = null }) {
         if (!accountId || !marketId) {
             throw new Error('No account or market selected');
         }
@@ -424,6 +424,12 @@ class T4APIClient {
             ClOrdId: crypto.randomUUID()
 
         }];
+
+        // Adding brackets to an existing order: the trigger names that order instead of
+        // creating a new one. The server takes its side, price and volume from the live order.
+        if (existingOrderId) {
+            orders[0].uniqueId = existingOrderId;
+        }
 
         // For bracket orders, we need to use the opposite side
         const protectionSide = buySellValue === T4ProtoV2.t4proto.v2.common.BuySell.BUY_SELL_BUY
@@ -567,6 +573,42 @@ class T4APIClient {
             const linkType = bracketMode === 'price' ? 'OCO (AOCO_P - Absolute Price)' : 'OCO (AOCO - Distance)';
             this.log(`${linkType} bracket order applied`, 'info');
         }
+    }
+
+    // Add a take profit and/or stop loss (absolute prices, AOCO_P) to an order that is
+    // already working or held. Only the brackets are new: the existing order is sent as
+    // the trigger, identified by its uniqueId, and is not placed or revised again.
+    async addBracketsToOrder(order, takeProfitPrice = null, stopLossPrice = null, trailingStop = false) {
+        if (!order?.uniqueId) {
+            throw new Error('Add brackets: no order selected');
+        }
+        if (takeProfitPrice === null && stopLossPrice === null) {
+            throw new Error('Add brackets: enter a take profit and/or a stop loss price');
+        }
+
+        const { PriceType } = T4ProtoV2.t4proto.v2.common;
+        const isStop = order.priceType === PriceType.PRICE_TYPE_STOP_MARKET || order.priceType === PriceType.PRICE_TYPE_STOP_LIMIT;
+        const orderPrice = isStop
+            ? (order.currentStopPrice?.value || order.stopPrice?.value)
+            : (order.currentLimitPrice?.value || order.limitPrice?.value);
+
+        const { submission } = this.buildOrderSubmit({
+            accountId: order.accountId || this.selectedAccount,
+            marketId: order.marketId,
+            side: order.buySell,
+            volume: order.currentVolume?.value ?? order.currentVolume,
+            price: Number(orderPrice),
+            priceType: isStop ? 'stop' : 'limit',
+            takeProfitDollars: takeProfitPrice,
+            stopLossDollars: stopLossPrice,
+            trailingStop,
+            bracketMode: 'price',
+            existingOrderId: order.uniqueId
+        });
+
+        await this.sendMessage({ orderSubmit: submission });
+        this.logSubmittedClOrdIds(submission);
+        this.log(`Brackets added to order ${order.uniqueId} (AOCO_P): TP ${takeProfitPrice ?? '-'}, SL ${stopLossPrice ?? '-'}${trailingStop ? ' (Trailing)' : ''}`, 'info');
     }
 
     // Submit an atomic batch of orders (proto OrderBatch). `rows` is an array of

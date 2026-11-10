@@ -58,6 +58,9 @@ message OrderSubmit {
     optional string ClOrdId = 15;                         // Your order id; echoed as tag_cl_ord_id.
     // Role of this order within a linked (OCO / AutoOCO) group: trigger, take-profit or stop-loss.
     t4proto.v2.common.OCORole oco_role = 16;
+    // Set only on the TRIGGER of an AutoOCO submission, to add the other orders as brackets to this existing order
+    // instead of placing a new trigger. The order must belong to the same account and market.
+    optional string unique_id = 17;
   }
 
   repeated Order orders = 6;

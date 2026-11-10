@@ -12,7 +12,9 @@ document.addEventListener('DOMContentLoaded', function () {
     const pullOrderBtn = document.getElementById('pullOrderBtn');
     const reviseOrderBtn = document.getElementById('reviseOrderBtn');
     const cancelEditBtn = document.getElementById('cancelEditBtn');
+    const addBracketsBtn = document.getElementById('addBracketsBtn');
 
+    if (addBracketsBtn) addBracketsBtn.addEventListener('click', handleAddBrackets);
     if (closeBtn) closeBtn.addEventListener('click', hideOrderEditDialog);
     if (pullOrderBtn) pullOrderBtn.addEventListener('click', handleOrderPull);
     if (reviseOrderBtn) reviseOrderBtn.addEventListener('click', handleOrderRevise);
@@ -46,6 +48,14 @@ function getOrderRoleLabel(order) {
 }
 
 
+// Brackets can be added to a plain order or to a trigger that is still missing a leg,
+// never to a take profit / stop loss leg itself.
+function canHaveBracketsAdded(order) {
+    const roles = T4ProtoV2.t4proto.v2.common.OCORole;
+    const role = order.ocoRole ?? roles.OCO_ROLE_UNDEFINED;
+    return role === roles.OCO_ROLE_UNDEFINED || role === roles.OCO_ROLE_TRIGGER;
+}
+
 function showOrderEditDialog(order) {
     currentEditingOrder = order;
 
@@ -67,6 +77,12 @@ function showOrderEditDialog(order) {
         : (order.currentLimitPrice?.value || order.newLimitPrice?.value || order.limitPrice?.value || '');
 
     document.getElementById('editOrderPrice').value = priceVal;
+
+    const canAddBrackets = canHaveBracketsAdded(order);
+    document.getElementById('editBracketTp').value = '';
+    document.getElementById('editBracketSl').value = '';
+    document.getElementById('editBracketGroup').style.display = canAddBrackets ? '' : 'none';
+    document.getElementById('addBracketsBtn').style.display = canAddBrackets ? '' : 'none';
 
     document.getElementById('orderEditOverlay').style.display = 'flex';
 }
@@ -110,6 +126,33 @@ function handleOrderRevise() {
         );
     } catch (error) {
         console.error('Error revising order:', error);
+    }
+
+    hideOrderEditDialog();
+}
+
+async function handleAddBrackets() {
+    if (!currentEditingOrder) return;
+
+    const parsePrice = (id) => {
+        const text = document.getElementById(id).value.trim();
+        return text === '' ? null : parseFloat(text);
+    };
+    const takeProfit = parsePrice('editBracketTp');
+    const stopLoss = parsePrice('editBracketSl');
+
+    const invalid = (value) => value !== null && !Number.isFinite(value);
+    if ((takeProfit === null && stopLoss === null) || invalid(takeProfit) || invalid(stopLoss)) {
+        const msg = 'Add brackets: enter a valid take profit and/or stop loss price.';
+        if (window.client?.log) window.client.log(msg, 'error'); else console.error(msg);
+        return;
+    }
+
+    try {
+        await window.client.addBracketsToOrder(currentEditingOrder, takeProfit, stopLoss);
+    } catch (error) {
+        console.error('Error adding brackets:', error);
+        if (window.client?.log) window.client.log(error.message, 'error');
     }
 
     hideOrderEditDialog();
