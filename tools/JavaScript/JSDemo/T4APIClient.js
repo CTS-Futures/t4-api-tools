@@ -1092,6 +1092,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
     handleAuthenticationToken(token) {
         this.jwtToken = token.token;
+        this.log(this.jwtToken);
         if (token.expireTime) {
             this.jwtExpiration = token.expireTime.seconds * 1000;
         }
@@ -1458,6 +1459,9 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     }
 
     handleAccountSnapshot(snapshot) {
+        const orderStatusCount = (snapshot.messages || []).filter(msg => msg.orderStatus).length;
+        this.log(`Account snapshot received: ${snapshot.accountId}, order status messages: ${orderStatusCount}, due to connection: ${snapshot.dueToConnection}`, 'info');
+
         if (snapshot.messages) {
             snapshot.messages.forEach(msg => {
                 if (msg.accountDetails) {
@@ -1472,7 +1476,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     this.handleAccountPositionProfit(msg.accountPositionProfit);
                 } else if (msg.orderStatus) {
                     // V2 AccountSnapshotMessage carries orders as order_status (an OrderUpdate).
-                    this.handleOrderUpdate(msg.orderStatus);
+                    this.handleOrderUpdate(msg.orderStatus, { fromSnapshot: true });
                 } else if (msg.orderTrade) {
                     // OrderUpdate no longer carries its fills, so the snapshot replays each
                     // one as a standalone order_trade. The server emits an order's
@@ -1531,10 +1535,22 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     // V2: OrderUpdate is the full master order on every event (update_type says why:
     // SNAPSHOT/STATUS/TRADE/TRADE_LEG/FAILED), so we store it wholesale. Executions
     // arrive separately as OrderTrade (see handleOrderTrade).
-    handleOrderUpdate(orderUpdate) {
+    handleOrderUpdate(orderUpdate, { fromSnapshot = false } = {}) {
         this.orders.set(orderUpdate.uniqueId, orderUpdate);
 
-        this.log(`Order update received: ${orderUpdate.uniqueId}, type: ${orderUpdate.updateType}, status: ${orderUpdate.status}, market: ${orderUpdate.marketId}`, 'info');
+        const source = fromSnapshot ? 'accountSnapshot.messages[].orderStatus' : 'orderUpdate';
+        const updateTypes = T4ProtoV2.t4proto.v2.orderrouting.OrderUpdateType;
+        const updateType = Object.keys(updateTypes).find(name => updateTypes[name] === orderUpdate.updateType)
+            || 'UNKNOWN';
+        // Proto3 string defaults can be inherited even when the field was omitted.
+        // Log wire presence as well as the value so an empty tag is distinguishable.
+        const formatTag = field => {
+            const value = orderUpdate[field];
+            const present = Object.prototype.hasOwnProperty.call(orderUpdate, field);
+            return `${value === undefined ? '<undefined>' : JSON.stringify(value)} [${present ? 'on wire' : 'omitted'}]`;
+        };
+
+        this.log(`Order update received: ${orderUpdate.uniqueId}, source: ${source}, first exchange tag: ${formatTag('firstExchangeTag')}, last exchange tag: ${formatTag('lastExchangeTag')}, type: ${updateType} (${orderUpdate.updateType}), status: ${orderUpdate.status}, change: ${orderUpdate.change}, account: ${orderUpdate.accountId}, market: ${orderUpdate.marketId}`, 'info');
 
         this.triggerOrdersUpdate();
     }
