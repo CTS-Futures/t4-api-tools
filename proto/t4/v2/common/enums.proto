@@ -558,6 +558,14 @@ enum OrderLink {
   ORDER_LINK_AUTO_OCO_MP = 9;
 }
 
+// The role of an order within a linked (OCO / AutoOCO) group.
+enum OCORole {
+  OCO_ROLE_UNDEFINED = 0;
+  OCO_ROLE_TRIGGER = 1;
+  OCO_ROLE_TAKE_PROFIT = 2;
+  OCO_ROLE_STOP_LOSS = 3;
+}
+
 enum PrimaryUserType {
   PRIMARY_USER_TYPE_PRIMARY = 0;
   PRIMARY_USER_TYPE_SECONDARY = 1;

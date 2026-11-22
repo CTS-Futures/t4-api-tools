@@ -762,6 +762,17 @@
             return statusMap[status] ?? status;
         }
 
+        function getOcoRoleText(role) {
+            const roles = T4ProtoV2.t4proto.v2.common.OCORole;
+            const roleNames = {
+                [roles.OCO_ROLE_UNDEFINED]: 'Undefined',
+                [roles.OCO_ROLE_TRIGGER]: 'Trigger',
+                [roles.OCO_ROLE_TAKE_PROFIT]: 'Take Profit',
+                [roles.OCO_ROLE_STOP_LOSS]: 'Stop Loss'
+            };
+            return roleNames[role ?? roles.OCO_ROLE_UNDEFINED] ?? 'Unknown';
+        }
+
         function updateOrdersTable(orders) {
             elements.ordersTable.innerHTML = '';
             const sortedOrders = orders.sort((a, b) => new Date(b.time.seconds * 1000) - new Date(a.time.seconds * 1000));
@@ -785,6 +796,7 @@
             <td>${order.currentVolume?.value ?? order.currentVolume ?? '-'}</td>
             <td>${price}</td>
             <td>${statusText}</td>
+            <td>${getOcoRoleText(order.ocoRole)}</td>
             <td>
                 <button class="action-btn" ${!isEditable ? 'disabled' : ''} data-order-id="${order.uniqueId}">
                     <i class="fas fa-edit"></i>
