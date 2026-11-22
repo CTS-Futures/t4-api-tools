@@ -52,11 +52,16 @@ class T4APIClient {
         // Order/Position tracking
         this.positions = new Map();
         this.orders = new Map();
-        // Session trade blotter: each executed fill (OrderUpdateTrade) is pushed
-        // here as the same payload handed to onFill. Live-session only — T4 has
-        // no historical-fills backfill on connect. Capped to bound memory.
+        // Trade blotter: each executed fill (OrderTrade) is pushed here as the
+        // same payload handed to onFill. Seeded on subscribe from the account
+        // snapshot's order_trade messages (those fills carry fromSnapshot: true),
+        // then appended live. Capped to bound memory.
         this.fills = [];
         this.maxFills = 500;
+        // Dedupe keys for this.fills. The account snapshot replays every fill an
+        // order already has, so without this a reconnect (or a re-subscribe) would
+        // double-add trades already in the blotter. Kept in step with this.fills.
+        this._fillKeys = new Set();
         this.accountProfits = new Map();
         this.accountUpdates = new Map();
         this.accountDetailsCount = 0;
@@ -1104,6 +1109,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
 
     handleAuthenticationToken(token) {
         this.jwtToken = token.token;
+        this.log(this.jwtToken);
         if (token.expireTime) {
             this.jwtExpiration = token.expireTime.seconds * 1000;
         }
@@ -1470,6 +1476,9 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     }
 
     handleAccountSnapshot(snapshot) {
+        const orderStatusCount = (snapshot.messages || []).filter(msg => msg.orderStatus).length;
+        this.log(`Account snapshot received: ${snapshot.accountId}, order status messages: ${orderStatusCount}, due to connection: ${snapshot.dueToConnection}`, 'info');
+
         if (snapshot.messages) {
             snapshot.messages.forEach(msg => {
                 if (msg.accountDetails) {
@@ -1484,7 +1493,13 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
                     this.handleAccountPositionProfit(msg.accountPositionProfit);
                 } else if (msg.orderStatus) {
                     // V2 AccountSnapshotMessage carries orders as order_status (an OrderUpdate).
-                    this.handleOrderUpdate(msg.orderStatus);
+                    this.handleOrderUpdate(msg.orderStatus, { fromSnapshot: true });
+                } else if (msg.orderTrade) {
+                    // OrderUpdate no longer carries its fills, so the snapshot replays each
+                    // one as a standalone order_trade. The server emits an order's
+                    // order_status before its order_trade entries, so the parent-order
+                    // lookup in handleOrderTrade resolves while we walk the bundle in order.
+                    this.handleOrderTrade(msg.orderTrade, { fromSnapshot: true });
                 } else {
                     const messageType = Object.keys(msg)[0] || 'unknown';
                     this.log(`Account snapshot message not handled: ${messageType}`, 'error');
@@ -1537,18 +1552,43 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
     // V2: OrderUpdate is the full master order on every event (update_type says why:
     // SNAPSHOT/STATUS/TRADE/TRADE_LEG/FAILED), so we store it wholesale. Executions
     // arrive separately as OrderTrade (see handleOrderTrade).
-    handleOrderUpdate(orderUpdate) {
+    handleOrderUpdate(orderUpdate, { fromSnapshot = false } = {}) {
         this.orders.set(orderUpdate.uniqueId, orderUpdate);
 
-        this.log(`Order update received: ${orderUpdate.uniqueId}, type: ${orderUpdate.updateType}, status: ${orderUpdate.status}, market: ${orderUpdate.marketId}`, 'info');
+        const source = fromSnapshot ? 'accountSnapshot.messages[].orderStatus' : 'orderUpdate';
+        const updateTypes = T4ProtoV2.t4proto.v2.orderrouting.OrderUpdateType;
+        const updateType = Object.keys(updateTypes).find(name => updateTypes[name] === orderUpdate.updateType)
+            || 'UNKNOWN';
+        // Proto3 string defaults can be inherited even when the field was omitted.
+        // Log wire presence as well as the value so an empty tag is distinguishable.
+        const formatTag = field => {
+            const value = orderUpdate[field];
+            const present = Object.prototype.hasOwnProperty.call(orderUpdate, field);
+            return `${value === undefined ? '<undefined>' : JSON.stringify(value)} [${present ? 'on wire' : 'omitted'}]`;
+        };
+
+        this.log(`Order update received: ${orderUpdate.uniqueId}, source: ${source}, first exchange tag: ${formatTag('firstExchangeTag')}, last exchange tag: ${formatTag('lastExchangeTag')}, type: ${updateType} (${orderUpdate.updateType}), status: ${orderUpdate.status}, change: ${orderUpdate.change}, account: ${orderUpdate.accountId}, market: ${orderUpdate.marketId}`, 'info');
+
         this.triggerOrdersUpdate();
     }
 
     // V2: executions come as a standalone OrderTrade (order_trade) rather than an
     // order-update sub-message. OrderTrade carries no side, so we look up the parent
     // order (by order_id) for buy/sell when fanning out to fill consumers.
-    handleOrderTrade(orderTrade) {
-        this.log(`Order trade: ${orderTrade.orderId}, exchange trade: ${orderTrade.exchangeTradeId}`, 'info');
+    //
+    // Arrives both live (ServerMessage.order_trade) and as backfill inside the account
+    // snapshot (AccountSnapshotMessage.order_trade); fromSnapshot distinguishes the two
+    // for consumers that must not treat a replayed fill as a fresh execution.
+    handleOrderTrade(orderTrade, { fromSnapshot = false } = {}) {
+        // exchange_trade_id is not always populated, so key off the identifiers the
+        // server always sets: the parent order plus this fill's position within it.
+        const fillKey = `${orderTrade.orderId}|${orderTrade.legIndex ?? ''}|${orderTrade.sequenceOrder}`;
+        if (this._fillKeys.has(fillKey)) {
+            return;
+        }
+
+        const origin = fromSnapshot ? ' (snapshot)' : '';
+        this.log(`Order trade${origin}: ${orderTrade.orderId}, exchange trade: ${orderTrade.exchangeTradeId}`, 'info');
 
         const parentOrder = this.orders.get(orderTrade.orderId);
         const buySell = parentOrder?.buySell;
@@ -1565,6 +1605,7 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             volume: orderTrade.volume,
             residualVolume: orderTrade.residualVolume,
             time: orderTrade.time ?? orderTrade.exchangeTime ?? null,
+            fromSnapshot,
             raw: orderTrade
         };
 
@@ -1576,11 +1617,33 @@ async reviseOrder(orderId, volume, price, priceType = 'limit') {
             }
         }
 
-        // Record on the session blotter and notify the trade-history panel.
+        // Record on the blotter and notify the trade-history panel.
         this.fills.push(fill);
+        this._fillKeys.add(fillKey);
         if (this.fills.length > this.maxFills) {
-            this.fills.splice(0, this.fills.length - this.maxFills);
+            // Drop the oldest fills, releasing their dedupe keys with them. A trimmed
+            // fill can re-enter the blotter on a later snapshot, which is the same
+            // thing the cap already does to live fills.
+            const evicted = this.fills.splice(0, this.fills.length - this.maxFills);
+            for (const old of evicted) {
+                this._fillKeys.delete(`${old.raw.orderId}|${old.raw.legIndex ?? ''}|${old.raw.sequenceOrder}`);
+            }
         }
+        if (this.onFillsUpdate) {
+            try {
+                this.onFillsUpdate(this.fills.slice());
+            } catch (err) {
+                this.log(`onFillsUpdate handler threw: ${err?.message || err}`, 'error');
+            }
+        }
+    }
+
+    // Empties the blotter. Goes through here rather than letting callers truncate
+    // this.fills directly, so the dedupe keys are dropped with it — otherwise a
+    // cleared blotter would stay empty when the next snapshot replays the fills.
+    clearFills() {
+        this.fills.length = 0;
+        this._fillKeys.clear();
         if (this.onFillsUpdate) {
             try {
                 this.onFillsUpdate(this.fills.slice());

@@ -99,6 +99,10 @@ class Client:
 
         self.orders = {}
         self.positions = {}
+        # Identifies fills already emitted. The account snapshot replays every trade
+        # an order holds, so without this a reconnect (or a re-subscribe) would emit
+        # the same fill again and double-plot it on the chart.
+        self._fill_keys = set()
         self.account_updates = {}
         self.account_profits = {}
         self.subscribed_accounts = set()
@@ -720,6 +724,12 @@ class Client:
                 self.handle_market_detail(item.market_details)
             elif payload == "order_status":
                 self.handle_order_update(item.order_status)
+            elif payload == "order_trade":
+                # OrderUpdate no longer carries its fills, so the snapshot replays each
+                # one as a standalone order_trade. The server emits an order's
+                # order_status before its order_trade entries, so the parent-order
+                # lookup in handle_order_trade resolves while we walk the bundle in order.
+                self.handle_order_trade(item.order_trade, from_snapshot=True)
 
     def handle_account_details(self, message):
         if message.account_id:
@@ -809,7 +819,22 @@ class Client:
         self.orders[message.unique_id] = message
         self.trigger_orders_update()
 
-    def handle_order_trade(self, message):
+    def handle_order_trade(self, message, from_snapshot=False):
+        """Record an execution.
+
+        Arrives both live (ServerMessage.order_trade) and as backfill inside the
+        account snapshot (AccountSnapshotMessage.order_trade). ``from_snapshot``
+        rides along on the emitted fill so consumers that must not treat a replayed
+        trade as a fresh execution can tell the two apart.
+        """
+        # exchange_trade_id is not always populated, so key off the identifiers the
+        # server always sets: the parent order plus this fill's position within it.
+        leg_index = message.leg_index if message.HasField("leg_index") else None
+        fill_key = (message.order_id, leg_index, message.sequence_order)
+        if fill_key in self._fill_keys:
+            return
+        self._fill_keys.add(fill_key)
+
         order = self.orders.get(message.order_id)
         side = getattr(order, "buy_sell", None)
         fill = {
@@ -820,6 +845,7 @@ class Client:
             "volume": message.volume.value,
             "buy_sell": side,
             "time": message.time.seconds if message.HasField("time") else None,
+            "from_snapshot": from_snapshot,
         }
         self._notify(fill)
         if self.on_trade:
